@@ -1,0 +1,128 @@
+#!/usr/bin/env bash
+# Deploy the Norway Route Planner to AWS Lambda.
+#
+# Requires: AWS CLI configured with credentials that can manage Lambda/IAM
+# (see aws/iam-policy.json for a scoped-down example), and ORS_API_KEY set
+# in the environment — never hardcode it here or commit it anywhere.
+#
+# Usage:
+#   export ORS_API_KEY=your-key-here
+#   ./aws/deploy.sh
+#
+set -euo pipefail
+
+FUNCTION_NAME="${FUNCTION_NAME:-norway-route-app}"
+REGION="${AWS_REGION:-us-east-1}"
+# Feature-request tickets (aws/tickets-db.mjs) are intentionally disabled on
+# this deployment: node:sqlite needs Node 22.5+ and a writable filesystem,
+# neither of which nodejs20.x Lambda has (read-only outside ephemeral /tmp).
+# tickets-db.mjs detects that at runtime and disables itself gracefully
+# (returns 503 on /tickets) rather than crashing the whole function - so
+# nodejs20.x is fine here. Tickets only work via local/laptop hosting
+# (dev-server.mjs) for now; a real Lambda deployment would need
+# DynamoDB/RDS/EFS instead of SQLite.
+RUNTIME="nodejs20.x"
+ROLE_NAME="${ROLE_NAME:-norway-route-app-role}"
+
+if [[ -z "${ORS_API_KEY:-}" ]]; then
+  echo "ERROR: set ORS_API_KEY in your environment before running this script." >&2
+  echo "       export ORS_API_KEY=your-key-here" >&2
+  exit 1
+fi
+
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$REPO_ROOT"
+
+echo "==> Packaging function..."
+rm -rf build function.zip
+mkdir build
+cp aws/handler.mjs build/index.mjs
+cp aws/validate.mjs build/validate.mjs
+cp aws/tickets-db.mjs build/tickets-db.mjs
+cp index.html build/index.html
+# data/places.json is gitignored (personal trip location data) — bundle it
+# from whatever's on this machine, if present. Deploys triggered from CI
+# (which only has what's in git) won't have it, and /places degrades to a
+# 503 in that case rather than crashing the Lambda; see handler.mjs.
+if [[ -f data/places.json ]]; then
+  cp data/places.json build/places.json
+else
+  echo "WARNING: data/places.json not found locally — deploying without location data (/places will 503)." >&2
+fi
+(cd build && zip -qr ../function.zip .)
+rm -rf build
+
+echo "==> Ensuring IAM role exists..."
+if ! aws iam get-role --role-name "$ROLE_NAME" >/dev/null 2>&1; then
+  aws iam create-role \
+    --role-name "$ROLE_NAME" \
+    --assume-role-policy-document '{
+      "Version": "2012-10-17",
+      "Statement": [{"Effect":"Allow","Principal":{"Service":"lambda.amazonaws.com"},"Action":"sts:AssumeRole"}]
+    }' >/dev/null
+  aws iam attach-role-policy \
+    --role-name "$ROLE_NAME" \
+    --policy-arn arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole >/dev/null
+  echo "    created role, waiting for IAM propagation..."
+  sleep 10
+fi
+ROLE_ARN=$(aws iam get-role --role-name "$ROLE_NAME" --query 'Role.Arn' --output text)
+
+echo "==> Deploying function code..."
+if aws lambda get-function --function-name "$FUNCTION_NAME" --region "$REGION" >/dev/null 2>&1; then
+  aws lambda update-function-code \
+    --function-name "$FUNCTION_NAME" \
+    --zip-file fileb://function.zip \
+    --region "$REGION" >/dev/null
+  aws lambda wait function-updated --function-name "$FUNCTION_NAME" --region "$REGION"
+
+  aws lambda update-function-configuration \
+    --function-name "$FUNCTION_NAME" \
+    --environment "Variables={ORS_API_KEY=$ORS_API_KEY}" \
+    --region "$REGION" >/dev/null
+  aws lambda wait function-updated --function-name "$FUNCTION_NAME" --region "$REGION"
+else
+  aws lambda create-function \
+    --function-name "$FUNCTION_NAME" \
+    --runtime "$RUNTIME" \
+    --role "$ROLE_ARN" \
+    --handler index.handler \
+    --zip-file fileb://function.zip \
+    --timeout 10 \
+    --memory-size 256 \
+    --environment "Variables={ORS_API_KEY=$ORS_API_KEY}" \
+    --region "$REGION" >/dev/null
+  aws lambda wait function-active --function-name "$FUNCTION_NAME" --region "$REGION"
+fi
+
+echo "==> Ensuring public Function URL exists..."
+if ! aws lambda get-function-url-config --function-name "$FUNCTION_NAME" --region "$REGION" >/dev/null 2>&1; then
+  aws lambda create-function-url-config \
+    --function-name "$FUNCTION_NAME" \
+    --auth-type NONE \
+    --region "$REGION" >/dev/null
+  aws lambda add-permission \
+    --function-name "$FUNCTION_NAME" \
+    --statement-id FunctionURLAllowPublicAccess \
+    --action lambda:InvokeFunctionUrl \
+    --principal "*" \
+    --function-url-auth-type NONE \
+    --region "$REGION" >/dev/null
+  # Public Function URLs need both InvokeFunctionUrl and InvokeFunction granted
+  # to "*" - AWS returns AccessDeniedException on every request if only the
+  # former is present, even though AuthType NONE and the URL config look correct.
+  aws lambda add-permission \
+    --function-name "$FUNCTION_NAME" \
+    --statement-id FunctionURLAllowPublicInvoke \
+    --action lambda:InvokeFunction \
+    --principal "*" \
+    --region "$REGION" >/dev/null
+fi
+
+URL=$(aws lambda get-function-url-config --function-name "$FUNCTION_NAME" --region "$REGION" --query 'FunctionUrl' --output text)
+
+rm -f function.zip
+
+echo ""
+echo "Deployed. Your app is live at:"
+echo "$URL"

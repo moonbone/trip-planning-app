@@ -1,0 +1,15 @@
+node_modules/
+.wrangler/
+worker/.dev.vars
+.env
+.env.*
+!.env.example
+.DS_Store
+/build/
+aws/index.html
+function.zip
+.mockup-preview/
+data/*
+!data/places.example.json
+certs/*.pem
+

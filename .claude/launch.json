@@ -1,0 +1,18 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "static",
+      "runtimeExecutable": "python3",
+      "runtimeArgs": ["-m", "http.server", "8080"],
+      "port": 8080
+    },
+    {
+      "name": "node-dev-test",
+      "runtimeExecutable": "node",
+      "runtimeArgs": ["--env-file=.env", "dev-server.mjs"],
+      "env": { "PORT": "8788" },
+      "port": 8788
+    }
+  ]
+}

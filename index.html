@@ -1,0 +1,928 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Norway 2026 — Route Planner</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css" />
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600;9..144,700&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#EDEEE9;
+    --panel:#FFFFFF;
+    --ink:#1E2A32;
+    --ink-soft:#5C6B72;
+    --accent:#2B6777;
+    --accent-dark:#1D4A56;
+    --accent-light:#A7D0C7;
+    --rust:#C0552E;
+    --border:#DADFDA;
+    --border-strong:#BFC7C2;
+  }
+  *{box-sizing:border-box;}
+  body{
+    margin:0;
+    background:var(--bg);
+    color:var(--ink);
+    font-family:'Inter',sans-serif;
+    -webkit-font-smoothing:antialiased;
+  }
+  header{
+    padding:28px 32px 18px;
+    border-bottom:1px solid var(--border-strong);
+    background:var(--panel);
+    display:flex;
+    align-items:flex-start;
+    justify-content:space-between;
+    gap:16px;
+  }
+  header h1{
+    font-family:'Fraunces',serif;
+    font-weight:600;
+    font-size:28px;
+    margin:0 0 4px;
+    letter-spacing:-0.01em;
+  }
+  header p{
+    margin:0;
+    color:var(--ink-soft);
+    font-size:14px;
+  }
+  .tabs{
+    display:flex;
+    gap:6px;
+    padding:14px 32px 0;
+    background:var(--panel);
+    overflow-x:auto;
+    border-bottom:1px solid var(--border-strong);
+  }
+  .tab{
+    position:relative;
+    padding:10px 16px 14px;
+    background:var(--bg);
+    border:1px solid var(--border);
+    border-bottom:none;
+    border-radius:8px 8px 0 0;
+    cursor:pointer;
+    font-family:'Fraunces',serif;
+    font-weight:600;
+    font-size:14px;
+    color:var(--ink-soft);
+    white-space:nowrap;
+    flex-shrink:0;
+  }
+  .tab .num{
+    display:inline-block;
+    width:20px;height:20px;
+    line-height:20px;
+    text-align:center;
+    border-radius:50%;
+    background:var(--border-strong);
+    color:var(--panel);
+    font-size:11px;
+    margin-right:6px;
+  }
+  .tab.active{
+    background:var(--panel);
+    color:var(--accent-dark);
+    border-color:var(--border-strong);
+    border-bottom:2px solid var(--panel);
+    margin-bottom:-1px;
+  }
+  .tab.active .num{background:var(--rust);}
+  main{
+    display:grid;
+    grid-template-columns:300px 1fr 340px;
+    gap:0;
+    height:calc(100vh - 132px);
+  }
+  .col{
+    overflow-y:auto;
+    padding:20px;
+  }
+  .col-left{border-right:1px solid var(--border-strong);background:var(--panel);}
+  .col-right{border-left:1px solid var(--border-strong);background:var(--panel);}
+  .section-label{
+    font-family:'IBM Plex Mono',monospace;
+    font-size:11px;
+    letter-spacing:0.08em;
+    text-transform:uppercase;
+    color:var(--ink-soft);
+    margin:0 0 10px;
+  }
+  .place-item{
+    display:flex;
+    align-items:center;
+    gap:8px;
+    padding:8px 10px;
+    border:1px solid var(--border);
+    border-radius:6px;
+    margin-bottom:6px;
+    font-size:13px;
+    background:var(--bg);
+  }
+  .place-item .name{flex:1;}
+  .place-item .day-badge{
+    font-family:'IBM Plex Mono',monospace;
+    font-size:10px;
+    color:var(--ink-soft);
+    background:var(--panel);
+    border:1px solid var(--border);
+    border-radius:3px;
+    padding:1px 5px;
+  }
+  .add-btn{
+    border:1px solid var(--accent);
+    background:var(--panel);
+    color:var(--accent-dark);
+    width:22px;height:22px;
+    border-radius:5px;
+    cursor:pointer;
+    font-size:15px;
+    line-height:1;
+    flex-shrink:0;
+  }
+  .add-btn:hover{background:var(--accent-light);}
+  .place-item.selected{
+    background:var(--accent-light);
+    border-color:var(--accent);
+  }
+  .place-item.selected .name{
+    font-weight:600;
+    color:var(--accent-dark);
+  }
+  .add-btn.added{
+    background:var(--accent);
+    color:#fff;
+    border-color:var(--accent);
+  }
+  .add-btn.added:hover{
+    background:var(--rust);
+    border-color:var(--rust);
+  }
+  .route-header{
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    gap:8px;
+  }
+  .reset-btn{
+    border:1px solid var(--border-strong);
+    background:var(--panel);
+    color:var(--ink-soft);
+    padding:4px 10px;
+    border-radius:6px;
+    font-family:'Inter',sans-serif;
+    font-size:11px;
+    font-weight:600;
+    cursor:pointer;
+    flex-shrink:0;
+  }
+  .reset-btn:hover{
+    color:var(--rust);
+    border-color:var(--rust);
+  }
+  .day-group-heading{
+    font-size:11px;
+    font-weight:600;
+    color:var(--ink-soft);
+    margin:14px 0 6px;
+    text-transform:uppercase;
+    letter-spacing:0.05em;
+  }
+  #map{
+    height:55%;
+    min-height:280px;
+    border-radius:10px;
+    border:1px solid var(--border-strong);
+    margin-bottom:14px;
+  }
+  .route-item{
+    display:flex;
+    align-items:center;
+    gap:8px;
+    padding:9px 10px;
+    border:1px solid var(--border);
+    border-radius:6px;
+    margin-bottom:6px;
+    background:var(--bg);
+    cursor:grab;
+    font-size:13px;
+  }
+  .route-item.dragging{opacity:0.4;}
+  .route-item .idx{
+    font-family:'IBM Plex Mono',monospace;
+    font-size:11px;
+    color:var(--panel);
+    background:var(--accent);
+    width:20px;height:20px;
+    border-radius:50%;
+    display:flex;align-items:center;justify-content:center;
+    flex-shrink:0;
+  }
+  .route-item .name{flex:1;}
+  .remove-btn{
+    border:none;background:none;color:var(--rust);
+    cursor:pointer;font-size:16px;line-height:1;padding:2px 4px;
+  }
+  .calc-btn{
+    width:100%;
+    padding:12px;
+    background:var(--accent-dark);
+    color:#fff;
+    border:none;
+    border-radius:8px;
+    font-family:'Inter',sans-serif;
+    font-weight:600;
+    font-size:14px;
+    cursor:pointer;
+    margin-top:6px;
+  }
+  .calc-btn:hover{background:var(--accent);}
+  .calc-btn:disabled{background:var(--border-strong);cursor:not-allowed;}
+  .stats-card{
+    margin-top:16px;
+    padding:16px;
+    border:1px solid var(--border-strong);
+    border-radius:10px;
+    background:var(--bg);
+  }
+  .stats-total{
+    font-family:'Fraunces',serif;
+    font-weight:700;
+    font-size:26px;
+    color:var(--accent-dark);
+    margin:0 0 2px;
+  }
+  .stats-sub{
+    font-family:'IBM Plex Mono',monospace;
+    font-size:12px;
+    color:var(--ink-soft);
+    margin:0 0 14px;
+  }
+  .leg{
+    display:flex;
+    justify-content:space-between;
+    font-size:12px;
+    padding:6px 0;
+    border-top:1px dashed var(--border-strong);
+    color:var(--ink);
+  }
+  .leg .leg-time{
+    font-family:'IBM Plex Mono',monospace;
+    color:var(--accent-dark);
+    font-weight:600;
+    flex-shrink:0;
+    margin-left:8px;
+  }
+  .empty-note{
+    color:var(--ink-soft);
+    font-size:13px;
+    padding:20px 0;
+    text-align:center;
+  }
+  .error-note{
+    color:var(--rust);
+    font-size:12px;
+    margin-top:8px;
+  }
+  .source-note{
+    font-size:11px;
+    color:var(--ink-soft);
+    margin-top:18px;
+    line-height:1.5;
+  }
+  .mobile-tabbar{
+    display:none;
+    position:fixed;
+    bottom:0; left:0; right:0;
+    background:var(--panel);
+    border-top:1px solid var(--border-strong);
+    padding-bottom:env(safe-area-inset-bottom);
+    z-index:20;
+  }
+  .mobile-tab-btn{
+    flex:1;
+    display:flex;
+    flex-direction:column;
+    align-items:center;
+    background:none;
+    border:none;
+    padding:9px 0 8px;
+    color:var(--ink-soft);
+    font-family:'Inter',sans-serif;
+    font-size:11px;
+    cursor:pointer;
+  }
+  .mobile-tab-btn svg{margin-bottom:3px;}
+  .mobile-tab-btn.active{
+    color:var(--accent-dark);
+    font-weight:600;
+    border-top:2px solid var(--accent-dark);
+    margin-top:-1px;
+  }
+  .view-toggle-btn{
+    border:1px solid var(--accent);
+    background:var(--panel);
+    color:var(--accent-dark);
+    padding:8px 14px;
+    border-radius:7px;
+    font-family:'Inter',sans-serif;
+    font-weight:600;
+    font-size:13px;
+    cursor:pointer;
+    flex-shrink:0;
+    white-space:nowrap;
+  }
+  .view-toggle-btn:hover{background:var(--accent-light);}
+  .tickets-view{
+    display:grid;
+    grid-template-columns:380px 1fr;
+    gap:0;
+    min-height:calc(100vh - 132px);
+  }
+  .tickets-col{
+    padding:20px;
+    overflow-y:auto;
+  }
+  .tickets-col:first-child{
+    border-right:1px solid var(--border-strong);
+    background:var(--panel);
+  }
+  #ticketForm{
+    display:flex;
+    flex-direction:column;
+    gap:10px;
+  }
+  #ticketForm input, #ticketForm textarea{
+    padding:10px;
+    border:1px solid var(--border);
+    border-radius:6px;
+    font-family:'Inter',sans-serif;
+    font-size:13px;
+    background:var(--bg);
+    color:var(--ink);
+    resize:vertical;
+  }
+  .ticket-error{
+    color:var(--rust);
+    font-size:12px;
+    min-height:16px;
+  }
+  .ticket-item{
+    border:1px solid var(--border);
+    border-radius:8px;
+    padding:12px;
+    margin-bottom:10px;
+    background:var(--bg);
+  }
+  .ticket-header{
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    gap:8px;
+    margin-bottom:4px;
+  }
+  .ticket-subject{
+    font-weight:600;
+    font-size:14px;
+  }
+  .status-badge{
+    font-family:'IBM Plex Mono',monospace;
+    font-size:10px;
+    text-transform:uppercase;
+    letter-spacing:0.05em;
+    padding:2px 8px;
+    border-radius:10px;
+    flex-shrink:0;
+  }
+  .status-new{background:var(--border); color:var(--ink-soft);}
+  .status-in_progress{background:#F0D9A0; color:#6B4E00;}
+  .status-processed{background:var(--accent-light); color:var(--accent-dark);}
+  .status-done{background:var(--accent); color:#fff;}
+  .ticket-desc{
+    font-size:13px;
+    color:var(--ink);
+    margin-bottom:6px;
+    white-space:pre-wrap;
+  }
+  .ticket-meta{
+    font-family:'IBM Plex Mono',monospace;
+    font-size:11px;
+    color:var(--ink-soft);
+  }
+  @media (max-width: 860px){
+    main{
+      display:block;
+      height:auto;
+      padding-bottom:66px;
+    }
+    .col{
+      width:100%;
+      padding:16px;
+      border:none !important;
+    }
+    main[data-mobile-section="places"] .col-middle,
+    main[data-mobile-section="places"] .col-right{display:none;}
+    main[data-mobile-section="route"] .col-left,
+    main[data-mobile-section="route"] .col-right{display:none;}
+    main[data-mobile-section="summary"] .col-left,
+    main[data-mobile-section="summary"] .col-middle{display:none;}
+    #map{height:220px; min-height:0;}
+    .mobile-tabbar{display:flex;}
+    .tickets-view{grid-template-columns:1fr;}
+    .tickets-col{width:100%; border:none !important;}
+    header{flex-direction:column; align-items:stretch;}
+    .view-toggle-btn{align-self:flex-start;}
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div>
+    <h1>Norway 2026 — Route Planner</h1>
+    <p>Pick places for each day, reorder them, get real driving times.</p>
+  </div>
+  <button class="view-toggle-btn" id="viewToggleBtn">Feature requests</button>
+</header>
+
+<div class="tabs" id="tabs"></div>
+
+<main id="plannerMain">
+  <div class="col col-left">
+    <p class="section-label">All places</p>
+    <div id="masterList"></div>
+  </div>
+
+  <div class="col col-middle">
+    <div id="map"></div>
+    <div class="route-header">
+      <p class="section-label" id="routeLabel">Today's route</p>
+      <button class="reset-btn" id="resetDayBtn">Reset day</button>
+    </div>
+    <div id="routeList"></div>
+    <button class="calc-btn" id="calcBtn">Calculate driving times</button>
+    <div id="errorNote"></div>
+  </div>
+
+  <div class="col col-right">
+    <p class="section-label">Drive summary</p>
+    <div id="statsPanel"><div class="empty-note">Select 2+ stops and calculate to see times.</div></div>
+    <p class="source-note">Routing via a private proxy (your OpenRouteService key stays server-side, never shipped to the browser); falls back to free OSRM demo servers if the proxy isn't reachable. Estimates only — always double check ferries, road closures and seasonal conditions before you go.</p>
+  </div>
+</main>
+
+<nav class="mobile-tabbar" id="mobileTabbar">
+  <button class="mobile-tab-btn" data-section="places">
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><line x1="4" y1="6" x2="20" y2="6"/><line x1="4" y1="12" x2="20" y2="12"/><line x1="4" y1="18" x2="20" y2="18"/></svg>
+    <span>Places</span>
+  </button>
+  <button class="mobile-tab-btn active" data-section="route">
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M9 20l-5-2V4l5 2 6-2 5 2v14l-5-2-6 2z"/><line x1="9" y1="6" x2="9" y2="20"/><line x1="15" y1="4" x2="15" y2="18"/></svg>
+    <span>Route</span>
+  </button>
+  <button class="mobile-tab-btn" data-section="summary">
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><line x1="6" y1="20" x2="6" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="18" y1="20" x2="18" y2="14"/></svg>
+    <span>Summary</span>
+  </button>
+</nav>
+
+<section class="tickets-view" id="ticketsView" style="display:none;">
+  <div class="tickets-col">
+    <p class="section-label">New feature request</p>
+    <form id="ticketForm">
+      <input type="text" id="ticketSubject" placeholder="Subject" maxlength="150" autocomplete="off">
+      <textarea id="ticketDescription" placeholder="Description" maxlength="2000" rows="6"></textarea>
+      <input type="email" id="ticketEmail" placeholder="Your email" autocomplete="off">
+      <div class="ticket-error" id="ticketError"></div>
+      <button type="submit" class="calc-btn">Submit request</button>
+    </form>
+    <p class="source-note">Only English letters, numbers, spaces, and . , - @ are accepted in any field — anything else is rejected, both here and on the server.</p>
+  </div>
+  <div class="tickets-col">
+    <p class="section-label">Submitted requests</p>
+    <div id="ticketList"><div class="empty-note">Loading…</div></div>
+  </div>
+</section>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script>
+// Place data (names/coordinates) is not committed to this repo — it's
+// personal trip itinerary info. It's fetched at startup from PLACES_URL,
+// which the server reads from the gitignored data/places.json (see
+// data/places.example.json for the expected shape).
+let PLACES = [];
+let byId = {};
+
+// ---- Deployment config ----
+// Path (or full URL) of the routing proxy. Left relative because the AWS Lambda
+// deployment in /aws serves both this page and POST /route from the same origin.
+// If you split hosting across two domains (e.g. static site + separate proxy service),
+// change this to an absolute URL instead, e.g. "https://your-proxy.example.com/route".
+const PROXY_URL = "/route";
+const TICKETS_URL = "/tickets";
+const PLACES_URL = "/places";
+// ----------------------------
+
+// default day plans mirror the original KML day groupings (hotels reused across days)
+const DEFAULT_PLANS = {
+  1:[1,2,3,4], 2:[5,6,7,8,9,10,11], 3:[12,11], 4:[13,14,15,16,17,18,11],
+  5:[19,20,21,22,23,24], 6:[25,24], 7:[26,27,28,29,30,31,32,33,34],
+  8:[35,36,34], 9:[37,38,39,40,41,42,43,44,45,46,34], 10:[47,48,49,50,51,34],
+};
+const DAYS = [1,2,3,4,5,6,7,8,9,10];
+
+let plans = JSON.parse(JSON.stringify(DEFAULT_PLANS));
+let activeDay = 1;
+let dragIdx = null;
+let map, routeLayer, markersLayer;
+let mobileSection = 'route';
+let currentView = 'planner';
+
+function loadState(){
+  try{
+    const raw = localStorage.getItem('norway-day-plans');
+    if(raw){ plans = JSON.parse(raw); }
+  }catch(e){ /* no saved state yet, use defaults */ }
+}
+function saveState(){
+  try{ localStorage.setItem('norway-day-plans', JSON.stringify(plans)); }
+  catch(e){ console.error('save failed', e); }
+}
+
+function initMap(){
+  map = L.map('map').setView([61.0, 6.8], 7);
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{
+    maxZoom:18, attribution:'© OpenStreetMap contributors'
+  }).addTo(map);
+  routeLayer = L.layerGroup().addTo(map);
+  markersLayer = L.layerGroup().addTo(map);
+}
+
+function renderTabs(){
+  const el = document.getElementById('tabs');
+  el.innerHTML = '';
+  DAYS.forEach(d=>{
+    const t = document.createElement('div');
+    t.className = 'tab' + (d===activeDay ? ' active':'');
+    t.innerHTML = `<span class="num">${d}</span>Day ${d}`;
+    t.onclick = ()=>{ activeDay=d; renderAll(); };
+    el.appendChild(t);
+  });
+}
+
+function renderMasterList(){
+  const el = document.getElementById('masterList');
+  el.innerHTML = '';
+  DAYS.forEach(d=>{
+    const heading = document.createElement('div');
+    heading.className = 'day-group-heading';
+    heading.textContent = 'Originally day ' + d;
+    el.appendChild(heading);
+    PLACES.filter(p=>p.day===d).forEach(p=>{
+      const isSelected = plans[activeDay].includes(p.id);
+      const row = document.createElement('div');
+      row.className = 'place-item' + (isSelected ? ' selected' : '');
+      row.innerHTML = `<span class="name">${p.name}</span><span class="day-badge">D${p.day}</span>`;
+      const btn = document.createElement('button');
+      btn.className = 'add-btn' + (isSelected ? ' added' : '');
+      btn.textContent = isSelected ? '✓' : '+';
+      btn.title = isSelected ? 'Remove from Day ' + activeDay : 'Add to Day ' + activeDay;
+      btn.onclick = ()=>{
+        if(isSelected){
+          const idx = plans[activeDay].indexOf(p.id);
+          if(idx !== -1) plans[activeDay].splice(idx,1);
+        }else{
+          plans[activeDay].push(p.id);
+        }
+        saveState();
+        renderAll();
+      };
+      row.appendChild(btn);
+      el.appendChild(row);
+    });
+  });
+}
+
+function resetDay(){
+  if(!confirm(`Reset Day ${activeDay} to its original stops?`)) return;
+  plans[activeDay] = JSON.parse(JSON.stringify(DEFAULT_PLANS[activeDay] || []));
+  saveState();
+  renderAll();
+}
+
+function renderRouteList(){
+  document.getElementById('routeLabel').textContent = `Day ${activeDay} route (${plans[activeDay].length} stops)`;
+  const el = document.getElementById('routeList');
+  el.innerHTML = '';
+  plans[activeDay].forEach((id,i)=>{
+    const p = byId[id];
+    const row = document.createElement('div');
+    row.className = 'route-item';
+    row.draggable = true;
+    row.dataset.idx = i;
+    row.innerHTML = `<span class="idx">${i+1}</span><span class="name">${p.name}</span>`;
+    const rm = document.createElement('button');
+    rm.className = 'remove-btn';
+    rm.textContent = '×';
+    rm.onclick = ()=>{
+      plans[activeDay].splice(i,1);
+      saveState();
+      renderAll();
+    };
+    row.appendChild(rm);
+
+    row.addEventListener('dragstart',()=>{ dragIdx=i; row.classList.add('dragging'); });
+    row.addEventListener('dragend',()=>{ row.classList.remove('dragging'); });
+    row.addEventListener('dragover',(e)=>e.preventDefault());
+    row.addEventListener('drop',()=>{
+      if(dragIdx===null || dragIdx===i) return;
+      const arr = plans[activeDay];
+      const [moved] = arr.splice(dragIdx,1);
+      arr.splice(i,0,moved);
+      dragIdx=null;
+      saveState();
+      renderAll();
+    });
+    el.appendChild(row);
+  });
+  if(plans[activeDay].length===0){
+    el.innerHTML = '<div class="empty-note">No stops yet — add some from the left.</div>';
+  }
+}
+
+function renderMapMarkers(){
+  markersLayer.clearLayers();
+  routeLayer.clearLayers();
+  const ids = plans[activeDay];
+  if(ids.length===0) return;
+  const bounds = [];
+  ids.forEach((id,i)=>{
+    const p = byId[id];
+    bounds.push([p.lat,p.lon]);
+    L.circleMarker([p.lat,p.lon],{
+      radius:7, fillColor:'#2B6777', color:'#fff', weight:2, fillOpacity:1
+    }).addTo(markersLayer).bindTooltip(`${i+1}. ${p.name}`,{permanent:false});
+  });
+  map.fitBounds(bounds,{padding:[30,30]});
+}
+
+function setMobileSection(section){
+  mobileSection = section;
+  document.querySelector('main').dataset.mobileSection = section;
+  document.querySelectorAll('.mobile-tab-btn').forEach(btn=>{
+    btn.classList.toggle('active', btn.dataset.section === section);
+  });
+  if(section === 'route' && map) map.invalidateSize();
+}
+
+function renderAll(){
+  renderTabs();
+  renderMasterList();
+  renderRouteList();
+  renderMapMarkers();
+  document.getElementById('statsPanel').innerHTML = '<div class="empty-note">Select 2+ stops and calculate to see times.</div>';
+  document.getElementById('errorNote').textContent = '';
+}
+
+async function fetchFromProxy(ids){
+  const coordinates = ids.map(id=>{ const p=byId[id]; return [p.lon,p.lat]; });
+  const res = await fetch(PROXY_URL,{
+    method:'POST',
+    headers:{ 'Content-Type':'application/json' },
+    body: JSON.stringify({coordinates})
+  });
+  if(!res.ok){
+    const body = await res.text().catch(()=> '');
+    throw new Error('Proxy HTTP ' + res.status + (body ? ': ' + body.slice(0,150) : ''));
+  }
+  const geo = await res.json();
+  const feat = geo.features && geo.features[0];
+  if(!feat) throw new Error('Proxy returned no route');
+  const segs = feat.properties.segments;
+  return {
+    distance: feat.properties.summary.distance,
+    duration: feat.properties.summary.duration,
+    geometry: feat.geometry,
+    legs: segs.map(s=>({distance:s.distance, duration:s.duration}))
+  };
+}
+
+async function fetchFromOSRM(ids){
+  const coords = ids.map(id=>{ const p=byId[id]; return `${p.lon},${p.lat}`; }).join(';');
+  const endpoints = [
+    `https://routing.openstreetmap.de/routed-car/route/v1/driving/${coords}?overview=full&geometries=geojson&steps=false`,
+    `https://router.project-osrm.org/route/v1/driving/${coords}?overview=full&geometries=geojson&steps=false`
+  ];
+  let lastErr = null;
+  for(const url of endpoints){
+    try{
+      const res = await fetch(url);
+      if(!res.ok) throw new Error('HTTP ' + res.status);
+      const json = await res.json();
+      if(!json.routes || !json.routes.length) throw new Error('no routes in response');
+      const route = json.routes[0];
+      return {
+        distance: route.distance,
+        duration: route.duration,
+        geometry: route.geometry,
+        legs: route.legs.map(l=>({distance:l.distance, duration:l.duration}))
+      };
+    }catch(e){ lastErr = e; }
+  }
+  throw new Error(lastErr ? lastErr.message : 'all free routing servers failed');
+}
+
+function setView(view){
+  currentView = view;
+  const isPlanner = view === 'planner';
+  document.getElementById('plannerMain').style.display = isPlanner ? '' : 'none';
+  document.getElementById('tabs').style.display = isPlanner ? '' : 'none';
+  document.getElementById('mobileTabbar').style.display = isPlanner ? '' : 'none';
+  document.getElementById('ticketsView').style.display = isPlanner ? 'none' : 'grid';
+  document.getElementById('viewToggleBtn').textContent = isPlanner ? 'Feature requests' : '← Back to planner';
+  if(!isPlanner) loadTickets();
+}
+
+// Mirrors aws/validate.mjs for instant feedback — the server re-validates
+// with the same rules and is the actual gate, never trust this alone.
+const TICKET_LINE_CHARS = /^[A-Za-z0-9.,\- @]*$/;
+const TICKET_TEXT_CHARS = /^[A-Za-z0-9.,\- @\r\n]*$/;
+const TICKET_EMAIL_RE = /^[A-Za-z0-9.-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$/;
+
+const STATUS_LABELS = { new:'New', in_progress:'In progress', processed:'Processed', done:'Done' };
+
+function validateTicketClient(subject, description, email){
+  subject = subject.trim();
+  description = description.trim();
+  email = email.trim();
+
+  const errors = [];
+  if(!subject) errors.push('Subject is required.');
+  else if(!TICKET_LINE_CHARS.test(subject)) errors.push('Subject may only contain English letters, numbers, spaces, and . , - @');
+
+  if(!description) errors.push('Description is required.');
+  else if(!TICKET_TEXT_CHARS.test(description)) errors.push('Description may only contain English letters, numbers, spaces, line breaks, and . , - @');
+
+  if(!email) errors.push('Email is required.');
+  else if(!TICKET_EMAIL_RE.test(email)) errors.push('Email must be a valid address using only English letters, numbers, . - @');
+
+  return errors;
+}
+
+function escapeHtml(s){
+  return String(s).replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+async function loadTickets(){
+  const listEl = document.getElementById('ticketList');
+  listEl.innerHTML = '<div class="empty-note">Loading…</div>';
+  try{
+    const res = await fetch(TICKETS_URL);
+    if(!res.ok){
+      const data = await res.json().catch(()=>({}));
+      throw new Error(data.error || ('HTTP ' + res.status));
+    }
+    const tickets = await res.json();
+    if(!tickets.length){
+      listEl.innerHTML = '<div class="empty-note">No feature requests yet.</div>';
+      return;
+    }
+    listEl.innerHTML = tickets.map(t=>`
+      <div class="ticket-item">
+        <div class="ticket-header">
+          <div class="ticket-subject">${escapeHtml(t.subject)}</div>
+          <span class="status-badge status-${t.status}">${STATUS_LABELS[t.status] || t.status}</span>
+        </div>
+        <div class="ticket-desc">${escapeHtml(t.description)}</div>
+        <div class="ticket-meta">${escapeHtml(t.email)} · ${escapeHtml(t.created_at)}</div>
+      </div>
+    `).join('');
+  }catch(e){
+    listEl.innerHTML = `<div class="empty-note">${escapeHtml(e.message || 'Could not load feature requests.')}</div>`;
+  }
+}
+
+async function submitTicket(e){
+  e.preventDefault();
+  const subjectEl = document.getElementById('ticketSubject');
+  const descriptionEl = document.getElementById('ticketDescription');
+  const emailEl = document.getElementById('ticketEmail');
+  const errEl = document.getElementById('ticketError');
+  const subject = subjectEl.value.trim(), description = descriptionEl.value.trim(), email = emailEl.value.trim();
+
+  const clientErrors = validateTicketClient(subject, description, email);
+  if(clientErrors.length){ errEl.textContent = clientErrors.join(' '); return; }
+  errEl.textContent = '';
+
+  const submitBtn = document.querySelector('#ticketForm button[type="submit"]');
+  submitBtn.disabled = true;
+  try{
+    const res = await fetch(TICKETS_URL, {
+      method:'POST',
+      headers:{ 'Content-Type':'application/json' },
+      body: JSON.stringify({subject, description, email})
+    });
+    const data = await res.json();
+    if(!res.ok){
+      errEl.textContent = (data.errors && data.errors.join(' ')) || data.error || 'Could not submit request.';
+      return;
+    }
+    document.getElementById('ticketForm').reset();
+    await loadTickets();
+  }catch(e){
+    errEl.textContent = 'Could not submit request: ' + e.message;
+  }finally{
+    submitBtn.disabled = false;
+  }
+}
+
+async function calculateRoute(){
+  const ids = plans[activeDay];
+  const errEl = document.getElementById('errorNote');
+  const statsEl = document.getElementById('statsPanel');
+  errEl.textContent = '';
+  if(ids.length < 2){
+    errEl.textContent = 'Add at least 2 stops to calculate a route.';
+    return;
+  }
+  const btn = document.getElementById('calcBtn');
+  btn.disabled = true;
+  btn.textContent = 'Calculating…';
+  try{
+    let route;
+    try{ route = await fetchFromProxy(ids); }
+    catch(e){ errEl.textContent = 'Proxy failed (' + e.message + ') — trying free fallback…'; route = await fetchFromOSRM(ids); }
+
+    routeLayer.clearLayers();
+    L.geoJSON(route.geometry, {
+      style:{ color:'#C0552E', weight:4, opacity:0.85, dashArray:'1,8', lineCap:'round' }
+    }).addTo(routeLayer);
+    map.fitBounds(L.geoJSON(route.geometry).getBounds(),{padding:[30,30]});
+
+    const totalKm = (route.distance/1000).toFixed(0);
+    const totalMin = Math.round(route.duration/60);
+    const hrs = Math.floor(totalMin/60), mins = totalMin%60;
+
+    let legsHtml = '';
+    route.legs.forEach((leg,i)=>{
+      const from = byId[ids[i]].name;
+      const to = byId[ids[i+1]].name;
+      const lm = Math.round(leg.duration/60);
+      const lk = (leg.distance/1000).toFixed(0);
+      legsHtml += `<div class="leg"><span>${from} → ${to}</span><span class="leg-time">${lm} min · ${lk} km</span></div>`;
+    });
+
+    statsEl.innerHTML = `
+      <p class="stats-total">${hrs}h ${mins}m</p>
+      <p class="stats-sub">${totalKm} km total · ${ids.length} stops</p>
+      ${legsHtml}
+    `;
+    if(!errEl.textContent) errEl.textContent = '';
+  }catch(e){
+    errEl.textContent = 'Could not calculate route: ' + e.message;
+  }finally{
+    btn.disabled = false;
+    btn.textContent = 'Calculate driving times';
+  }
+}
+
+document.getElementById('calcBtn').addEventListener('click', calculateRoute);
+document.getElementById('resetDayBtn').addEventListener('click', resetDay);
+
+document.querySelectorAll('.mobile-tab-btn').forEach(btn=>{
+  btn.addEventListener('click', ()=> setMobileSection(btn.dataset.section));
+});
+
+document.getElementById('viewToggleBtn').addEventListener('click', ()=>{
+  setView(currentView === 'planner' ? 'tickets' : 'planner');
+});
+document.getElementById('ticketForm').addEventListener('submit', submitTicket);
+
+async function loadPlaces(){
+  const res = await fetch(PLACES_URL);
+  if(!res.ok){
+    const body = await res.json().catch(()=>({}));
+    throw new Error(body.error || `Failed to load places (${res.status})`);
+  }
+  PLACES = await res.json();
+  byId = Object.fromEntries(PLACES.map(p=>[p.id,p]));
+}
+
+(async function start(){
+  loadState();
+  initMap();
+  try{
+    await loadPlaces();
+  }catch(e){
+    document.getElementById('errorNote').textContent = 'Could not load trip places: ' + e.message;
+    return;
+  }
+  renderAll();
+  setMobileSection(mobileSection);
+})();
+</script>
+</body>
+</html>

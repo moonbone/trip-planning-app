@@ -1,0 +1,7 @@
+name = "norway-route-proxy"
+main = "worker.js"
+compatibility_date = "2026-01-01"
+
+# ORS_API_KEY is NOT set here — it's a secret, set via:
+#   wrangler secret put ORS_API_KEY
+# Secrets never appear in this file or in git.
