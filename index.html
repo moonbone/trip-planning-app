@@ -275,11 +275,17 @@
     flex-shrink:0;
   }
   .nav-btn:hover{background:var(--accent-light);}
+  .nav-btn-row{
+    display:flex;
+    gap:8px;
+    margin-top:8px;
+  }
   .calc-btn.suggest-nav-btn{
     background:var(--panel);
     color:var(--accent-dark);
     border:1px solid var(--accent);
-    margin-top:8px;
+    margin-top:0;
+    flex:1;
   }
   .calc-btn.suggest-nav-btn:hover{background:var(--accent-light);}
   #map{
@@ -573,7 +579,10 @@
     </div>
     <div id="routeList"></div>
     <button class="calc-btn" id="calcBtn">Calculate driving times</button>
-    <button class="calc-btn suggest-nav-btn" id="suggestNavBtn">Navigate to next stop</button>
+    <div class="nav-btn-row">
+      <button class="calc-btn suggest-nav-btn" id="suggestNavBtn">Navigate to next stop</button>
+      <button class="calc-btn suggest-nav-btn" id="dayNavBtn">Navigate whole day</button>
+    </div>
     <div id="errorNote"></div>
   </div>
 
@@ -1289,6 +1298,25 @@ document.getElementById('suggestNavBtn').addEventListener('click', ()=>{
   }
   // origin omitted when unknown — Google Maps then uses the device location
   window.open(gmapsDirUrl(lastPos, byId[destId]), '_blank', 'noopener');
+});
+
+document.getElementById('dayNavBtn').addEventListener('click', ()=>{
+  const errEl = document.getElementById('errorNote');
+  const ids = getRouteIds(activeDay);
+  if(ids.length < 2){
+    errEl.textContent = 'Add at least 2 stops to navigate the day.';
+    return;
+  }
+  errEl.textContent = '';
+  const pts = ids.map(id=>byId[id]);
+  const origin = pts[0], dest = pts[pts.length-1];
+  let mids = pts.slice(1, -1);
+  if(mids.length > 9){
+    errEl.textContent = `Google Maps allows at most 9 intermediate stops — showing the first 9 of ${mids.length}.`;
+    mids = mids.slice(0, 9);
+  }
+  const waypoints = mids.length ? `&waypoints=${mids.map(p=>`${p.lat},${p.lon}`).join('|')}` : '';
+  window.open(`https://www.google.com/maps/dir/?api=1&origin=${origin.lat},${origin.lon}&destination=${dest.lat},${dest.lon}${waypoints}&travelmode=driving`, '_blank', 'noopener');
 });
 
 document.getElementById('calcBtn').addEventListener('click', calculateRoute);
