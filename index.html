@@ -646,7 +646,7 @@ let plans = JSON.parse(JSON.stringify(DEFAULT_PLANS));
 let dayMeta = {};
 let lastRoute = null; // {day, ids, route} from the most recent calculation
 let activeDay = 1;
-let dragIdx = null;
+let dragRow = null;
 let map, routeLayer, markersLayer;
 let mobileSection = 'route';
 let currentView = 'planner';
@@ -762,6 +762,48 @@ function resetDay(){
   renderAll();
 }
 
+// FLIP-animate the rows that shift while `mutate` reorders the list, so a
+// drag previews the new order instead of snapping on drop.
+function flipMove(container, mutate){
+  const rows = [...container.children];
+  const before = new Map(rows.map(r=>[r, r.getBoundingClientRect().top]));
+  mutate();
+  rows.forEach(r=>{
+    const dy = before.get(r) - r.getBoundingClientRect().top;
+    if(!dy) return;
+    r.style.transition = 'none';
+    r.style.transform = `translateY(${dy}px)`;
+    requestAnimationFrame(()=>{
+      r.style.transition = 'transform 150ms ease';
+      r.style.transform = '';
+    });
+  });
+}
+
+// Persist whatever order the drag preview left the DOM in.
+function commitDragOrder(){
+  if(!dragRow) return;
+  dragRow = null;
+  const order = [...document.querySelectorAll('#routeList .route-item[data-place-id]')]
+    .map(r=>Number(r.dataset.placeId));
+  if(order.join() === dayStops(activeDay).join()) return;
+  plans[activeDay] = order;
+  saveState();
+  renderAll();
+}
+
+document.getElementById('routeList').addEventListener('dragover',(e)=>{
+  e.preventDefault();
+  if(!dragRow) return;
+  const target = e.target.closest('.route-item[data-place-id]');
+  if(!target || target === dragRow) return;
+  const rect = target.getBoundingClientRect();
+  const ref = e.clientY > rect.top + rect.height/2 ? target.nextSibling : target;
+  if(ref === dragRow || ref === dragRow.nextSibling) return;
+  flipMove(e.currentTarget, ()=> e.currentTarget.insertBefore(dragRow, ref));
+});
+document.getElementById('routeList').addEventListener('drop',(e)=>e.preventDefault());
+
 function hotelRow(hotelId, label){
   const row = document.createElement('div');
   row.className = 'route-item hotel-stop';
@@ -784,7 +826,7 @@ function renderRouteList(){
     const row = document.createElement('div');
     row.className = 'route-item';
     row.draggable = true;
-    row.dataset.idx = i;
+    row.dataset.placeId = id;
     row.innerHTML = `<span class="idx">${pos}</span><span class="name">${p.name}</span>`;
     const stay = document.createElement('input');
     stay.type = 'number';
@@ -818,17 +860,15 @@ function renderRouteList(){
     };
     row.appendChild(rm);
 
-    row.addEventListener('dragstart',()=>{ dragIdx=i; row.classList.add('dragging'); });
-    row.addEventListener('dragend',()=>{ row.classList.remove('dragging'); });
-    row.addEventListener('dragover',(e)=>e.preventDefault());
-    row.addEventListener('drop',()=>{
-      if(dragIdx===null || dragIdx===i) return;
-      const arr = plans[activeDay];
-      const [moved] = arr.splice(dragIdx,1);
-      arr.splice(i,0,moved);
-      dragIdx=null;
-      saveState();
-      renderAll();
+    row.addEventListener('dragstart',(e)=>{
+      dragRow = row;
+      row.classList.add('dragging');
+      e.dataTransfer.effectAllowed = 'move';
+      e.dataTransfer.setData('text/plain', '');
+    });
+    row.addEventListener('dragend',()=>{
+      row.classList.remove('dragging');
+      commitDragOrder();
     });
     el.appendChild(row);
   });
