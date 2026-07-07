@@ -183,6 +183,57 @@
     color:var(--rust);
     border-color:var(--rust);
   }
+  .route-tools{
+    display:flex;
+    align-items:center;
+    gap:10px;
+    flex-shrink:0;
+  }
+  .start-label{
+    display:flex;
+    align-items:center;
+    gap:5px;
+    font-size:11px;
+    font-weight:600;
+    color:var(--ink-soft);
+  }
+  .start-label input{
+    border:1px solid var(--border);
+    border-radius:5px;
+    padding:2px 4px;
+    font-family:'IBM Plex Mono',monospace;
+    font-size:11px;
+    background:var(--panel);
+    color:var(--ink);
+  }
+  .stay-input{
+    width:52px;
+    border:1px solid var(--border);
+    border-radius:5px;
+    padding:3px 4px;
+    font-family:'IBM Plex Mono',monospace;
+    font-size:11px;
+    background:var(--panel);
+    color:var(--ink);
+    text-align:right;
+    flex-shrink:0;
+  }
+  .stay-suffix{
+    font-size:10px;
+    color:var(--ink-soft);
+    flex-shrink:0;
+  }
+  .leg.drive-leg{
+    border-top:none;
+    padding:2px 0 2px 14px;
+    font-size:11px;
+    color:var(--ink-soft);
+  }
+  .leg.stop-leg b{
+    font-family:'IBM Plex Mono',monospace;
+    font-weight:600;
+    color:var(--accent-dark);
+  }
   .day-group-heading{
     font-size:11px;
     font-weight:600;
@@ -475,7 +526,10 @@
     <div id="map"></div>
     <div class="route-header">
       <p class="section-label" id="routeLabel">Today's route</p>
-      <button class="reset-btn" id="resetDayBtn">Reset day</button>
+      <div class="route-tools">
+        <label class="start-label">Start <input type="time" id="dayStartInput"></label>
+        <button class="reset-btn" id="resetDayBtn">Reset day</button>
+      </div>
     </div>
     <div id="routeList"></div>
     <button class="calc-btn" id="calcBtn">Calculate driving times</button>
@@ -588,6 +642,9 @@ function getRouteIds(day){
 }
 
 let plans = JSON.parse(JSON.stringify(DEFAULT_PLANS));
+// Per-day schedule settings: {start:'HH:MM', stay:{placeId:minutes}}
+let dayMeta = {};
+let lastRoute = null; // {day, ids, route} from the most recent calculation
 let activeDay = 1;
 let dragIdx = null;
 let map, routeLayer, markersLayer;
@@ -603,6 +660,35 @@ function loadState(){
 function saveState(){
   try{ localStorage.setItem('norway-day-plans', JSON.stringify(plans)); }
   catch(e){ console.error('save failed', e); }
+}
+
+function loadMeta(){
+  try{
+    const raw = localStorage.getItem('norway-day-meta');
+    if(raw){ dayMeta = JSON.parse(raw); }
+  }catch(e){ /* no saved meta yet */ }
+}
+function saveMeta(){
+  try{ localStorage.setItem('norway-day-meta', JSON.stringify(dayMeta)); }
+  catch(e){ console.error('save failed', e); }
+}
+function getDayMeta(day){
+  if(!dayMeta[day]) dayMeta[day] = {start:'09:00', stay:{}};
+  if(!dayMeta[day].stay) dayMeta[day].stay = {};
+  return dayMeta[day];
+}
+function stayMinutes(day, id){
+  const v = getDayMeta(day).stay[id];
+  return Number.isFinite(v) && v > 0 ? v : 0;
+}
+
+function parseClock(s){
+  const m = /^(\d{1,2}):(\d{2})$/.exec(s || '');
+  return m ? (+m[1])*60 + (+m[2]) : 9*60;
+}
+function fmtClock(mins){
+  mins = Math.round(mins) % 1440;
+  return String(Math.floor(mins/60)).padStart(2,'0') + ':' + String(mins%60).padStart(2,'0');
 }
 
 function initMap(){
@@ -700,6 +786,28 @@ function renderRouteList(){
     row.draggable = true;
     row.dataset.idx = i;
     row.innerHTML = `<span class="idx">${pos}</span><span class="name">${p.name}</span>`;
+    const stay = document.createElement('input');
+    stay.type = 'number';
+    stay.min = '0';
+    stay.step = '5';
+    stay.className = 'stay-input';
+    stay.placeholder = '0';
+    stay.title = 'Minutes to spend here';
+    const savedStay = stayMinutes(activeDay, id);
+    if(savedStay) stay.value = savedStay;
+    // typing in the input must not start a row drag
+    stay.addEventListener('pointerdown', ()=>{ row.draggable = false; });
+    stay.addEventListener('blur', ()=>{ row.draggable = true; });
+    stay.addEventListener('change', ()=>{
+      getDayMeta(activeDay).stay[id] = Math.max(0, parseInt(stay.value, 10) || 0);
+      saveMeta();
+      renderStats();
+    });
+    row.appendChild(stay);
+    const suffix = document.createElement('span');
+    suffix.className = 'stay-suffix';
+    suffix.textContent = 'min';
+    row.appendChild(suffix);
     const rm = document.createElement('button');
     rm.className = 'remove-btn';
     rm.textContent = '×';
@@ -764,12 +872,52 @@ function setMobileSection(section){
   if(section === 'route' && map) map.invalidateSize();
 }
 
+// Day timeline: departure at the chosen start time, each stop's arrival
+// clock time from the driving legs, plus the minutes spent per stop.
+// Hidden when the plan no longer matches what was last calculated.
+function renderStats(){
+  const statsEl = document.getElementById('statsPanel');
+  if(!lastRoute || lastRoute.day !== activeDay
+     || lastRoute.ids.join() !== getRouteIds(activeDay).join()){
+    statsEl.innerHTML = '<div class="empty-note">Select 2+ stops and calculate to see times.</div>';
+    return;
+  }
+  const {ids, route} = lastRoute;
+  const meta = getDayMeta(activeDay);
+  let t = parseClock(meta.start);
+  let stayTotal = 0;
+  let rows = '';
+  ids.forEach((id,i)=>{
+    if(i > 0){
+      const leg = route.legs[i-1];
+      const lm = Math.round(leg.duration/60);
+      const lk = (leg.distance/1000).toFixed(0);
+      rows += `<div class="leg drive-leg"><span>drive</span><span class="leg-time">${lm} min · ${lk} km</span></div>`;
+      t += lm;
+    }
+    const stay = stayMinutes(activeDay, id);
+    rows += `<div class="leg stop-leg"><span><b>${fmtClock(t)}</b> ${byId[id].name}</span><span class="leg-time">${stay ? stay + ' min' : ''}</span></div>`;
+    stayTotal += stay;
+    t += stay;
+  });
+  const totalKm = (route.distance/1000).toFixed(0);
+  const driveMin = Math.round(route.duration/60);
+  const hrs = Math.floor(driveMin/60), mins = driveMin%60;
+  const sh = Math.floor(stayTotal/60), sm = stayTotal%60;
+  statsEl.innerHTML = `
+    <p class="stats-total">${meta.start} → ${fmtClock(t)}</p>
+    <p class="stats-sub">${hrs}h ${mins}m driving · ${sh}h ${sm}m at stops · ${totalKm} km${isLoopDay(activeDay) ? ' · loops back to hotel' : ''}</p>
+    ${rows}
+  `;
+}
+
 function renderAll(){
   renderTabs();
   renderMasterList();
   renderRouteList();
   renderMapMarkers();
-  document.getElementById('statsPanel').innerHTML = '<div class="empty-note">Select 2+ stops and calculate to see times.</div>';
+  document.getElementById('dayStartInput').value = getDayMeta(activeDay).start;
+  renderStats();
   document.getElementById('errorNote').textContent = '';
 }
 
@@ -948,24 +1096,8 @@ async function calculateRoute(){
     }).addTo(routeLayer);
     map.fitBounds(L.geoJSON(route.geometry).getBounds(),{padding:[30,30]});
 
-    const totalKm = (route.distance/1000).toFixed(0);
-    const totalMin = Math.round(route.duration/60);
-    const hrs = Math.floor(totalMin/60), mins = totalMin%60;
-
-    let legsHtml = '';
-    route.legs.forEach((leg,i)=>{
-      const from = byId[ids[i]].name;
-      const to = byId[ids[i+1]].name;
-      const lm = Math.round(leg.duration/60);
-      const lk = (leg.distance/1000).toFixed(0);
-      legsHtml += `<div class="leg"><span>${from} → ${to}</span><span class="leg-time">${lm} min · ${lk} km</span></div>`;
-    });
-
-    statsEl.innerHTML = `
-      <p class="stats-total">${hrs}h ${mins}m</p>
-      <p class="stats-sub">${totalKm} km total · ${dayStops(activeDay).length} stops${isLoopDay(activeDay) ? ' · loops back to hotel' : ''}</p>
-      ${legsHtml}
-    `;
+    lastRoute = {day: activeDay, ids, route};
+    renderStats();
     if(!errEl.textContent) errEl.textContent = '';
   }catch(e){
     errEl.textContent = 'Could not calculate route: ' + e.message;
@@ -977,6 +1109,11 @@ async function calculateRoute(){
 
 document.getElementById('calcBtn').addEventListener('click', calculateRoute);
 document.getElementById('resetDayBtn').addEventListener('click', resetDay);
+document.getElementById('dayStartInput').addEventListener('change', (e)=>{
+  getDayMeta(activeDay).start = e.target.value || '09:00';
+  saveMeta();
+  renderStats();
+});
 
 document.querySelectorAll('.mobile-tab-btn').forEach(btn=>{
   btn.addEventListener('click', ()=> setMobileSection(btn.dataset.section));
@@ -1000,6 +1137,7 @@ async function loadPlaces(){
 
 (async function start(){
   loadState();
+  loadMeta();
   initMap();
   try{
     await loadPlaces();
