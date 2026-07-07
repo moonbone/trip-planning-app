@@ -257,6 +257,31 @@
     justify-content:center;
   }
   .map-pin-hotel{background:var(--rust);}
+  .map-pin-me{
+    width:16px;height:16px;
+    border-radius:50%;
+    background:#2A6FD6;
+    border:3px solid #fff;
+    box-shadow:0 0 0 2px rgba(42,111,214,0.35), 0 1px 3px rgba(0,0,0,0.35);
+  }
+  .nav-btn{
+    text-decoration:none;
+    color:var(--accent-dark);
+    border:1px solid var(--accent);
+    border-radius:5px;
+    width:22px;height:22px;
+    display:flex;align-items:center;justify-content:center;
+    font-size:11px;
+    flex-shrink:0;
+  }
+  .nav-btn:hover{background:var(--accent-light);}
+  .calc-btn.suggest-nav-btn{
+    background:var(--panel);
+    color:var(--accent-dark);
+    border:1px solid var(--accent);
+    margin-top:8px;
+  }
+  .calc-btn.suggest-nav-btn:hover{background:var(--accent-light);}
   #map{
     height:55%;
     min-height:280px;
@@ -548,6 +573,7 @@
     </div>
     <div id="routeList"></div>
     <button class="calc-btn" id="calcBtn">Calculate driving times</button>
+    <button class="calc-btn suggest-nav-btn" id="suggestNavBtn">Navigate to next stop</button>
     <div id="errorNote"></div>
   </div>
 
@@ -617,6 +643,9 @@ const DEFAULT_PLANS = {
   8:[35,36,34], 9:[37,38,39,40,41,42,43,44,45,46,34], 10:[47,48,49,50,51,34],
 };
 const DAYS = [1,2,3,4,5,6,7,8,9,10];
+// Date of Day 1. Single trip-level constant — should move into the trip
+// data when the KML upload feature lands.
+const TRIP_START = '2026-08-14';
 
 // Where the night after each day is spent, derived from the places data:
 // a place marked "overnight" sets the hotel for its day, and carries
@@ -662,7 +691,8 @@ let dayMeta = {};
 let lastRoute = null; // {day, ids, route} from the most recent calculation
 let activeDay = 1;
 let dragRow = null;
-let map, routeLayer, markersLayer;
+let map, routeLayer, markersLayer, locationLayer;
+let lastPos = null; // latest geolocation fix {lat, lon}
 let mobileSection = 'route';
 let currentView = 'planner';
 
@@ -697,6 +727,25 @@ function stayMinutes(day, id){
   return Number.isFinite(v) && v > 0 ? v : 0;
 }
 
+function todayStr(){
+  const d = new Date();
+  return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
+}
+// Day tab to open on load: the tab used earlier today if any, else the
+// trip day matching today's date, else Day 1.
+function initialDay(){
+  try{
+    const saved = JSON.parse(localStorage.getItem('norway-last-visit'));
+    if(saved && saved.date === todayStr() && DAYS.includes(saved.day)) return saved.day;
+  }catch(e){ /* no saved visit */ }
+  const diff = Math.round((new Date(todayStr()) - new Date(TRIP_START)) / 86400000) + 1;
+  return DAYS.includes(diff) ? diff : 1;
+}
+function saveLastVisit(){
+  try{ localStorage.setItem('norway-last-visit', JSON.stringify({date: todayStr(), day: activeDay})); }
+  catch(e){ /* ignore */ }
+}
+
 function parseClock(s){
   const m = /^(\d{1,2}):(\d{2})$/.exec(s || '');
   return m ? (+m[1])*60 + (+m[2]) : 9*60;
@@ -713,6 +762,29 @@ function initMap(){
   }).addTo(map);
   routeLayer = L.layerGroup().addTo(map);
   markersLayer = L.layerGroup().addTo(map);
+  locationLayer = L.layerGroup().addTo(map);
+}
+
+function inNorway(lat, lon){
+  return lat >= 57.5 && lat <= 71.5 && lon >= 4 && lon <= 31.5;
+}
+
+function watchLocation(){
+  if(!('geolocation' in navigator)) return;
+  navigator.geolocation.watchPosition(pos=>{
+    lastPos = {lat: pos.coords.latitude, lon: pos.coords.longitude};
+    locationLayer.clearLayers();
+    if(inNorway(lastPos.lat, lastPos.lon)){
+      L.marker([lastPos.lat, lastPos.lon],{
+        icon: L.divIcon({
+          className:'', html:'<div class="map-pin-me"></div>',
+          iconSize:[16,16], iconAnchor:[8,8]
+        }),
+        interactive: true, zIndexOffset: 500
+      }).addTo(locationLayer).bindTooltip('You are here');
+    }
+  }, ()=>{ /* permission denied or unavailable — planner works without it */ },
+  {enableHighAccuracy: false, maximumAge: 60000});
 }
 
 function renderTabs(){
@@ -819,10 +891,27 @@ document.getElementById('routeList').addEventListener('dragover',(e)=>{
 });
 document.getElementById('routeList').addEventListener('drop',(e)=>e.preventDefault());
 
-function hotelRow(hotelId, label){
+function gmapsDirUrl(from, to){
+  const origin = from ? `&origin=${from.lat},${from.lon}` : '';
+  return `https://www.google.com/maps/dir/?api=1&destination=${to.lat},${to.lon}&travelmode=driving${origin}`;
+}
+// Small per-segment link: preview the drive from the previous stop here.
+function segmentNavLink(fromId, toId){
+  const a = document.createElement('a');
+  a.className = 'nav-btn';
+  a.href = gmapsDirUrl(byId[fromId], byId[toId]);
+  a.target = '_blank';
+  a.rel = 'noopener';
+  a.title = `Google Maps: ${byId[fromId].name} → ${byId[toId].name}`;
+  a.textContent = '➤';
+  return a;
+}
+
+function hotelRow(hotelId, label, fromId){
   const row = document.createElement('div');
   row.className = 'route-item hotel-stop';
   row.innerHTML = `<span class="idx hotel-idx">⌂</span><span class="name">${byId[hotelId].name}</span><span class="hotel-tag">${label}</span>`;
+  if(fromId) row.appendChild(segmentNavLink(fromId, hotelId));
   return row;
 }
 
@@ -834,6 +923,7 @@ function renderRouteList(){
   el.innerHTML = '';
   if(wake) el.appendChild(hotelRow(wake, 'Start'));
   let pos = 0;
+  let prevId = wake;
   plans[activeDay].forEach((id,i)=>{
     if(id===wake || id===sleep) return;
     pos++;
@@ -865,6 +955,8 @@ function renderRouteList(){
     suffix.className = 'stay-suffix';
     suffix.textContent = 'min';
     row.appendChild(suffix);
+    if(prevId) row.appendChild(segmentNavLink(prevId, id));
+    prevId = id;
     const rm = document.createElement('button');
     rm.className = 'remove-btn';
     rm.textContent = '×';
@@ -887,7 +979,7 @@ function renderRouteList(){
     });
     el.appendChild(row);
   });
-  if(sleep) el.appendChild(hotelRow(sleep, isLoopDay(activeDay) ? 'Return' : 'End'));
+  if(sleep) el.appendChild(hotelRow(sleep, isLoopDay(activeDay) ? 'Return' : 'End', prevId));
   if(stops.length===0 && !wake && !sleep){
     el.innerHTML = '<div class="empty-note">No stops yet — add some from the left.</div>';
   }
@@ -977,6 +1069,7 @@ function renderAll(){
   renderMapMarkers();
   document.getElementById('dayStartInput').value = getDayMeta(activeDay).start;
   renderStats();
+  saveLastVisit();
   document.getElementById('errorNote').textContent = '';
 }
 
@@ -1166,6 +1259,38 @@ async function calculateRoute(){
   }
 }
 
+function haversineKm(a, b){
+  const rad = x => x * Math.PI / 180;
+  const dLat = rad(b.lat - a.lat), dLon = rad(b.lon - a.lon);
+  const h = Math.sin(dLat/2)**2 + Math.cos(rad(a.lat))*Math.cos(rad(b.lat))*Math.sin(dLon/2)**2;
+  return 12742 * Math.asin(Math.sqrt(h));
+}
+
+// Next destination guess: the stop after the route stop nearest to the
+// current location; without a location fix, the day's first stop.
+function suggestedDestinationId(){
+  const ids = getRouteIds(activeDay);
+  if(!ids.length) return null;
+  // no location fix: aim for the first real stop (skip the starting hotel)
+  if(!lastPos) return ids[0] === wakeHotelId(activeDay) && ids.length > 1 ? ids[1] : ids[0];
+  let nearest = 0, best = Infinity;
+  ids.forEach((id,i)=>{
+    const d = haversineKm(lastPos, byId[id]);
+    if(d < best){ best = d; nearest = i; }
+  });
+  return ids[Math.min(nearest+1, ids.length-1)];
+}
+
+document.getElementById('suggestNavBtn').addEventListener('click', ()=>{
+  const destId = suggestedDestinationId();
+  if(destId === null){
+    document.getElementById('errorNote').textContent = 'No stops planned for this day yet.';
+    return;
+  }
+  // origin omitted when unknown — Google Maps then uses the device location
+  window.open(gmapsDirUrl(lastPos, byId[destId]), '_blank', 'noopener');
+});
+
 document.getElementById('calcBtn').addEventListener('click', calculateRoute);
 document.getElementById('resetDayBtn').addEventListener('click', resetDay);
 document.getElementById('dayStartInput').addEventListener('change', (e)=>{
@@ -1197,7 +1322,9 @@ async function loadPlaces(){
 (async function start(){
   loadState();
   loadMeta();
+  activeDay = initialDay();
   initMap();
+  watchLocation();
   try{
     await loadPlaces();
   }catch(e){
