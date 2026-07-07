@@ -211,6 +211,21 @@
     font-size:13px;
   }
   .route-item.dragging{opacity:0.4;}
+  .route-item.hotel-stop{
+    cursor:default;
+    background:var(--panel);
+    border-style:dashed;
+    border-color:var(--rust);
+  }
+  .route-item .idx.hotel-idx{background:var(--rust);}
+  .hotel-tag{
+    font-family:'IBM Plex Mono',monospace;
+    font-size:10px;
+    color:var(--rust);
+    text-transform:uppercase;
+    letter-spacing:0.05em;
+    flex-shrink:0;
+  }
   .route-item .idx{
     font-family:'IBM Plex Mono',monospace;
     font-size:11px;
@@ -534,6 +549,44 @@ const DEFAULT_PLANS = {
 };
 const DAYS = [1,2,3,4,5,6,7,8,9,10];
 
+// Where the night after each day is spent, derived from the places data:
+// a place marked "overnight" sets the hotel for its day, and carries
+// forward through following days until the next overnight place.
+let DAY_HOTELS = {};
+
+function computeDayHotels(){
+  DAY_HOTELS = {};
+  let current = null;
+  DAYS.forEach(d=>{
+    const overnights = PLACES.filter(p=>p.day===d && p.overnight);
+    if(overnights.length) current = overnights[overnights.length-1].id;
+    if(current) DAY_HOTELS[d] = current;
+  });
+}
+
+// Hotel the day starts from (last night's) and ends at (tonight's).
+// When they're the same the day is a loop back to the same hotel.
+function wakeHotelId(day){ return DAY_HOTELS[day-1] || null; }
+function sleepHotelId(day){ return DAY_HOTELS[day] || null; }
+function isLoopDay(day){
+  return wakeHotelId(day) !== null && wakeHotelId(day) === sleepHotelId(day);
+}
+// Stops the user manages for the day — the wake/sleep hotels are pinned
+// automatically, so they're excluded from the editable list.
+function dayStops(day){
+  const wake = wakeHotelId(day), sleep = sleepHotelId(day);
+  return plans[day].filter(id=>id!==wake && id!==sleep);
+}
+// The actual sequence sent to the routing API.
+function getRouteIds(day){
+  const wake = wakeHotelId(day), sleep = sleepHotelId(day);
+  const stops = dayStops(day);
+  const ids = stops.slice();
+  if(wake) ids.unshift(wake);
+  if(sleep) ids.push(sleep);
+  return ids;
+}
+
 let plans = JSON.parse(JSON.stringify(DEFAULT_PLANS));
 let activeDay = 1;
 let dragIdx = null;
@@ -582,6 +635,16 @@ function renderMasterList(){
     heading.textContent = 'Originally day ' + d;
     el.appendChild(heading);
     PLACES.filter(p=>p.day===d).forEach(p=>{
+      const wake = wakeHotelId(activeDay), sleep = sleepHotelId(activeDay);
+      if(p.id === wake || p.id === sleep){
+        const badge = p.id === wake && p.id === sleep ? 'start + return'
+          : p.id === wake ? 'start' : 'end';
+        const row = document.createElement('div');
+        row.className = 'place-item selected';
+        row.innerHTML = `<span class="name">${p.name}</span><span class="day-badge">${badge}</span>`;
+        el.appendChild(row);
+        return;
+      }
       const isSelected = plans[activeDay].includes(p.id);
       const row = document.createElement('div');
       row.className = 'place-item' + (isSelected ? ' selected' : '');
@@ -613,17 +676,30 @@ function resetDay(){
   renderAll();
 }
 
+function hotelRow(hotelId, label){
+  const row = document.createElement('div');
+  row.className = 'route-item hotel-stop';
+  row.innerHTML = `<span class="idx hotel-idx">⌂</span><span class="name">${byId[hotelId].name}</span><span class="hotel-tag">${label}</span>`;
+  return row;
+}
+
 function renderRouteList(){
-  document.getElementById('routeLabel').textContent = `Day ${activeDay} route (${plans[activeDay].length} stops)`;
+  const wake = wakeHotelId(activeDay), sleep = sleepHotelId(activeDay);
+  const stops = dayStops(activeDay);
+  document.getElementById('routeLabel').textContent = `Day ${activeDay} route (${stops.length} stops)`;
   const el = document.getElementById('routeList');
   el.innerHTML = '';
+  if(wake) el.appendChild(hotelRow(wake, 'Start'));
+  let pos = 0;
   plans[activeDay].forEach((id,i)=>{
+    if(id===wake || id===sleep) return;
+    pos++;
     const p = byId[id];
     const row = document.createElement('div');
     row.className = 'route-item';
     row.draggable = true;
     row.dataset.idx = i;
-    row.innerHTML = `<span class="idx">${i+1}</span><span class="name">${p.name}</span>`;
+    row.innerHTML = `<span class="idx">${pos}</span><span class="name">${p.name}</span>`;
     const rm = document.createElement('button');
     rm.className = 'remove-btn';
     rm.textContent = '×';
@@ -648,7 +724,8 @@ function renderRouteList(){
     });
     el.appendChild(row);
   });
-  if(plans[activeDay].length===0){
+  if(sleep) el.appendChild(hotelRow(sleep, isLoopDay(activeDay) ? 'Return' : 'End'));
+  if(stops.length===0 && !wake && !sleep){
     el.innerHTML = '<div class="empty-note">No stops yet — add some from the left.</div>';
   }
 }
@@ -656,17 +733,26 @@ function renderRouteList(){
 function renderMapMarkers(){
   markersLayer.clearLayers();
   routeLayer.clearLayers();
-  const ids = plans[activeDay];
-  if(ids.length===0) return;
+  const wake = wakeHotelId(activeDay), sleep = sleepHotelId(activeDay);
+  const stops = dayStops(activeDay);
+  if(stops.length===0 && !wake && !sleep) return;
   const bounds = [];
-  ids.forEach((id,i)=>{
+  const hotelIds = wake === sleep ? [wake] : [wake, sleep];
+  hotelIds.filter(Boolean).forEach(id=>{
+    const h = byId[id];
+    bounds.push([h.lat,h.lon]);
+    L.circleMarker([h.lat,h.lon],{
+      radius:8, fillColor:'#C0552E', color:'#fff', weight:2, fillOpacity:1
+    }).addTo(markersLayer).bindTooltip(`⌂ ${h.name}`,{permanent:false});
+  });
+  stops.forEach((id,i)=>{
     const p = byId[id];
     bounds.push([p.lat,p.lon]);
     L.circleMarker([p.lat,p.lon],{
       radius:7, fillColor:'#2B6777', color:'#fff', weight:2, fillOpacity:1
     }).addTo(markersLayer).bindTooltip(`${i+1}. ${p.name}`,{permanent:false});
   });
-  map.fitBounds(bounds,{padding:[30,30]});
+  if(bounds.length) map.fitBounds(bounds,{padding:[30,30]});
 }
 
 function setMobileSection(section){
@@ -840,7 +926,7 @@ async function submitTicket(e){
 }
 
 async function calculateRoute(){
-  const ids = plans[activeDay];
+  const ids = getRouteIds(activeDay);
   const errEl = document.getElementById('errorNote');
   const statsEl = document.getElementById('statsPanel');
   errEl.textContent = '';
@@ -877,7 +963,7 @@ async function calculateRoute(){
 
     statsEl.innerHTML = `
       <p class="stats-total">${hrs}h ${mins}m</p>
-      <p class="stats-sub">${totalKm} km total · ${ids.length} stops</p>
+      <p class="stats-sub">${totalKm} km total · ${dayStops(activeDay).length} stops${isLoopDay(activeDay) ? ' · loops back to hotel' : ''}</p>
       ${legsHtml}
     `;
     if(!errEl.textContent) errEl.textContent = '';
@@ -909,6 +995,7 @@ async function loadPlaces(){
   }
   PLACES = await res.json();
   byId = Object.fromEntries(PLACES.map(p=>[p.id,p]));
+  computeDayHotels();
 }
 
 (async function start(){
