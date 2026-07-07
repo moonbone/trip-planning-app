@@ -23,7 +23,9 @@ const { handler } = await import('./aws/handler.mjs');
 const PORT = process.env.PORT || 8787;
 const CERT_PATH = join(__dirname, 'certs', 'cert.pem');
 const KEY_PATH = join(__dirname, 'certs', 'key.pem');
-const useHttps = existsSync(CERT_PATH) && existsSync(KEY_PATH);
+// NO_HTTPS=1 forces plain HTTP even when certs exist (e.g. a second local
+// instance for tooling that can't click through the self-signed-cert warning).
+const useHttps = process.env.NO_HTTPS !== '1' && existsSync(CERT_PATH) && existsSync(KEY_PATH);
 
 const requestListener = async (req, res) => {
   const chunks = [];
