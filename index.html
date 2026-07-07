@@ -242,6 +242,21 @@
     text-transform:uppercase;
     letter-spacing:0.05em;
   }
+  .map-pin{
+    width:20px;height:20px;
+    border-radius:50%;
+    background:var(--accent);
+    border:2px solid #fff;
+    box-shadow:0 1px 3px rgba(0,0,0,0.35);
+    color:#fff;
+    font-family:'IBM Plex Mono',monospace;
+    font-size:10px;
+    font-weight:600;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+  }
+  .map-pin-hotel{background:var(--rust);}
   #map{
     height:55%;
     min-height:280px;
@@ -885,20 +900,24 @@ function renderMapMarkers(){
   const stops = dayStops(activeDay);
   if(stops.length===0 && !wake && !sleep) return;
   const bounds = [];
+  const addPin = (p, label, extraClass, tooltip)=>{
+    bounds.push([p.lat,p.lon]);
+    L.marker([p.lat,p.lon],{
+      icon: L.divIcon({
+        className:'',
+        html:`<div class="map-pin${extraClass}">${label}</div>`,
+        iconSize:[20,20], iconAnchor:[10,10]
+      })
+    }).addTo(markersLayer).bindTooltip(tooltip,{permanent:false});
+  };
   const hotelIds = wake === sleep ? [wake] : [wake, sleep];
   hotelIds.filter(Boolean).forEach(id=>{
     const h = byId[id];
-    bounds.push([h.lat,h.lon]);
-    L.circleMarker([h.lat,h.lon],{
-      radius:8, fillColor:'#C0552E', color:'#fff', weight:2, fillOpacity:1
-    }).addTo(markersLayer).bindTooltip(`⌂ ${h.name}`,{permanent:false});
+    addPin(h, '⌂', ' map-pin-hotel', `⌂ ${h.name}`);
   });
   stops.forEach((id,i)=>{
     const p = byId[id];
-    bounds.push([p.lat,p.lon]);
-    L.circleMarker([p.lat,p.lon],{
-      radius:7, fillColor:'#2B6777', color:'#fff', weight:2, fillOpacity:1
-    }).addTo(markersLayer).bindTooltip(`${i+1}. ${p.name}`,{permanent:false});
+    addPin(p, i+1, '', `${i+1}. ${p.name}`);
   });
   if(bounds.length) map.fitBounds(bounds,{padding:[30,30]});
 }
