@@ -13,8 +13,16 @@ The user's own real trip currently loaded into the app is a Norway road trip, Au
 - Overnights: Thon Hotel Sandven (Norheimsund, Aug14→15) → Kinsarvik Camping
   (Aug15→18) → Hesla Gård Pensjonat, Gol (Aug18→20) → Hotel Alexandra, Loen (Aug20→24).
 - Return flight WF459 departs Ålesund Aug24, 19:25, arrives Bergen.
-- **Known gap, unresolved:** nothing covers Loen → Ålesund on Aug24, and there's no
-  Bergen hotel or onward TLV flight entered anywhere yet. Don't assume this is decided.
+- **Day 11+ gap — candidate plan found, not yet decided.** A near-identical reference
+  itinerary ("Neta and Maor" family trip, tripplanner.co.il/single_ride_with_map/19724,
+  same Norheimsund→Kinsarvik→Gol→Loen overnight pattern) lays out Loen→Ålesund→Bergen
+  in detail: Aug24 drive Loen→Ålesund, with a stop for a Hebrew-language mushroom-
+  foraging tour + Norwegian home-cooked meal with "Rachel" (Israeli guide living in
+  Norway), then Aksla mountain viewpoint in Ålesund, then the WF459 evening flight to
+  Bergen. 2 nights in Bergen at "Keyser Apartments 8" (Aug24→26), Day 12 full Bergen
+  day (aquarium, Bryggen, Troll Museum, Fløyen, fish market), Day 13 (Aug26) flight
+  home from Bergen Airport. This is a reference/inspiration itinerary, not a booked
+  plan — no Bergen hotel or onward flight is actually booked for the user's trip yet.
 - Day 7 (Gol → Loen) is the heaviest driving day (~6hr estimated) — flagged as worth
   double-checking, possibly involves a ferry.
 
@@ -86,7 +94,8 @@ The user's own real trip currently loaded into the app is a Norway road trip, Au
 - In the meantime, the app is being served directly from the user's laptop via
   `dev-server.mjs` + router port forwarding (not Lambda). Don't assume AWS is the live
   deployment target — ask which is current if it matters.
-- Day 11 (Loen → Ålesund → Bergen → TLV) is entirely unplanned.
+- Day 11 (Loen → Ålesund → Bergen → TLV) is not booked yet, but see the candidate
+  reference itinerary noted under "Trip facts worth knowing" above.
 - The KML has Eidfjord and DolceVidda at *nearly* identical (but distinct)
   coordinates, so the importer keeps them as two places — probably one real-world
   stop; not yet resolved.

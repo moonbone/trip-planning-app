@@ -35,10 +35,11 @@ fi
 # hatch that must not exist in production.
 #
 # IMPORTANT: this script replaces the Lambda's entire environment on every
-# run (update-function-configuration is not additive). SESSION_SECRET must
-# therefore be a *stable* value you export the same way every deploy (e.g.
-# keep it in a gitignored local var/secrets file) — regenerating it each
-# run silently invalidates every signed-in user's session.
+# run (update-function-configuration is not additive). Every var in the loop
+# below must be exported the same way on every deploy (e.g. kept in a
+# gitignored .env) or it silently disappears from the next deploy — this bit
+# SESSION_SECRET (invalidates all sessions) and separately GOOGLE_CLIENT_ID
+# (breaks Google sign-in with no visible error until someone tries it).
 LAMBDA_ENV="ORS_API_KEY=$ORS_API_KEY"
 for var in SESSION_SECRET GOOGLE_CLIENT_ID ADMIN_EMAILS ADMIN_TOKEN USERS_TABLE; do
   if [[ -n "${!var:-}" ]]; then

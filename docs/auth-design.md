@@ -73,9 +73,12 @@ This doc is the single reference for the effort; update it as decisions change.
 - New secrets: `SESSION_SECRET`, `GOOGLE_CLIENT_ID`, `ADMIN_EMAILS` → Lambda env +
   GitHub Actions secrets.
 
-## Live infrastructure (2026-07-08)
+## Live infrastructure (2026-07-08, renamed to trip-planner-app-* same day)
 
-- Lambda Function URL: https://forby4mjatre7liboiacalno4e0gwlpl.lambda-url.us-east-1.on.aws/
+- Lambda Function URL: https://3qij4mwl7jqvcxqyqmjtopgfma0jfxlj.lambda-url.us-east-1.on.aws/
 - CloudFront distribution: E8YZVUUFAOYFI -> https://d24lxtp1p8j23g.cloudfront.net
-  (this is the OAuth origin to register in Google Cloud Console)
-- DynamoDB tables: norway-app-users, norway-app-trips, norway-app-variants, norway-app-shares
+  (this is the OAuth origin to register in Google Cloud Console; unchanged by the rename)
+- DynamoDB tables: trip-planner-app-users, trip-planner-app-trips, trip-planner-app-variants,
+  trip-planner-app-shares
+- Old norway-route-app Lambda, norway-route-app-role IAM role, and norway-app-* tables were
+  deleted as part of the rebrand (no data migration — user opted for a clean cutover)
