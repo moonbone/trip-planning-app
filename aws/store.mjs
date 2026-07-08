@@ -53,8 +53,9 @@ const fileDriver = {
       ...existing,
       ...user,
       created_at: existing.created_at || new Date().toISOString(),
-      last_login_at: new Date().toISOString(),
-      disabled: existing.disabled || false,
+      last_login_at: 'last_login_at' in user ? user.last_login_at : new Date().toISOString(),
+      // an explicitly passed flag (admin action) wins; logins omit it
+      disabled: 'disabled' in user ? !!user.disabled : (existing.disabled || false),
     };
     fileWrite(db);
     return db.users[user.sub];
@@ -203,8 +204,8 @@ const dynamoDriver = {
       ...existing,
       ...user,
       created_at: existing?.created_at || new Date().toISOString(),
-      last_login_at: new Date().toISOString(),
-      disabled: existing?.disabled || false,
+      last_login_at: 'last_login_at' in user ? user.last_login_at : new Date().toISOString(),
+      disabled: 'disabled' in user ? !!user.disabled : (existing?.disabled || false),
     };
     await d.client.send(new d.PutItemCommand({ TableName: USERS_TABLE, Item: toItem(record) }));
     return record;

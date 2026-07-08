@@ -16,7 +16,7 @@ import {
   sessionSetCookie, sessionClearCookie, isAdminEmail,
 } from './auth.mjs';
 import {
-  upsertUser, newStoreId, VersionConflictError,
+  upsertUser, getUser, listUsers, newStoreId, VersionConflictError,
   createTrip, getTrip, listTripsForOwner, deleteTrip,
   listVariants, getVariant, putVariant, deleteVariant,
   listSharesForTrip, listSharesForEmail, putShare, deleteShare,
@@ -93,6 +93,10 @@ export const handler = async (event) => {
 
   if (rawPath.startsWith('/api/trips')) {
     return handleTripsApi(event, method, rawPath);
+  }
+
+  if (rawPath.startsWith('/api/admin/')) {
+    return handleAdminApi(event, method, rawPath);
   }
 
   if (rawPath === '/tickets') {
@@ -377,6 +381,35 @@ async function handleTripsApi(event, method, rawPath) {
   }
 }
 
+// ---- Admin API (auth-and-sharing phase 5) ----
+// Backoffice for accounts matching ADMIN_EMAILS. v1 supports disabling
+// accounts (blocks future logins; existing sessions age out within the
+// 30-day cookie TTL) — deletion with trip cascade/transfer comes later.
+
+async function handleAdminApi(event, method, rawPath) {
+  const session = sessionFromEvent(event, process.env.SESSION_SECRET);
+  if (!session || !isAdminEmail(session.email)) return jsonError(403, 'Admins only');
+
+  const parts = rawPath.split('/').filter(Boolean); // ['api','admin','users',sub?]
+  if (parts[2] === 'users') {
+    if (!parts[3] && method === 'GET') return ok(await listUsers());
+    if (parts[3] && method === 'PATCH') {
+      let body;
+      try {
+        body = JSON.parse(event.body || '{}');
+      } catch {
+        return jsonError(400, 'Invalid JSON body');
+      }
+      const user = await getUser(decodeURIComponent(parts[3]));
+      if (!user) return jsonError(404, 'User not found');
+      if (body.disabled && isAdminEmail(user.email)) return jsonError(400, 'Cannot disable an admin');
+      user.disabled = !!body.disabled;
+      return ok(await upsertUser(user));
+    }
+  }
+  return jsonError(404, 'Not found');
+}
+
 function handleListTickets() {
   // Public listing: submitter emails are private, never expose them here.
   const tickets = listTickets().map(({ email, ...pub }) => pub);
@@ -418,7 +451,9 @@ function handleUpdateTicketStatus(event, id) {
   // var unset, status updates are simply disabled.
   const adminToken = process.env.ADMIN_TOKEN;
   const given = event.headers?.['x-admin-token'] ?? event.headers?.['X-Admin-Token'];
-  if (!adminToken || given !== adminToken) {
+  const session = sessionFromEvent(event, process.env.SESSION_SECRET);
+  const isAdminSession = session && isAdminEmail(session.email);
+  if (!isAdminSession && (!adminToken || given !== adminToken)) {
     return jsonError(403, 'Forbidden');
   }
 

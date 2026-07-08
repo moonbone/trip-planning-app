@@ -608,6 +608,7 @@
   </div>
   <div class="header-actions">
     <span class="user-badge" id="userBadge" style="display:none;"></span>
+    <button class="view-toggle-btn" id="backofficeBtn" style="display:none;">Backoffice</button>
     <button class="view-toggle-btn" id="signInBtn" style="display:none;">Sign in</button>
     <button class="view-toggle-btn" id="signOutBtn" style="display:none;">Sign out</button>
     <button class="view-toggle-btn" id="viewToggleBtn">Feature requests</button>
@@ -694,6 +695,20 @@
   <div class="tickets-col">
     <p class="section-label">Submitted requests</p>
     <div id="ticketList"><div class="empty-note">Loading…</div></div>
+  </div>
+</section>
+
+<section class="tickets-view" id="adminView" style="display:none;">
+  <div class="tickets-col">
+    <p class="section-label">Users</p>
+    <div id="adminUserList"><div class="empty-note">Loading…</div></div>
+  </div>
+  <div class="tickets-col">
+    <p class="section-label">Notes</p>
+    <p class="source-note">Disabling an account blocks future sign-ins; an existing
+    session ages out within 30 days. Admins are defined by the ADMIN_EMAILS server
+    variable and cannot be disabled here. Ticket statuses are managed from the
+    Feature requests view (admins see a status dropdown there).</p>
   </div>
 </section>
 
@@ -1518,9 +1533,53 @@ function setView(view){
   document.getElementById('plannerMain').style.display = isPlanner ? '' : 'none';
   document.getElementById('tabs').style.display = isPlanner ? '' : 'none';
   document.getElementById('mobileTabbar').style.display = isPlanner ? '' : 'none';
-  document.getElementById('ticketsView').style.display = isPlanner ? 'none' : 'grid';
-  document.getElementById('viewToggleBtn').textContent = isPlanner ? 'Feature requests' : '← Back to planner';
-  if(!isPlanner) loadTickets();
+  document.getElementById('ticketsView').style.display = view === 'tickets' ? 'grid' : 'none';
+  document.getElementById('adminView').style.display = view === 'admin' ? 'grid' : 'none';
+  document.getElementById('viewToggleBtn').textContent = view === 'tickets' ? '← Back to planner' : 'Feature requests';
+  document.getElementById('backofficeBtn').textContent = view === 'admin' ? '← Back to planner' : 'Backoffice';
+  if(view === 'tickets') loadTickets();
+  if(view === 'admin') loadAdminUsers();
+}
+
+async function loadAdminUsers(){
+  const el = document.getElementById('adminUserList');
+  el.innerHTML = '<div class="empty-note">Loading…</div>';
+  let users;
+  try{ users = await api('/api/admin/users'); }
+  catch(e){
+    el.innerHTML = `<div class="empty-note">${escapeHtml(e.message)}</div>`;
+    return;
+  }
+  if(!users.length){
+    el.innerHTML = '<div class="empty-note">No users yet.</div>';
+    return;
+  }
+  el.innerHTML = '';
+  users.forEach(u=>{
+    const row = document.createElement('div');
+    row.className = 'ticket-item';
+    row.innerHTML = `
+      <div class="ticket-header">
+        <div class="ticket-subject">${escapeHtml(u.name || u.email)}</div>
+        <span class="status-badge ${u.disabled ? 'status-new' : 'status-done'}">${u.disabled ? 'Disabled' : 'Active'}</span>
+      </div>
+      <div class="ticket-meta">${escapeHtml(u.email)} · last login ${escapeHtml(u.last_login_at || '—')}</div>`;
+    const btn = document.createElement('button');
+    btn.className = 'reset-btn';
+    btn.textContent = u.disabled ? 'Enable' : 'Disable';
+    btn.style.marginTop = '8px';
+    btn.onclick = async ()=>{
+      if(!u.disabled && !confirm(`Disable ${u.email}? They won't be able to sign in.`)) return;
+      try{
+        await api('/api/admin/users/' + encodeURIComponent(u.sub), {
+          method:'PATCH', body: JSON.stringify({disabled: !u.disabled}),
+        });
+        loadAdminUsers();
+      }catch(e){ alert('Failed: ' + e.message); }
+    };
+    row.appendChild(btn);
+    el.appendChild(row);
+  });
 }
 
 // Mirrors aws/validate.mjs for instant feedback — the server re-validates
@@ -1568,7 +1627,7 @@ async function loadTickets(){
       return;
     }
     listEl.innerHTML = tickets.map(t=>`
-      <div class="ticket-item">
+      <div class="ticket-item" data-ticket-id="${t.id}">
         <div class="ticket-header">
           <div class="ticket-subject">${escapeHtml(t.subject)}</div>
           <span class="status-badge status-${t.status}">${STATUS_LABELS[t.status] || t.status}</span>
@@ -1577,6 +1636,25 @@ async function loadTickets(){
         <div class="ticket-meta">${escapeHtml(t.created_at)}</div>
       </div>
     `).join('');
+    if(currentUser && currentUser.isAdmin){
+      tickets.forEach(t=>{
+        const item = listEl.querySelector(`[data-ticket-id="${t.id}"]`);
+        const sel = document.createElement('select');
+        Object.entries(STATUS_LABELS).forEach(([value, label])=>{
+          const opt = document.createElement('option');
+          opt.value = value; opt.textContent = label; opt.selected = value === t.status;
+          sel.appendChild(opt);
+        });
+        sel.style.marginTop = '6px';
+        sel.onchange = async ()=>{
+          try{
+            await api('/tickets/' + t.id, {method:'PATCH', body: JSON.stringify({status: sel.value})});
+            loadTickets();
+          }catch(e){ alert('Failed: ' + e.message); }
+        };
+        item.appendChild(sel);
+      });
+    }
   }catch(e){
     listEl.innerHTML = `<div class="empty-note">${escapeHtml(e.message || 'Could not load feature requests.')}</div>`;
   }
@@ -1811,7 +1889,10 @@ document.querySelectorAll('.mobile-tab-btn').forEach(btn=>{
 });
 
 document.getElementById('viewToggleBtn').addEventListener('click', ()=>{
-  setView(currentView === 'planner' ? 'tickets' : 'planner');
+  setView(currentView === 'tickets' ? 'planner' : 'tickets');
+});
+document.getElementById('backofficeBtn').addEventListener('click', ()=>{
+  setView(currentView === 'admin' ? 'planner' : 'admin');
 });
 
 // ---- Auth (auth-and-sharing phase 2) ----
@@ -1831,7 +1912,9 @@ function renderAuthUi(){
     badge.title = currentUser.user.email;
     signIn.style.display = 'none';
     signOut.style.display = '';
+    document.getElementById('backofficeBtn').style.display = currentUser.isAdmin ? '' : 'none';
   }else{
+    document.getElementById('backofficeBtn').style.display = 'none';
     badge.style.display = 'none';
     signIn.style.display = authConfig && (authConfig.googleClientId || authConfig.devAuth) ? '' : 'none';
     signOut.style.display = 'none';
