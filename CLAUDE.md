@@ -16,13 +16,21 @@ select/reorder stops per day, and calls a routing API to get real driving times.
 
 ## Architecture
 - `index.html` — the whole frontend. Vanilla JS + Leaflet (OSM tiles, no key needed).
-  Trip data comes from a user-uploaded Google My Maps KML export, parsed client-side
-  (`parseKmlTrip`) and stored raw in `localStorage` (`norway-kml`) — the server never
-  sees it, and there is no server-side places endpoint anymore. All trip structure is
-  derived from the KML: one `<Folder>` per day; folder names carry the day number
-  ("day N"/"יום N") and date; the folder's **last placemark** is that night's
-  accommodation (marked `overnight`, pinned to route start/end). Places are deduped by
-  name+coords across folders. Day-plan selections also persist in `localStorage`.
+  Trip data comes from user-uploaded Google My Maps KML exports, parsed client-side
+  (`parseKmlTrip`) — the server never sees them, and there is no server-side places
+  endpoint anymore. **Multiple trips** are stored in `localStorage` under a three-key
+  layout: `norway-trips` (index: trip names, active ids, per-trip variant lists and
+  last-visit — the commit point, written last on add / first on delete),
+  `norway-trip-src:<tripId>` (immutable raw KML; parsing must stay deterministic since
+  variant blobs reference the derived place ids), and
+  `norway-variant:<tripId>:<variantId>` (per-variant `{plans, dayMeta}` — each trip
+  has 1+ named plan variants, duplicated/renamed/deleted from the route header;
+  switching is via dropdowns). Uploading a KML **adds** a trip (byte-identical
+  re-upload just switches to it). Legacy single-trip keys (`norway-kml` etc.) are
+  migrated on first load. All trip structure is derived from the KML: one `<Folder>`
+  per day; folder names carry the day number ("day N"/"יום N") and date; the folder's
+  **last placemark** is that night's accommodation (marked `overnight`, pinned to
+  route start/end). Places are deduped by name+coords across folders.
   Calls `PROXY_URL` (currently `/route`, relative — assumes same-origin hosting) for
   routing, falls back to public OSRM demo servers if the proxy fails. Below 860px width, the 3-column layout collapses to a
   single column switched via a bottom tab bar (Places / Route / Summary); Leaflet needs

@@ -120,6 +120,19 @@
     border-radius:8px;
     margin-bottom:16px;
   }
+  .route-tools select, .kml-panel select{
+    border:1px solid var(--border);
+    border-radius:5px;
+    padding:3px 4px;
+    font-family:'Inter',sans-serif;
+    font-size:11px;
+    background:var(--panel);
+    color:var(--ink);
+  }
+  .route-tools select{max-width:130px;}
+  .trip-row{display:flex; gap:6px; align-items:center;}
+  .trip-row select{flex:1; min-width:0;}
+  #variantTools{display:flex; align-items:center; gap:4px;}
   .kml-panel .source-note{margin-top:0;}
   .kml-panel .error-note{margin-top:0;}
   .kml-panel .error-note:empty{display:none;}
@@ -584,6 +597,10 @@
     <p class="section-label">Trip file</p>
     <div class="kml-panel">
       <p class="source-note" id="kmlStatus"></p>
+      <div class="trip-row" id="tripRow">
+        <select id="tripSelect"></select>
+        <button class="reset-btn" id="deleteTripBtn">Delete trip</button>
+      </div>
       <input type="file" id="kmlFileInput" accept=".kml,.xml">
       <div class="error-note" id="kmlError"></div>
     </div>
@@ -596,6 +613,12 @@
     <div class="route-header">
       <p class="section-label" id="routeLabel">Today's route</p>
       <div class="route-tools">
+        <span id="variantTools">
+          <select id="variantSelect" title="Plan variant"></select>
+          <button class="add-btn" id="variantAddBtn" title="Duplicate this variant">+</button>
+          <button class="add-btn" id="variantRenameBtn" title="Rename variant">✏️</button>
+          <button class="remove-btn" id="variantDeleteBtn" title="Delete variant">×</button>
+        </span>
         <label class="start-label">Start <input type="time" id="dayStartInput"></label>
         <button class="reset-btn" id="resetDayBtn">Reset day</button>
       </div>
@@ -722,27 +745,113 @@ let lastPos = null; // latest geolocation fix {lat, lon}
 let mobileSection = 'route';
 let currentView = 'planner';
 
-function loadState(){
-  try{
-    const raw = localStorage.getItem('norway-day-plans');
-    if(raw){ plans = JSON.parse(raw); return true; }
-  }catch(e){ /* no saved state yet, use defaults */ }
-  return false;
-}
-function saveState(){
-  try{ localStorage.setItem('norway-day-plans', JSON.stringify(plans)); }
-  catch(e){ console.error('save failed', e); }
-}
+// ---- Multi-trip storage ----
+// norway-trips is the index and the commit point: written last when adding,
+// first when deleting, so index entries always have backing blobs and any
+// orphaned blob is harmless. Per-trip raw KML lives in norway-trip-src:<id>
+// (immutable), per-variant state in norway-variant:<tripId>:<variantId>.
+// Multi-tab editing is last-write-wins on the index — out of scope.
+let tripsIndex = {activeTripId: null, trips: {}};
 
-function loadMeta(){
-  try{
-    const raw = localStorage.getItem('norway-day-meta');
-    if(raw){ dayMeta = JSON.parse(raw); }
-  }catch(e){ /* no saved meta yet */ }
+function newId(){
+  return Date.now().toString(36) + Math.random().toString(36).slice(2,6);
 }
-function saveMeta(){
-  try{ localStorage.setItem('norway-day-meta', JSON.stringify(dayMeta)); }
+function activeTrip(){
+  return tripsIndex.trips[tripsIndex.activeTripId] || null;
+}
+function loadTripsIndex(){
+  try{
+    const raw = localStorage.getItem('norway-trips');
+    if(raw){
+      const parsed = JSON.parse(raw);
+      if(parsed && typeof parsed.trips === 'object' && parsed.trips !== null){
+        tripsIndex = parsed;
+      }
+    }
+  }catch(e){ console.error('trips index unreadable, starting empty', e); }
+  if(!activeTrip()){
+    tripsIndex.activeTripId = Object.keys(tripsIndex.trips)[0] || null;
+  }
+}
+function saveTripsIndex(){
+  try{ localStorage.setItem('norway-trips', JSON.stringify(tripsIndex)); }
   catch(e){ console.error('save failed', e); }
+}
+function variantKey(tripId, variantId){
+  return `norway-variant:${tripId}:${variantId}`;
+}
+// Loads the active variant into the live plans/dayMeta. A missing or
+// unreadable blob is seeded from the trip defaults and saved back — the
+// one path covering fresh variants, migration gaps, and corruption.
+// Must run after applyTrip() (needs DEFAULT_PLANS).
+function loadVariant(){
+  const trip = activeTrip();
+  plans = null;
+  dayMeta = {};
+  if(trip){
+    try{
+      const raw = localStorage.getItem(variantKey(tripsIndex.activeTripId, trip.activeVariantId));
+      if(raw){
+        const v = JSON.parse(raw);
+        if(v && v.plans) plans = v.plans;
+        if(v && v.dayMeta) dayMeta = v.dayMeta;
+      }
+    }catch(e){ console.error('variant unreadable, reseeding', e); }
+  }
+  if(!plans){
+    plans = JSON.parse(JSON.stringify(DEFAULT_PLANS));
+    if(trip) saveVariant();
+  }
+}
+function saveVariant(){
+  const trip = activeTrip();
+  if(!trip) return;
+  try{
+    localStorage.setItem(
+      variantKey(tripsIndex.activeTripId, trip.activeVariantId),
+      JSON.stringify({plans, dayMeta})
+    );
+  }catch(e){ console.error('save failed', e); }
+}
+function saveState(){ saveVariant(); }
+function saveMeta(){ saveVariant(); }
+
+// One-time migration from the single-trip storage layout.
+function migrateLegacyStorage(){
+  if(localStorage.getItem('norway-trips')) return;
+  try{
+    const rawKml = localStorage.getItem('norway-kml');
+    if(rawKml){
+      const legacy = JSON.parse(rawKml);
+      let name = legacy.filename;
+      try{
+        const docName = parseKmlTrip(legacy.source).docName;
+        if(docName) name = docName;
+      }catch(e){ /* keep filename */ }
+      const tripId = newId(), variantId = newId();
+      localStorage.setItem(`norway-trip-src:${tripId}`, legacy.source);
+      const state = {plans: null, dayMeta: {}};
+      try{ state.plans = JSON.parse(localStorage.getItem('norway-day-plans')) || null; }catch(e){}
+      try{ state.dayMeta = JSON.parse(localStorage.getItem('norway-day-meta')) || {}; }catch(e){}
+      localStorage.setItem(variantKey(tripId, variantId), JSON.stringify(state));
+      let lastVisit = null;
+      try{ lastVisit = JSON.parse(localStorage.getItem('norway-last-visit')); }catch(e){}
+      tripsIndex = {
+        activeTripId: tripId,
+        trips: {[tripId]: {
+          name, filename: legacy.filename,
+          activeVariantId: variantId,
+          variants: {[variantId]: 'Main'},
+          lastVisit,
+        }},
+      };
+      saveTripsIndex();
+    }
+    ['norway-kml','norway-day-plans','norway-day-meta','norway-last-visit']
+      .forEach(k=>localStorage.removeItem(k));
+  }catch(e){
+    console.error('legacy migration failed, keeping old keys', e);
+  }
 }
 function getDayMeta(day){
   if(!dayMeta[day]) dayMeta[day] = {start:'09:00', stay:{}};
@@ -762,10 +871,8 @@ function todayStr(){
 // trip day matching today's date, else Day 1.
 function initialDay(){
   const today = todayStr();
-  try{
-    const saved = JSON.parse(localStorage.getItem('norway-last-visit'));
-    if(saved && saved.date === today && DAYS.includes(saved.day)) return saved.day;
-  }catch(e){ /* no saved visit */ }
+  const saved = activeTrip()?.lastVisit;
+  if(saved && saved.date === today && DAYS.includes(saved.day)) return saved.day;
   const byDate = DAYS.find(d=>DAY_DATES[d] === today);
   if(byDate) return byDate;
   if(TRIP_START){
@@ -775,8 +882,10 @@ function initialDay(){
   return DAYS[0] || 1;
 }
 function saveLastVisit(){
-  try{ localStorage.setItem('norway-last-visit', JSON.stringify({date: todayStr(), day: activeDay})); }
-  catch(e){ /* ignore */ }
+  const trip = activeTrip();
+  if(!trip) return;
+  trip.lastVisit = {date: todayStr(), day: activeDay};
+  saveTripsIndex();
 }
 
 function parseClock(s){
@@ -1107,6 +1216,8 @@ function renderAll(){
   renderMapMarkers();
   document.getElementById('dayStartInput').value = getDayMeta(activeDay).start;
   renderStats();
+  renderTripUi();
+  updateKmlStatus();
   saveLastVisit();
   document.getElementById('errorNote').textContent = '';
 }
@@ -1362,42 +1473,29 @@ document.getElementById('kmlFileInput').addEventListener('change', async (e)=>{
     e.target.value = '';
     return;
   }
-  // Re-uploading the same trip is a harmless refresh; anything else wipes
-  // day plans and timings, which deserves a confirmation.
-  const sameTrip = PLACES.length === parsed.places.length
-    && PLACES.every((p,i)=>{
-      const q = parsed.places[i];
-      return p.id===q.id && p.name===q.name && p.lat===q.lat && p.lon===q.lon;
-    });
-  const hasSaved = localStorage.getItem('norway-day-plans')
-    || localStorage.getItem('norway-day-meta')
-    || localStorage.getItem('norway-last-visit');
-  if(!sameTrip && hasSaved && PLACES.length && !confirm(
-    `Replace the current trip with "${file.name}" (${parsed.places.length} places)? ` +
-    `This resets your day plans and timings.`
-  )){
-    e.target.value = '';
+  e.target.value = '';
+  // Byte-identical to a stored trip → just switch to it, don't duplicate.
+  const existing = Object.keys(tripsIndex.trips)
+    .find(id=>localStorage.getItem(`norway-trip-src:${id}`) === text);
+  if(existing){
+    switchTrip(existing);
     return;
   }
-  saveKml(file.name, text);
-  if(!sameTrip){
-    localStorage.removeItem('norway-day-plans');
-    localStorage.removeItem('norway-day-meta');
-    localStorage.removeItem('norway-last-visit');
-    plans = {};
-    dayMeta = {};
-    lastRoute = null;
+  try{
+    const tripId = addTrip(parsed.docName || file.name, file.name, text);
+    switchTrip(tripId);
+  }catch(err){
+    errEl.textContent = 'Could not store trip — browser storage may be full. Try deleting an old trip.';
+    console.error('addTrip failed', err);
   }
-  applyTrip(parsed);
-  if(!Object.keys(plans).length){
-    plans = JSON.parse(JSON.stringify(DEFAULT_PLANS));
-    saveState();
-  }
-  activeDay = initialDay();
-  renderAll();
-  updateKmlStatus();
-  e.target.value = '';
 });
+
+document.getElementById('tripSelect').addEventListener('change', (e)=>switchTrip(e.target.value));
+document.getElementById('deleteTripBtn').addEventListener('click', ()=>deleteTrip(tripsIndex.activeTripId));
+document.getElementById('variantSelect').addEventListener('change', (e)=>switchVariant(e.target.value));
+document.getElementById('variantAddBtn').addEventListener('click', addVariant);
+document.getElementById('variantRenameBtn').addEventListener('click', renameVariant);
+document.getElementById('variantDeleteBtn').addEventListener('click', deleteVariant);
 
 document.getElementById('calcBtn').addEventListener('click', calculateRoute);
 document.getElementById('resetDayBtn').addEventListener('click', resetDay);
@@ -1416,18 +1514,10 @@ document.getElementById('viewToggleBtn').addEventListener('click', ()=>{
 });
 document.getElementById('ticketForm').addEventListener('submit', submitTicket);
 
-function loadKml(){
-  try{
-    const raw = localStorage.getItem('norway-kml');
-    return raw ? JSON.parse(raw) : null;
-  }catch(e){ return null; }
-}
-function saveKml(filename, source){
-  try{ localStorage.setItem('norway-kml', JSON.stringify({filename, source})); }
-  catch(e){ console.error('save failed', e); }
-}
-
 // Parses a Google My Maps KML export into the app's trip structure.
+// NOTE: parsing must stay deterministic (same id-assignment order) — stored
+// variants reference place ids that are re-derived from the immutable
+// trip source on every load.
 // Expected layout: one <Folder> per day whose <name> may carry the day
 // number ("day 3" / "יום 3") and a date ("Sun, 16 Aug 2026"); the folder's
 // last placemark is that night's accommodation, repeated across folders
@@ -1491,7 +1581,13 @@ function parseKmlTrip(xmlText){
   });
 
   if(!places.length) throw new Error('no places found — is this a Google My Maps KML export?');
-  return {places, plans: dayPlans, dayDates};
+  // Document's own <name> (direct child only — a descendant query would
+  // grab the first folder's name when the Document is unnamed).
+  const docEl = doc.getElementsByTagName('Document')[0];
+  const docName = docEl
+    ? (Array.from(docEl.childNodes).find(n=>n.nodeName === 'name')?.textContent || '').trim()
+    : '';
+  return {places, plans: dayPlans, dayDates, docName};
 }
 
 // Installs a parsed trip as the active one and re-derives everything
@@ -1507,28 +1603,188 @@ function applyTrip(parsed){
 }
 
 function updateKmlStatus(){
-  const kml = loadKml();
-  document.getElementById('kmlStatus').textContent = kml && PLACES.length
-    ? `${kml.filename} · ${PLACES.length} places · ${DAYS.length} days`
+  const trip = activeTrip();
+  document.getElementById('kmlStatus').textContent = trip && PLACES.length
+    ? `${trip.filename} · ${PLACES.length} places · ${DAYS.length} days`
     : 'No trip loaded yet — upload a Google My Maps KML export.';
 }
 
+// Creates the trip's storage (src blob, empty Main variant, index entry).
+// Throws if the source can't be stored; does not switch to the new trip.
+function addTrip(name, filename, source){
+  const tripId = newId(), variantId = newId();
+  localStorage.setItem(`norway-trip-src:${tripId}`, source); // may throw on quota
+  try{
+    localStorage.setItem(variantKey(tripId, variantId), JSON.stringify({plans: null, dayMeta: {}}));
+  }catch(e){ console.error('save failed', e); }
+  tripsIndex.trips[tripId] = {
+    name, filename,
+    activeVariantId: variantId,
+    variants: {[variantId]: 'Main'},
+    lastVisit: null,
+  };
+  saveTripsIndex();
+  return tripId;
+}
+
+// Applies an empty trip (no places) — used when the last trip is deleted.
+function clearActiveTrip(){
+  applyTrip({places: [], plans: {}, dayDates: {}});
+  plans = {};
+  dayMeta = {};
+  lastRoute = null;
+}
+
+function switchTrip(tripId){
+  tripsIndex.activeTripId = tripId;
+  saveTripsIndex();
+  lastRoute = null;
+  const trip = activeTrip();
+  if(!trip){
+    clearActiveTrip();
+    renderAll();
+    return;
+  }
+  try{
+    const source = localStorage.getItem(`norway-trip-src:${tripId}`);
+    if(source === null) throw new Error('trip data is missing from storage');
+    applyTrip(parseKmlTrip(source));
+  }catch(e){
+    clearActiveTrip();
+    renderAll();
+    document.getElementById('errorNote').textContent = 'Could not load trip: ' + e.message;
+    return;
+  }
+  loadVariant();
+  activeDay = initialDay();
+  renderAll();
+}
+
+function deleteTrip(tripId){
+  const trip = tripsIndex.trips[tripId];
+  if(!trip) return;
+  if(!confirm(`Delete trip "${trip.name}" and all its plan variants? This can't be undone.`)) return;
+  delete tripsIndex.trips[tripId];
+  const next = Object.keys(tripsIndex.trips)[0] || null;
+  tripsIndex.activeTripId = next;
+  saveTripsIndex();
+  // index is committed; now sweep blobs (prefix sweep self-heals orphans)
+  localStorage.removeItem(`norway-trip-src:${tripId}`);
+  Object.keys(localStorage)
+    .filter(k=>k.startsWith(`norway-variant:${tripId}:`))
+    .forEach(k=>localStorage.removeItem(k));
+  switchTrip(next);
+}
+
+function addVariant(){
+  const trip = activeTrip();
+  if(!trip) return;
+  const name = prompt('Name for the new variant (a copy of the current one):',
+    'Variant ' + (Object.keys(trip.variants).length + 1));
+  if(!name || !name.trim()) return;
+  const variantId = newId();
+  try{
+    localStorage.setItem(
+      variantKey(tripsIndex.activeTripId, variantId),
+      JSON.stringify({plans: JSON.parse(JSON.stringify(plans)), dayMeta: JSON.parse(JSON.stringify(dayMeta))})
+    );
+  }catch(e){ console.error('save failed', e); return; }
+  trip.variants[variantId] = name.trim();
+  trip.activeVariantId = variantId;
+  saveTripsIndex();
+  loadVariant();
+  lastRoute = null;
+  renderAll();
+}
+
+function switchVariant(variantId){
+  const trip = activeTrip();
+  if(!trip || !trip.variants[variantId]) return;
+  trip.activeVariantId = variantId;
+  saveTripsIndex();
+  loadVariant();
+  lastRoute = null;
+  renderAll();
+}
+
+function deleteVariant(){
+  const trip = activeTrip();
+  if(!trip || Object.keys(trip.variants).length < 2) return;
+  const variantId = trip.activeVariantId;
+  if(!confirm(`Delete plan variant "${trip.variants[variantId]}"? This can't be undone.`)) return;
+  delete trip.variants[variantId];
+  trip.activeVariantId = Object.keys(trip.variants)[0];
+  saveTripsIndex();
+  localStorage.removeItem(variantKey(tripsIndex.activeTripId, variantId));
+  loadVariant();
+  lastRoute = null;
+  renderAll();
+}
+
+function renameVariant(){
+  const trip = activeTrip();
+  if(!trip) return;
+  const name = prompt('Rename this variant:', trip.variants[trip.activeVariantId]);
+  if(!name || !name.trim()) return;
+  trip.variants[trip.activeVariantId] = name.trim();
+  saveTripsIndex();
+  renderAll();
+}
+
+function renderTripUi(){
+  const trip = activeTrip();
+  const tripIds = Object.keys(tripsIndex.trips);
+
+  const tripRow = document.getElementById('tripRow');
+  tripRow.style.display = tripIds.length ? '' : 'none';
+  const tripSel = document.getElementById('tripSelect');
+  tripSel.style.display = tripIds.length > 1 ? '' : 'none';
+  tripSel.innerHTML = '';
+  tripIds.forEach(id=>{
+    const opt = document.createElement('option');
+    opt.value = id;
+    opt.textContent = tripsIndex.trips[id].name;
+    opt.selected = id === tripsIndex.activeTripId;
+    tripSel.appendChild(opt);
+  });
+
+  const tools = document.getElementById('variantTools');
+  tools.style.display = trip ? '' : 'none';
+  if(trip){
+    const varSel = document.getElementById('variantSelect');
+    varSel.innerHTML = '';
+    Object.entries(trip.variants).forEach(([id, name])=>{
+      const opt = document.createElement('option');
+      opt.value = id;
+      opt.textContent = name;
+      opt.selected = id === trip.activeVariantId;
+      varSel.appendChild(opt);
+    });
+    document.getElementById('variantDeleteBtn').style.display =
+      Object.keys(trip.variants).length > 1 ? '' : 'none';
+  }
+}
+
 (function start(){
-  loadMeta();
+  migrateLegacyStorage();
+  loadTripsIndex();
   initMap();
   watchLocation();
-  const kml = loadKml();
-  if(kml){
+  let loadError = '';
+  if(activeTrip()){
     try{
-      applyTrip(parseKmlTrip(kml.source));
-      if(!loadState()) plans = JSON.parse(JSON.stringify(DEFAULT_PLANS));
+      const source = localStorage.getItem(`norway-trip-src:${tripsIndex.activeTripId}`);
+      if(source === null) throw new Error('trip data is missing from storage');
+      applyTrip(parseKmlTrip(source));
+      loadVariant();
       activeDay = initialDay();
     }catch(e){
-      document.getElementById('errorNote').textContent = 'Could not load stored trip: ' + e.message;
+      clearActiveTrip();
+      loadError = 'Could not load stored trip: ' + e.message;
     }
   }
   renderAll();
-  updateKmlStatus();
+  if(loadError) document.getElementById('errorNote').textContent = loadError;
   setMobileSection(mobileSection);
 })();
 </script>
