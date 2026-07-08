@@ -33,6 +33,12 @@ fi
 # Auth-related env vars (auth-and-sharing effort) are passed through when
 # present. AUTH_DEV_FAKE is deliberately never forwarded — dev-only escape
 # hatch that must not exist in production.
+#
+# IMPORTANT: this script replaces the Lambda's entire environment on every
+# run (update-function-configuration is not additive). SESSION_SECRET must
+# therefore be a *stable* value you export the same way every deploy (e.g.
+# keep it in a gitignored local var/secrets file) — regenerating it each
+# run silently invalidates every signed-in user's session.
 LAMBDA_ENV="ORS_API_KEY=$ORS_API_KEY"
 for var in SESSION_SECRET GOOGLE_CLIENT_ID ADMIN_EMAILS ADMIN_TOKEN USERS_TABLE; do
   if [[ -n "${!var:-}" ]]; then

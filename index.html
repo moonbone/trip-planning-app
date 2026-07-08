@@ -610,6 +610,7 @@
     <span class="user-badge" id="userBadge" style="display:none;"></span>
     <button class="view-toggle-btn" id="backofficeBtn" style="display:none;">Backoffice</button>
     <button class="view-toggle-btn" id="signInBtn" style="display:none;">Sign in</button>
+    <div id="googleBtnContainer" style="display:none;"></div>
     <button class="view-toggle-btn" id="signOutBtn" style="display:none;">Sign out</button>
     <button class="view-toggle-btn" id="viewToggleBtn">Feature requests</button>
   </div>
@@ -1905,19 +1906,34 @@ function renderAuthUi(){
   const badge = document.getElementById('userBadge');
   const signIn = document.getElementById('signInBtn');
   const signOut = document.getElementById('signOutBtn');
+  const googleBtn = document.getElementById('googleBtnContainer');
   if(currentUser){
     badge.style.display = '';
     badge.innerHTML = (currentUser.isAdmin ? '<span class="admin-tag">admin</span> ' : '')
       + escapeHtml(currentUser.user.name || currentUser.user.email);
     badge.title = currentUser.user.email;
     signIn.style.display = 'none';
+    googleBtn.style.display = 'none';
     signOut.style.display = '';
     document.getElementById('backofficeBtn').style.display = currentUser.isAdmin ? '' : 'none';
   }else{
     document.getElementById('backofficeBtn').style.display = 'none';
     badge.style.display = 'none';
-    signIn.style.display = authConfig && (authConfig.googleClientId || authConfig.devAuth) ? '' : 'none';
     signOut.style.display = 'none';
+    if(authConfig && authConfig.googleClientId){
+      // The real Google-rendered button opens the full account chooser
+      // ("Use another account", any email) — One Tap alone can't do that,
+      // it only lists accounts already signed into this browser.
+      signIn.style.display = 'none';
+      googleBtn.style.display = '';
+      renderGoogleButton();
+    }else if(authConfig && authConfig.devAuth){
+      signIn.style.display = '';
+      googleBtn.style.display = 'none';
+    }else{
+      signIn.style.display = 'none';
+      googleBtn.style.display = 'none';
+    }
   }
 }
 
@@ -1937,10 +1953,29 @@ async function submitCredential(credential){
   }
 }
 
-function startGoogleSignIn(){
-  const s = document.createElement('script');
-  s.src = 'https://accounts.google.com/gsi/client';
-  s.onload = ()=>{
+function loadGoogleIdentityScript(){
+  return new Promise((resolve, reject)=>{
+    if(window.google && google.accounts && google.accounts.id){ resolve(); return; }
+    const existing = document.getElementById('gsiScript');
+    if(existing){
+      existing.addEventListener('load', ()=>resolve());
+      existing.addEventListener('error', ()=>reject(new Error('failed to load Google script')));
+      return;
+    }
+    const s = document.createElement('script');
+    s.id = 'gsiScript';
+    s.src = 'https://accounts.google.com/gsi/client';
+    s.onload = ()=>resolve();
+    s.onerror = ()=>reject(new Error('failed to load Google script'));
+    document.head.appendChild(s);
+  });
+}
+
+let googleButtonRendered = false;
+async function renderGoogleButton(){
+  if(googleButtonRendered) return;
+  try{
+    await loadGoogleIdentityScript();
     google.accounts.id.initialize({
       client_id: authConfig.googleClientId,
       callback: (resp)=>{
@@ -1948,15 +1983,20 @@ function startGoogleSignIn(){
           .catch(e=>alert('Sign-in failed: ' + e.message));
       },
     });
+    google.accounts.id.renderButton(document.getElementById('googleBtnContainer'), {
+      theme:'outline', size:'medium', text:'signin_with', shape:'pill',
+    });
+    googleButtonRendered = true;
+    // Opportunistic One Tap alongside the button — pure convenience, doesn't
+    // replace the button's full "use another account" chooser.
     google.accounts.id.prompt();
-  };
-  document.head.appendChild(s);
+  }catch(e){
+    console.error('Google sign-in button failed to load', e);
+  }
 }
 
 document.getElementById('signInBtn').addEventListener('click', ()=>{
-  if(authConfig && authConfig.googleClientId){
-    startGoogleSignIn();
-  }else if(authConfig && authConfig.devAuth){
+  if(authConfig && authConfig.devAuth){
     const email = prompt('Dev sign-in — email:');
     if(!email) return;
     submitCredential('dev:' + email.trim())
