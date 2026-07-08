@@ -956,6 +956,7 @@ async function importLocalTrips(email){
   if(!ids.length) return;
   localStorage.setItem(offeredKey, '1');
   if(!confirm(`Import ${ids.length} local trip${ids.length>1?'s':''} from this browser into your account?`)) return;
+  const imported = [];
   for(const id of ids){
     const t = localIdx.trips[id];
     const source = localStorage.getItem('norway-trip-src:' + id);
@@ -983,9 +984,28 @@ async function importLocalTrips(email){
           });
         }
       }
+      imported.push(id);
     }catch(e){
       document.getElementById('errorNote').textContent = `Import of "${t.name}" failed: ` + e.message;
     }
+  }
+  // The local copies are now duplicates of what the account holds — offer
+  // to clean them up so signed-out mode doesn't show a stale fork.
+  if(imported.length && confirm(
+    `Imported ${imported.length} trip${imported.length>1?'s':''}. Remove the local ` +
+    `cop${imported.length>1?'ies':'y'} from this browser? Your account holds them now ` +
+    `(signed-out mode will start empty).`
+  )){
+    imported.forEach(id=>{
+      delete localIdx.trips[id];
+      localStorage.removeItem('norway-trip-src:' + id);
+      Object.keys(localStorage)
+        .filter(k=>k.startsWith(`norway-variant:${id}:`))
+        .forEach(k=>localStorage.removeItem(k));
+    });
+    localIdx.activeTripId = Object.keys(localIdx.trips)[0] || null;
+    try{ localStorage.setItem('norway-trips', JSON.stringify(localIdx)); }
+    catch(e){ console.error('save failed', e); }
   }
 }
 
@@ -1000,6 +1020,9 @@ async function enterRemoteMode(email){
 function exitRemoteMode(){
   remoteMode = false;
   remoteVersions = {}; remoteSources = {}; remoteVariantState = {};
+  clearTimeout(syncTimer);
+  // account-scoped prefs don't belong in a signed-out browser
+  localStorage.removeItem('norway-remote-prefs');
   loadTripsIndex();
   activateCurrentTrip();
 }
