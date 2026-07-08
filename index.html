@@ -478,6 +478,25 @@
     white-space:nowrap;
   }
   .view-toggle-btn:hover{background:var(--accent-light);}
+  .header-actions{
+    display:flex;
+    align-items:center;
+    gap:8px;
+    flex-shrink:0;
+  }
+  .user-badge{
+    font-family:'IBM Plex Mono',monospace;
+    font-size:11px;
+    color:var(--ink-soft);
+    max-width:220px;
+    overflow:hidden;
+    text-overflow:ellipsis;
+    white-space:nowrap;
+  }
+  .user-badge .admin-tag{
+    color:var(--rust);
+    font-weight:600;
+  }
   .tickets-view{
     display:grid;
     grid-template-columns:380px 1fr;
@@ -587,7 +606,12 @@
     <h1>Norway 2026 — Route Planner</h1>
     <p>Pick places for each day, reorder them, get real driving times.</p>
   </div>
-  <button class="view-toggle-btn" id="viewToggleBtn">Feature requests</button>
+  <div class="header-actions">
+    <span class="user-badge" id="userBadge" style="display:none;"></span>
+    <button class="view-toggle-btn" id="signInBtn" style="display:none;">Sign in</button>
+    <button class="view-toggle-btn" id="signOutBtn" style="display:none;">Sign out</button>
+    <button class="view-toggle-btn" id="viewToggleBtn">Feature requests</button>
+  </div>
 </header>
 
 <div class="tabs" id="tabs"></div>
@@ -1512,6 +1536,85 @@ document.querySelectorAll('.mobile-tab-btn').forEach(btn=>{
 document.getElementById('viewToggleBtn').addEventListener('click', ()=>{
   setView(currentView === 'planner' ? 'tickets' : 'planner');
 });
+
+// ---- Auth (auth-and-sharing phase 2) ----
+// Signed-out users get the full localStorage planner unchanged; signing in
+// is opt-in and (in later phases) enables server sync and sharing.
+let authConfig = null;
+let currentUser = null; // {user:{email,name}, isAdmin}
+
+function renderAuthUi(){
+  const badge = document.getElementById('userBadge');
+  const signIn = document.getElementById('signInBtn');
+  const signOut = document.getElementById('signOutBtn');
+  if(currentUser){
+    badge.style.display = '';
+    badge.innerHTML = (currentUser.isAdmin ? '<span class="admin-tag">admin</span> ' : '')
+      + escapeHtml(currentUser.user.name || currentUser.user.email);
+    badge.title = currentUser.user.email;
+    signIn.style.display = 'none';
+    signOut.style.display = '';
+  }else{
+    badge.style.display = 'none';
+    signIn.style.display = authConfig && (authConfig.googleClientId || authConfig.devAuth) ? '' : 'none';
+    signOut.style.display = 'none';
+  }
+}
+
+async function submitCredential(credential){
+  const res = await fetch('/auth/google', {
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({credential})
+  });
+  const data = await res.json().catch(()=>({}));
+  if(!res.ok) throw new Error(data.error || ('HTTP ' + res.status));
+  currentUser = data;
+  renderAuthUi();
+}
+
+function startGoogleSignIn(){
+  const s = document.createElement('script');
+  s.src = 'https://accounts.google.com/gsi/client';
+  s.onload = ()=>{
+    google.accounts.id.initialize({
+      client_id: authConfig.googleClientId,
+      callback: (resp)=>{
+        submitCredential(resp.credential)
+          .catch(e=>alert('Sign-in failed: ' + e.message));
+      },
+    });
+    google.accounts.id.prompt();
+  };
+  document.head.appendChild(s);
+}
+
+document.getElementById('signInBtn').addEventListener('click', ()=>{
+  if(authConfig && authConfig.googleClientId){
+    startGoogleSignIn();
+  }else if(authConfig && authConfig.devAuth){
+    const email = prompt('Dev sign-in — email:');
+    if(!email) return;
+    submitCredential('dev:' + email.trim())
+      .catch(e=>alert('Sign-in failed: ' + e.message));
+  }
+});
+document.getElementById('signOutBtn').addEventListener('click', async ()=>{
+  try{ await fetch('/auth/logout', {method:'POST'}); }catch(e){}
+  currentUser = null;
+  renderAuthUi();
+});
+
+async function initAuth(){
+  try{
+    authConfig = await fetch('/auth/config').then(r=>r.ok ? r.json() : null);
+  }catch(e){ authConfig = null; }
+  try{
+    const res = await fetch('/me');
+    if(res.ok) currentUser = await res.json();
+  }catch(e){ /* stay signed out */ }
+  renderAuthUi();
+}
 document.getElementById('ticketForm').addEventListener('submit', submitTicket);
 
 // Parses a Google My Maps KML export into the app's trip structure.
@@ -1786,6 +1889,7 @@ function renderTripUi(){
   renderAll();
   if(loadError) document.getElementById('errorNote').textContent = loadError;
   setMobileSection(mobileSection);
+  initAuth();
 })();
 </script>
 </body>

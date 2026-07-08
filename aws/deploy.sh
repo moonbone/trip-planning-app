@@ -30,6 +30,16 @@ if [[ -z "${ORS_API_KEY:-}" ]]; then
   exit 1
 fi
 
+# Auth-related env vars (auth-and-sharing effort) are passed through when
+# present. AUTH_DEV_FAKE is deliberately never forwarded — dev-only escape
+# hatch that must not exist in production.
+LAMBDA_ENV="ORS_API_KEY=$ORS_API_KEY"
+for var in SESSION_SECRET GOOGLE_CLIENT_ID ADMIN_EMAILS ADMIN_TOKEN USERS_TABLE; do
+  if [[ -n "${!var:-}" ]]; then
+    LAMBDA_ENV="$LAMBDA_ENV,$var=${!var}"
+  fi
+done
+
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$REPO_ROOT"
 
@@ -39,6 +49,8 @@ mkdir build
 cp aws/handler.mjs build/index.mjs
 cp aws/validate.mjs build/validate.mjs
 cp aws/tickets-db.mjs build/tickets-db.mjs
+cp aws/auth.mjs build/auth.mjs
+cp aws/store.mjs build/store.mjs
 cp index.html build/index.html
 (cd build && zip -qr ../function.zip .)
 rm -rf build
@@ -69,7 +81,7 @@ if aws lambda get-function --function-name "$FUNCTION_NAME" --region "$REGION" >
 
   aws lambda update-function-configuration \
     --function-name "$FUNCTION_NAME" \
-    --environment "Variables={ORS_API_KEY=$ORS_API_KEY}" \
+    --environment "Variables={$LAMBDA_ENV}" \
     --region "$REGION" >/dev/null
   aws lambda wait function-updated --function-name "$FUNCTION_NAME" --region "$REGION"
 else
@@ -81,7 +93,7 @@ else
     --zip-file fileb://function.zip \
     --timeout 10 \
     --memory-size 256 \
-    --environment "Variables={ORS_API_KEY=$ORS_API_KEY}" \
+    --environment "Variables={$LAMBDA_ENV}" \
     --region "$REGION" >/dev/null
   aws lambda wait function-active --function-name "$FUNCTION_NAME" --region "$REGION"
 fi

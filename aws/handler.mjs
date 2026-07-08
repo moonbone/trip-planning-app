@@ -11,6 +11,11 @@ import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { validateTicket, validateStatus } from './validate.mjs';
 import { createTicket, listTickets, updateTicketStatus, isAvailable as ticketsAvailable, STATUSES } from './tickets-db.mjs';
+import {
+  verifyGoogleCredential, createSessionToken, sessionFromEvent,
+  sessionSetCookie, sessionClearCookie, isAdminEmail,
+} from './auth.mjs';
+import { upsertUser } from './store.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 // deploy.sh copies the repo's index.html next to this file before zipping,
@@ -42,6 +47,43 @@ export const handler = async (event) => {
     if (method === 'POST') {
       return handleRoute(event);
     }
+  }
+
+  if (method === 'GET' && rawPath === '/auth/config') {
+    return {
+      statusCode: 200,
+      headers: { ...JSON_HEADERS, ...corsHeaders() },
+      body: JSON.stringify({
+        googleClientId: process.env.GOOGLE_CLIENT_ID || null,
+        devAuth: process.env.AUTH_DEV_FAKE === '1',
+      }),
+    };
+  }
+
+  if (method === 'POST' && rawPath === '/auth/google') {
+    return handleGoogleLogin(event);
+  }
+
+  if (method === 'POST' && rawPath === '/auth/logout') {
+    return {
+      statusCode: 200,
+      cookies: [sessionClearCookie()],
+      headers: { ...JSON_HEADERS, ...corsHeaders() },
+      body: JSON.stringify({ ok: true }),
+    };
+  }
+
+  if (method === 'GET' && rawPath === '/me') {
+    const session = sessionFromEvent(event, process.env.SESSION_SECRET);
+    if (!session) return jsonError(401, 'Not signed in');
+    return {
+      statusCode: 200,
+      headers: { ...JSON_HEADERS, ...corsHeaders() },
+      body: JSON.stringify({
+        user: { email: session.email, name: session.name },
+        isAdmin: isAdminEmail(session.email),
+      }),
+    };
   }
 
   if (rawPath === '/tickets') {
@@ -107,6 +149,46 @@ async function handleRoute(event) {
   } catch (e) {
     return jsonError(502, 'Upstream request failed: ' + e.message);
   }
+}
+
+async function handleGoogleLogin(event) {
+  if (!process.env.SESSION_SECRET) {
+    return jsonError(503, 'Sign-in is not configured on this server (missing SESSION_SECRET).');
+  }
+  let body;
+  try {
+    body = JSON.parse(event.body || '{}');
+  } catch {
+    return jsonError(400, 'Invalid JSON body');
+  }
+  if (!body.credential || typeof body.credential !== 'string') {
+    return jsonError(400, 'Missing credential');
+  }
+  let identity;
+  try {
+    identity = await verifyGoogleCredential(body.credential, process.env.GOOGLE_CLIENT_ID);
+  } catch (e) {
+    return jsonError(401, 'Sign-in failed: ' + e.message);
+  }
+  let user;
+  try {
+    user = await upsertUser(identity);
+  } catch (e) {
+    console.error('upsertUser failed', e);
+    return jsonError(500, 'Could not save user');
+  }
+  if (user.disabled) {
+    return jsonError(403, 'This account is disabled.');
+  }
+  return {
+    statusCode: 200,
+    cookies: [sessionSetCookie(createSessionToken(user, process.env.SESSION_SECRET))],
+    headers: { ...JSON_HEADERS, ...corsHeaders() },
+    body: JSON.stringify({
+      user: { email: user.email, name: user.name },
+      isAdmin: isAdminEmail(user.email),
+    }),
+  };
 }
 
 function handleListTickets() {

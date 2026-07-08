@@ -18,6 +18,19 @@
       "Resource": "arn:aws:lambda:*:*:function:norway-route-app"
     },
     {
+      "Sid": "CloudFrontManage",
+      "Effect": "Allow",
+      "Action": [
+        "cloudfront:CreateDistribution",
+        "cloudfront:GetDistribution",
+        "cloudfront:GetDistributionConfig",
+        "cloudfront:UpdateDistribution",
+        "cloudfront:ListDistributions",
+        "cloudfront:TagResource"
+      ],
+      "Resource": "*"
+    },
+    {
       "Sid": "IAMRoleForLambda",
       "Effect": "Allow",
       "Action": [

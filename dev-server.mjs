@@ -42,6 +42,8 @@ const requestListener = async (req, res) => {
     body,
   });
 
+  // Lambda Function URL responses carry cookies in a dedicated array.
+  if (result.cookies) res.setHeader('Set-Cookie', result.cookies);
   res.writeHead(result.statusCode, result.headers);
   res.end(result.body);
 };
