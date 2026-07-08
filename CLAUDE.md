@@ -16,9 +16,15 @@ select/reorder stops per day, and calls a routing API to get real driving times.
 
 ## Architecture
 - `index.html` — the whole frontend. Vanilla JS + Leaflet (OSM tiles, no key needed).
-  Persists day-plan selections in `localStorage`. Calls `PROXY_URL` (currently `/route`,
-  relative — assumes same-origin hosting) for routing, falls back to public OSRM demo
-  servers if the proxy fails. Below 860px width, the 3-column layout collapses to a
+  Trip data comes from a user-uploaded Google My Maps KML export, parsed client-side
+  (`parseKmlTrip`) and stored raw in `localStorage` (`norway-kml`) — the server never
+  sees it, and there is no server-side places endpoint anymore. All trip structure is
+  derived from the KML: one `<Folder>` per day; folder names carry the day number
+  ("day N"/"יום N") and date; the folder's **last placemark** is that night's
+  accommodation (marked `overnight`, pinned to route start/end). Places are deduped by
+  name+coords across folders. Day-plan selections also persist in `localStorage`.
+  Calls `PROXY_URL` (currently `/route`, relative — assumes same-origin hosting) for
+  routing, falls back to public OSRM demo servers if the proxy fails. Below 860px width, the 3-column layout collapses to a
   single column switched via a bottom tab bar (Places / Route / Summary); Leaflet needs
   `map.invalidateSize()` after its container is unhidden, which `setMobileSection` calls.
   A header toggle switches the whole page between this planner view and the feature-request
@@ -69,8 +75,9 @@ select/reorder stops per day, and calls a routing API to get real driving times.
   `dev-server.mjs` + router port forwarding (not Lambda). Don't assume AWS is the live
   deployment target — ask which is current if it matters.
 - Day 11 (Loen → Ålesund → Bergen → TLV) is entirely unplanned.
-- The KML has Eidfjord and DolceVidda at identical coordinates — probably one place,
-  not two; not yet resolved either way in the app data.
+- The KML has Eidfjord and DolceVidda at *nearly* identical (but distinct)
+  coordinates, so the importer keeps them as two places — probably one real-world
+  stop; not yet resolved.
 
 ## If asked to deploy
 Confirm `ORS_API_KEY` is set in the environment (don't ask the user to paste it into

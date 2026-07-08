@@ -111,6 +111,23 @@
     color:var(--ink-soft);
     margin:0 0 10px;
   }
+  .kml-panel{
+    display:flex;
+    flex-direction:column;
+    gap:8px;
+    padding:10px;
+    border:1px dashed var(--border-strong);
+    border-radius:8px;
+    margin-bottom:16px;
+  }
+  .kml-panel .source-note{margin-top:0;}
+  .kml-panel .error-note{margin-top:0;}
+  .kml-panel .error-note:empty{display:none;}
+  .kml-panel input[type="file"]{
+    font-size:12px;
+    color:var(--ink-soft);
+    max-width:100%;
+  }
   .place-item{
     display:flex;
     align-items:center;
@@ -564,6 +581,12 @@
 
 <main id="plannerMain">
   <div class="col col-left">
+    <p class="section-label">Trip file</p>
+    <div class="kml-panel">
+      <p class="source-note" id="kmlStatus"></p>
+      <input type="file" id="kmlFileInput" accept=".kml,.xml">
+      <div class="error-note" id="kmlError"></div>
+    </div>
     <p class="section-label">All places</p>
     <div id="masterList"></div>
   </div>
@@ -628,10 +651,10 @@
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
 <script>
-// Place data (names/coordinates) is not committed to this repo — it's
-// personal trip itinerary info. It's fetched at startup from PLACES_URL,
-// which the server reads from the gitignored data/places.json (see
-// data/places.example.json for the expected shape).
+// Place data (names/coordinates) never touches the server — it's personal
+// trip itinerary info. The user uploads a Google My Maps KML export, which
+// is parsed client-side and stored in localStorage; all trip structure
+// (days, plans, hotels, dates) is derived from it at load time.
 let PLACES = [];
 let byId = {};
 
@@ -642,19 +665,13 @@ let byId = {};
 // change this to an absolute URL instead, e.g. "https://your-proxy.example.com/route".
 const PROXY_URL = "/route";
 const TICKETS_URL = "/tickets";
-const PLACES_URL = "/places";
 // ----------------------------
 
-// default day plans mirror the original KML day groupings (hotels reused across days)
-const DEFAULT_PLANS = {
-  1:[1,2,3,4], 2:[5,6,7,8,9,10,11], 3:[12,11], 4:[13,14,15,16,17,18,11],
-  5:[19,20,21,22,23,24], 6:[25,24], 7:[26,27,28,29,30,31,32,33,34],
-  8:[35,36,34], 9:[37,38,39,40,41,42,43,44,45,46,34], 10:[47,48,49,50,51,34],
-};
-const DAYS = [1,2,3,4,5,6,7,8,9,10];
-// Date of Day 1. Single trip-level constant — should move into the trip
-// data when the KML upload feature lands.
-const TRIP_START = '2026-08-14';
+// All trip structure is derived from the uploaded KML at load time.
+let DEFAULT_PLANS = {}; // day -> ordered place ids, as grouped in the KML folders
+let DAYS = [];          // day numbers present in the trip, sorted
+let DAY_DATES = {};     // day -> 'YYYY-MM-DD' parsed from KML folder names
+let TRIP_START = null;  // date of Day 1 (from DAY_DATES)
 
 // Where the night after each day is spent, derived from the places data:
 // a place marked "overnight" sets the hotel for its day, and carries
@@ -682,7 +699,7 @@ function isLoopDay(day){
 // automatically, so they're excluded from the editable list.
 function dayStops(day){
   const wake = wakeHotelId(day), sleep = sleepHotelId(day);
-  return plans[day].filter(id=>id!==wake && id!==sleep);
+  return (plans[day] || []).filter(id=>id!==wake && id!==sleep);
 }
 // The actual sequence sent to the routing API.
 function getRouteIds(day){
@@ -694,7 +711,7 @@ function getRouteIds(day){
   return ids;
 }
 
-let plans = JSON.parse(JSON.stringify(DEFAULT_PLANS));
+let plans = {};
 // Per-day schedule settings: {start:'HH:MM', stay:{placeId:minutes}}
 let dayMeta = {};
 let lastRoute = null; // {day, ids, route} from the most recent calculation
@@ -708,8 +725,9 @@ let currentView = 'planner';
 function loadState(){
   try{
     const raw = localStorage.getItem('norway-day-plans');
-    if(raw){ plans = JSON.parse(raw); }
+    if(raw){ plans = JSON.parse(raw); return true; }
   }catch(e){ /* no saved state yet, use defaults */ }
+  return false;
 }
 function saveState(){
   try{ localStorage.setItem('norway-day-plans', JSON.stringify(plans)); }
@@ -743,12 +761,18 @@ function todayStr(){
 // Day tab to open on load: the tab used earlier today if any, else the
 // trip day matching today's date, else Day 1.
 function initialDay(){
+  const today = todayStr();
   try{
     const saved = JSON.parse(localStorage.getItem('norway-last-visit'));
-    if(saved && saved.date === todayStr() && DAYS.includes(saved.day)) return saved.day;
+    if(saved && saved.date === today && DAYS.includes(saved.day)) return saved.day;
   }catch(e){ /* no saved visit */ }
-  const diff = Math.round((new Date(todayStr()) - new Date(TRIP_START)) / 86400000) + 1;
-  return DAYS.includes(diff) ? diff : 1;
+  const byDate = DAYS.find(d=>DAY_DATES[d] === today);
+  if(byDate) return byDate;
+  if(TRIP_START){
+    const diff = Math.round((new Date(today) - new Date(TRIP_START)) / 86400000) + 1;
+    if(DAYS.includes(diff)) return diff;
+  }
+  return DAYS[0] || 1;
 }
 function saveLastVisit(){
   try{ localStorage.setItem('norway-last-visit', JSON.stringify({date: todayStr(), day: activeDay})); }
@@ -811,6 +835,10 @@ function renderTabs(){
 function renderMasterList(){
   const el = document.getElementById('masterList');
   el.innerHTML = '';
+  if(!PLACES.length){
+    el.innerHTML = '<div class="empty-note">No trip loaded — upload your KML export above.</div>';
+    return;
+  }
   DAYS.forEach(d=>{
     const heading = document.createElement('div');
     heading.className = 'day-group-heading';
@@ -827,7 +855,7 @@ function renderMasterList(){
         el.appendChild(row);
         return;
       }
-      const isSelected = plans[activeDay].includes(p.id);
+      const isSelected = (plans[activeDay] || []).includes(p.id);
       const row = document.createElement('div');
       row.className = 'place-item' + (isSelected ? ' selected' : '');
       row.innerHTML = `<span class="name">${p.name}</span><span class="day-badge">D${p.day}</span>`;
@@ -836,6 +864,7 @@ function renderMasterList(){
       btn.textContent = isSelected ? '✓' : '+';
       btn.title = isSelected ? 'Remove from Day ' + activeDay : 'Add to Day ' + activeDay;
       btn.onclick = ()=>{
+        if(!plans[activeDay]) plans[activeDay] = [];
         if(isSelected){
           const idx = plans[activeDay].indexOf(p.id);
           if(idx !== -1) plans[activeDay].splice(idx,1);
@@ -933,7 +962,7 @@ function renderRouteList(){
   if(wake) el.appendChild(hotelRow(wake, 'Start'));
   let pos = 0;
   let prevId = wake;
-  plans[activeDay].forEach((id,i)=>{
+  (plans[activeDay] || []).forEach((id,i)=>{
     if(id===wake || id===sleep) return;
     pos++;
     const p = byId[id];
@@ -1319,6 +1348,57 @@ document.getElementById('dayNavBtn').addEventListener('click', ()=>{
   window.open(`https://www.google.com/maps/dir/?api=1&origin=${origin.lat},${origin.lon}&destination=${dest.lat},${dest.lon}${waypoints}&travelmode=driving`, '_blank', 'noopener');
 });
 
+document.getElementById('kmlFileInput').addEventListener('change', async (e)=>{
+  const file = e.target.files[0];
+  const errEl = document.getElementById('kmlError');
+  errEl.textContent = '';
+  if(!file) return;
+  let text, parsed;
+  try{
+    text = await file.text();
+    parsed = parseKmlTrip(text);
+  }catch(err){
+    errEl.textContent = 'Import failed: ' + err.message;
+    e.target.value = '';
+    return;
+  }
+  // Re-uploading the same trip is a harmless refresh; anything else wipes
+  // day plans and timings, which deserves a confirmation.
+  const sameTrip = PLACES.length === parsed.places.length
+    && PLACES.every((p,i)=>{
+      const q = parsed.places[i];
+      return p.id===q.id && p.name===q.name && p.lat===q.lat && p.lon===q.lon;
+    });
+  const hasSaved = localStorage.getItem('norway-day-plans')
+    || localStorage.getItem('norway-day-meta')
+    || localStorage.getItem('norway-last-visit');
+  if(!sameTrip && hasSaved && PLACES.length && !confirm(
+    `Replace the current trip with "${file.name}" (${parsed.places.length} places)? ` +
+    `This resets your day plans and timings.`
+  )){
+    e.target.value = '';
+    return;
+  }
+  saveKml(file.name, text);
+  if(!sameTrip){
+    localStorage.removeItem('norway-day-plans');
+    localStorage.removeItem('norway-day-meta');
+    localStorage.removeItem('norway-last-visit');
+    plans = {};
+    dayMeta = {};
+    lastRoute = null;
+  }
+  applyTrip(parsed);
+  if(!Object.keys(plans).length){
+    plans = JSON.parse(JSON.stringify(DEFAULT_PLANS));
+    saveState();
+  }
+  activeDay = initialDay();
+  renderAll();
+  updateKmlStatus();
+  e.target.value = '';
+});
+
 document.getElementById('calcBtn').addEventListener('click', calculateRoute);
 document.getElementById('resetDayBtn').addEventListener('click', resetDay);
 document.getElementById('dayStartInput').addEventListener('change', (e)=>{
@@ -1336,30 +1416,119 @@ document.getElementById('viewToggleBtn').addEventListener('click', ()=>{
 });
 document.getElementById('ticketForm').addEventListener('submit', submitTicket);
 
-async function loadPlaces(){
-  const res = await fetch(PLACES_URL);
-  if(!res.ok){
-    const body = await res.json().catch(()=>({}));
-    throw new Error(body.error || `Failed to load places (${res.status})`);
+function loadKml(){
+  try{
+    const raw = localStorage.getItem('norway-kml');
+    return raw ? JSON.parse(raw) : null;
+  }catch(e){ return null; }
+}
+function saveKml(filename, source){
+  try{ localStorage.setItem('norway-kml', JSON.stringify({filename, source})); }
+  catch(e){ console.error('save failed', e); }
+}
+
+// Parses a Google My Maps KML export into the app's trip structure.
+// Expected layout: one <Folder> per day whose <name> may carry the day
+// number ("day 3" / "יום 3") and a date ("Sun, 16 Aug 2026"); the folder's
+// last placemark is that night's accommodation, repeated across folders
+// for multi-night stays. Files without folders import as a single day.
+// Throws when nothing usable is found — callers keep existing state then.
+function parseKmlTrip(xmlText){
+  const doc = new DOMParser().parseFromString(xmlText, 'text/xml');
+  if(doc.getElementsByTagName('parsererror').length){
+    throw new Error('not a valid XML/KML file');
   }
-  PLACES = await res.json();
+  // tag-based lookups throughout: KML's default namespace breaks querySelector
+  let folders = Array.from(doc.getElementsByTagName('Folder'));
+  const usingFolders = folders.length > 0;
+  if(!usingFolders) folders = [doc];
+
+  const places = [], dayPlans = {}, dayDates = {};
+  const idByKey = {};
+  let nextId = 1;
+
+  folders.forEach((folder, fi)=>{
+    let day = fi + 1;
+    if(usingFolders){
+      const fname = (folder.getElementsByTagName('name')[0]?.textContent || '').trim();
+      const dayMatch = fname.match(/(?:day|יום)\s*(\d+)/i);
+      if(dayMatch) day = Number(dayMatch[1]);
+      const dateMatch = fname.match(/(\d{1,2})\s+([A-Za-z]{3,})\s+(\d{4})/);
+      if(dateMatch){
+        const d = new Date(`${dateMatch[1]} ${dateMatch[2]} ${dateMatch[3]} 12:00`);
+        if(!isNaN(d)){
+          dayDates[day] = d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
+        }
+      }
+    }
+    const ids = [];
+    Array.from(folder.getElementsByTagName('Placemark')).forEach(pm=>{
+      const name = (pm.getElementsByTagName('name')[0]?.textContent || '').trim() || 'Unnamed place';
+      if(!pm.getElementsByTagName('Point').length){
+        console.warn('KML import: skipping non-point placemark:', name);
+        return;
+      }
+      const coordText = pm.getElementsByTagName('coordinates')[0]?.textContent || '';
+      const [lon, lat] = coordText.trim().split(',').map(s=>parseFloat(s.trim()));
+      if(!Number.isFinite(lat) || !Number.isFinite(lon)){
+        console.warn('KML import: skipping placemark with bad coordinates:', name);
+        return;
+      }
+      const key = `${name}|${lat}|${lon}`;
+      if(!(key in idByKey)){
+        idByKey[key] = nextId++;
+        places.push({id: idByKey[key], name, lat, lon, day});
+      }
+      ids.push(idByKey[key]);
+    });
+    if(ids.length){
+      dayPlans[day] = ids;
+      if(usingFolders){
+        const last = places.find(p=>p.id === ids[ids.length-1]);
+        if(last) last.overnight = true;
+      }
+    }
+  });
+
+  if(!places.length) throw new Error('no places found — is this a Google My Maps KML export?');
+  return {places, plans: dayPlans, dayDates};
+}
+
+// Installs a parsed trip as the active one and re-derives everything
+// downstream (indexes, day list, hotels, start date).
+function applyTrip(parsed){
+  PLACES = parsed.places;
   byId = Object.fromEntries(PLACES.map(p=>[p.id,p]));
+  DEFAULT_PLANS = parsed.plans;
+  DAYS = Object.keys(parsed.plans).map(Number).sort((a,b)=>a-b);
+  DAY_DATES = parsed.dayDates;
+  TRIP_START = DAY_DATES[DAYS[0]] || null;
   computeDayHotels();
 }
 
-(async function start(){
-  loadState();
+function updateKmlStatus(){
+  const kml = loadKml();
+  document.getElementById('kmlStatus').textContent = kml && PLACES.length
+    ? `${kml.filename} · ${PLACES.length} places · ${DAYS.length} days`
+    : 'No trip loaded yet — upload a Google My Maps KML export.';
+}
+
+(function start(){
   loadMeta();
-  activeDay = initialDay();
   initMap();
   watchLocation();
-  try{
-    await loadPlaces();
-  }catch(e){
-    document.getElementById('errorNote').textContent = 'Could not load trip places: ' + e.message;
-    return;
+  const kml = loadKml();
+  if(kml){
+    try{
+      applyTrip(parseKmlTrip(kml.source));
+      if(!loadState()) plans = JSON.parse(JSON.stringify(DEFAULT_PLANS));
+      activeDay = initialDay();
+    }catch(e){
+      document.getElementById('errorNote').textContent = 'Could not load stored trip: ' + e.message;
+    }
   }
   renderAll();
+  updateKmlStatus();
   setMobileSection(mobileSection);
 })();
 </script>

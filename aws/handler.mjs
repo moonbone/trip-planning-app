@@ -17,28 +17,8 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 // so this read works both locally and in the deployed package.
 const INDEX_HTML = readFileSync(join(__dirname, 'index.html'), 'utf8');
 
-// Trip location data (place names/coordinates) is gitignored — it's personal
-// itinerary info that shouldn't live in this public repo. Locally it's read
-// from ../data/places.json (see data/places.example.json for the shape);
-// deploy.sh copies that same file in flat next to this handler before
-// zipping, so try both locations. If neither exists (e.g. a fresh clone, or
-// a CI-triggered deploy that never had the file), /places degrades to a
-// clean 503 instead of crashing the whole Lambda on cold start.
-const PLACES_JSON = (() => {
-  const candidates = [
-    process.env.PLACES_PATH,
-    join(__dirname, 'places.json'),
-    join(__dirname, '..', 'data', 'places.json'),
-  ].filter(Boolean);
-  for (const path of candidates) {
-    try {
-      return readFileSync(path, 'utf8');
-    } catch {
-      // try next candidate
-    }
-  }
-  return null;
-})();
+// Trip location data never touches the server: the browser parses a
+// user-uploaded KML client-side and keeps it in localStorage.
 
 // no-store: this app is under active development and this handler serves
 // its own JS inline in the HTML, so a stale cached copy silently keeps
@@ -62,13 +42,6 @@ export const handler = async (event) => {
     if (method === 'POST') {
       return handleRoute(event);
     }
-  }
-
-  if (method === 'GET' && rawPath === '/places') {
-    if (!PLACES_JSON) {
-      return jsonError(503, 'Places data not configured on this deployment (missing data/places.json).');
-    }
-    return { statusCode: 200, headers: { ...JSON_HEADERS, ...corsHeaders() }, body: PLACES_JSON };
   }
 
   if (rawPath === '/tickets') {

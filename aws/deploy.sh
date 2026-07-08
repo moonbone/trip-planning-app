@@ -40,15 +40,6 @@ cp aws/handler.mjs build/index.mjs
 cp aws/validate.mjs build/validate.mjs
 cp aws/tickets-db.mjs build/tickets-db.mjs
 cp index.html build/index.html
-# data/places.json is gitignored (personal trip location data) — bundle it
-# from whatever's on this machine, if present. Deploys triggered from CI
-# (which only has what's in git) won't have it, and /places degrades to a
-# 503 in that case rather than crashing the Lambda; see handler.mjs.
-if [[ -f data/places.json ]]; then
-  cp data/places.json build/places.json
-else
-  echo "WARNING: data/places.json not found locally — deploying without location data (/places will 503)." >&2
-fi
 (cd build && zip -qr ../function.zip .)
 rm -rf build
 
