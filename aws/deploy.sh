@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Deploy the Norway Route Planner to AWS Lambda.
+# Deploy the Trip Planner to AWS Lambda.
 #
 # Requires: AWS CLI configured with credentials that can manage Lambda/IAM
 # (see aws/iam-policy.json for a scoped-down example), and ORS_API_KEY set
@@ -11,7 +11,7 @@
 #
 set -euo pipefail
 
-FUNCTION_NAME="${FUNCTION_NAME:-norway-route-app}"
+FUNCTION_NAME="${FUNCTION_NAME:-trip-planner-app}"
 REGION="${AWS_REGION:-us-east-1}"
 # Feature-request tickets (aws/tickets-db.mjs) are intentionally disabled on
 # this deployment: node:sqlite needs Node 22.5+ and a writable filesystem,
@@ -22,7 +22,7 @@ REGION="${AWS_REGION:-us-east-1}"
 # (dev-server.mjs) for now; a real Lambda deployment would need
 # DynamoDB/RDS/EFS instead of SQLite.
 RUNTIME="nodejs20.x"
-ROLE_NAME="${ROLE_NAME:-norway-route-app-role}"
+ROLE_NAME="${ROLE_NAME:-trip-planner-app-role}"
 
 if [[ -z "${ORS_API_KEY:-}" ]]; then
   echo "ERROR: set ORS_API_KEY in your environment before running this script." >&2
@@ -118,27 +118,27 @@ ensure_table() {
     fi
   fi
 }
-ensure_table norway-app-users \
+ensure_table trip-planner-app-users \
   --attribute-definitions AttributeName=sub,AttributeType=S \
   --key-schema AttributeName=sub,KeyType=HASH
-ensure_table norway-app-trips \
+ensure_table trip-planner-app-trips \
   --attribute-definitions AttributeName=trip_id,AttributeType=S \
   --key-schema AttributeName=trip_id,KeyType=HASH
-ensure_table norway-app-variants \
+ensure_table trip-planner-app-variants \
   --attribute-definitions AttributeName=trip_id,AttributeType=S AttributeName=variant_id,AttributeType=S \
   --key-schema AttributeName=trip_id,KeyType=HASH AttributeName=variant_id,KeyType=RANGE
-ensure_table norway-app-shares \
+ensure_table trip-planner-app-shares \
   --attribute-definitions AttributeName=trip_id,AttributeType=S AttributeName=email,AttributeType=S \
   --key-schema AttributeName=trip_id,KeyType=HASH AttributeName=email,KeyType=RANGE
 
 if ! aws iam put-role-policy --role-name "$ROLE_NAME" \
-    --policy-name norway-app-dynamodb \
+    --policy-name trip-planner-app-dynamodb \
     --policy-document '{
       "Version": "2012-10-17",
       "Statement": [{
         "Effect": "Allow",
         "Action": ["dynamodb:GetItem","dynamodb:PutItem","dynamodb:UpdateItem","dynamodb:DeleteItem","dynamodb:Query","dynamodb:Scan"],
-        "Resource": "arn:aws:dynamodb:*:*:table/norway-app-*"
+        "Resource": "arn:aws:dynamodb:*:*:table/trip-planner-app-*"
       }]
     }' >/dev/null 2>&1; then
   echo "    WARNING: could not attach DynamoDB policy to $ROLE_NAME (missing iam:PutRolePolicy?)" >&2

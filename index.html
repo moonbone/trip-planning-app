@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Norway 2026 — Route Planner</title>
+<title>Trip Planner</title>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css" />
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600;9..144,700&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
@@ -603,7 +603,7 @@
 
 <header>
   <div>
-    <h1>Norway 2026 — Route Planner</h1>
+    <h1>Trip Planner</h1>
     <p>Pick places for each day, reorder them, get real driving times.</p>
   </div>
   <div class="header-actions">
@@ -787,10 +787,10 @@ let mobileSection = 'route';
 let currentView = 'planner';
 
 // ---- Multi-trip storage ----
-// norway-trips is the index and the commit point: written last when adding,
+// tripplan-trips is the index and the commit point: written last when adding,
 // first when deleting, so index entries always have backing blobs and any
-// orphaned blob is harmless. Per-trip raw KML lives in norway-trip-src:<id>
-// (immutable), per-variant state in norway-variant:<tripId>:<variantId>.
+// orphaned blob is harmless. Per-trip raw KML lives in tripplan-trip-src:<id>
+// (immutable), per-variant state in tripplan-variant:<tripId>:<variantId>.
 // Multi-tab editing is last-write-wins on the index — out of scope.
 let tripsIndex = {activeTripId: null, trips: {}};
 // Signed-in mode: the server owns trips/variants; tripsIndex mirrors it,
@@ -807,7 +807,7 @@ function activeTrip(){
 }
 function loadTripsIndex(){
   try{
-    const raw = localStorage.getItem('norway-trips');
+    const raw = localStorage.getItem('tripplan-trips');
     if(raw){
       const parsed = JSON.parse(raw);
       if(parsed && typeof parsed.trips === 'object' && parsed.trips !== null){
@@ -821,11 +821,11 @@ function loadTripsIndex(){
 }
 function saveTripsIndex(){
   if(remoteMode){ saveRemotePrefs(); return; }
-  try{ localStorage.setItem('norway-trips', JSON.stringify(tripsIndex)); }
+  try{ localStorage.setItem('tripplan-trips', JSON.stringify(tripsIndex)); }
   catch(e){ console.error('save failed', e); }
 }
 function variantKey(tripId, variantId){
-  return `norway-variant:${tripId}:${variantId}`;
+  return `tripplan-variant:${tripId}:${variantId}`;
 }
 // Loads the active variant into the live plans/dayMeta. A missing or
 // unreadable blob is seeded from the trip defaults and saved back — the
@@ -884,7 +884,7 @@ async function api(path, opts){
 
 // Client-side prefs the server doesn't own (active ids, last visit per trip).
 function loadRemotePrefs(){
-  try{ return JSON.parse(localStorage.getItem('norway-remote-prefs')) || {}; }
+  try{ return JSON.parse(localStorage.getItem('tripplan-remote-prefs')) || {}; }
   catch(e){ return {}; }
 }
 function saveRemotePrefs(){
@@ -892,7 +892,7 @@ function saveRemotePrefs(){
   Object.entries(tripsIndex.trips).forEach(([id, t])=>{
     prefs.trips[id] = {activeVariantId: t.activeVariantId, lastVisit: t.lastVisit};
   });
-  try{ localStorage.setItem('norway-remote-prefs', JSON.stringify(prefs)); }
+  try{ localStorage.setItem('tripplan-remote-prefs', JSON.stringify(prefs)); }
   catch(e){ console.error('save failed', e); }
 }
 
@@ -971,9 +971,9 @@ async function pushVariant(){
 // Offers to copy this browser's local trips into the signed-in account.
 // Asked once per account+browser (declining is remembered).
 async function importLocalTrips(email){
-  const offeredKey = 'norway-import-offered:' + email;
+  const offeredKey = 'tripplan-import-offered:' + email;
   if(localStorage.getItem(offeredKey)) return;
-  const localIdx = (()=>{ try{ return JSON.parse(localStorage.getItem('norway-trips')); }catch(e){ return null; } })();
+  const localIdx = (()=>{ try{ return JSON.parse(localStorage.getItem('tripplan-trips')); }catch(e){ return null; } })();
   const ids = localIdx ? Object.keys(localIdx.trips) : [];
   if(!ids.length) return;
   localStorage.setItem(offeredKey, '1');
@@ -981,7 +981,7 @@ async function importLocalTrips(email){
   const imported = [];
   for(const id of ids){
     const t = localIdx.trips[id];
-    const source = localStorage.getItem('norway-trip-src:' + id);
+    const source = localStorage.getItem('tripplan-trip-src:' + id);
     if(!source) continue;
     try{
       const created = await api('/api/trips', {
@@ -992,7 +992,7 @@ async function importLocalTrips(email){
       let first = true;
       for(const [vid, vname] of Object.entries(t.variants)){
         let state = {plans: null, dayMeta: {}};
-        try{ state = JSON.parse(localStorage.getItem(`norway-variant:${id}:${vid}`)) || state; }catch(e){}
+        try{ state = JSON.parse(localStorage.getItem(`tripplan-variant:${id}:${vid}`)) || state; }catch(e){}
         if(first){
           await api(`/api/trips/${tripId}/variants/${created.variant.variant_id}`, {
             method:'PUT',
@@ -1020,13 +1020,13 @@ async function importLocalTrips(email){
   )){
     imported.forEach(id=>{
       delete localIdx.trips[id];
-      localStorage.removeItem('norway-trip-src:' + id);
+      localStorage.removeItem('tripplan-trip-src:' + id);
       Object.keys(localStorage)
-        .filter(k=>k.startsWith(`norway-variant:${id}:`))
+        .filter(k=>k.startsWith(`tripplan-variant:${id}:`))
         .forEach(k=>localStorage.removeItem(k));
     });
     localIdx.activeTripId = Object.keys(localIdx.trips)[0] || null;
-    try{ localStorage.setItem('norway-trips', JSON.stringify(localIdx)); }
+    try{ localStorage.setItem('tripplan-trips', JSON.stringify(localIdx)); }
     catch(e){ console.error('save failed', e); }
   }
 }
@@ -1044,7 +1044,7 @@ function exitRemoteMode(){
   remoteVersions = {}; remoteSources = {}; remoteVariantState = {};
   clearTimeout(syncTimer);
   // account-scoped prefs don't belong in a signed-out browser
-  localStorage.removeItem('norway-remote-prefs');
+  localStorage.removeItem('tripplan-remote-prefs');
   loadTripsIndex();
   activateCurrentTrip();
 }
@@ -1060,7 +1060,7 @@ function activateCurrentTrip(){
   try{
     const source = remoteMode
       ? remoteSources[tripsIndex.activeTripId]
-      : localStorage.getItem(`norway-trip-src:${tripsIndex.activeTripId}`);
+      : localStorage.getItem(`tripplan-trip-src:${tripsIndex.activeTripId}`);
     if(source == null) throw new Error('trip data is missing');
     applyTrip(parseKmlTrip(source));
   }catch(e){
@@ -1076,9 +1076,9 @@ function activateCurrentTrip(){
 
 // One-time migration from the single-trip storage layout.
 function migrateLegacyStorage(){
-  if(localStorage.getItem('norway-trips')) return;
+  if(localStorage.getItem('tripplan-trips')) return;
   try{
-    const rawKml = localStorage.getItem('norway-kml');
+    const rawKml = localStorage.getItem('tripplan-kml');
     if(rawKml){
       const legacy = JSON.parse(rawKml);
       let name = legacy.filename;
@@ -1087,13 +1087,13 @@ function migrateLegacyStorage(){
         if(docName) name = docName;
       }catch(e){ /* keep filename */ }
       const tripId = newId(), variantId = newId();
-      localStorage.setItem(`norway-trip-src:${tripId}`, legacy.source);
+      localStorage.setItem(`tripplan-trip-src:${tripId}`, legacy.source);
       const state = {plans: null, dayMeta: {}};
-      try{ state.plans = JSON.parse(localStorage.getItem('norway-day-plans')) || null; }catch(e){}
-      try{ state.dayMeta = JSON.parse(localStorage.getItem('norway-day-meta')) || {}; }catch(e){}
+      try{ state.plans = JSON.parse(localStorage.getItem('tripplan-day-plans')) || null; }catch(e){}
+      try{ state.dayMeta = JSON.parse(localStorage.getItem('tripplan-day-meta')) || {}; }catch(e){}
       localStorage.setItem(variantKey(tripId, variantId), JSON.stringify(state));
       let lastVisit = null;
-      try{ lastVisit = JSON.parse(localStorage.getItem('norway-last-visit')); }catch(e){}
+      try{ lastVisit = JSON.parse(localStorage.getItem('tripplan-last-visit')); }catch(e){}
       tripsIndex = {
         activeTripId: tripId,
         trips: {[tripId]: {
@@ -1105,7 +1105,7 @@ function migrateLegacyStorage(){
       };
       saveTripsIndex();
     }
-    ['norway-kml','norway-day-plans','norway-day-meta','norway-last-visit']
+    ['tripplan-kml','tripplan-day-plans','tripplan-day-meta','tripplan-last-visit']
       .forEach(k=>localStorage.removeItem(k));
   }catch(e){
     console.error('legacy migration failed, keeping old keys', e);
@@ -1156,6 +1156,8 @@ function fmtClock(mins){
 }
 
 function initMap(){
+  // Default view centers on Norway until a trip's own places are loaded —
+  // arbitrary starting region for a generic, KML-driven planner.
   map = L.map('map').setView([61.0, 6.8], 7);
   L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{
     maxZoom:18, attribution:'© OpenStreetMap contributors'
@@ -1165,8 +1167,8 @@ function initMap(){
   locationLayer = L.layerGroup().addTo(map);
 }
 
-function inNorway(lat, lon){
-  return lat >= 57.5 && lat <= 71.5 && lon >= 4 && lon <= 31.5;
+function isValidGeoFix(lat, lon){
+  return Number.isFinite(lat) && Number.isFinite(lon) && !(lat === 0 && lon === 0);
 }
 
 function watchLocation(){
@@ -1174,7 +1176,7 @@ function watchLocation(){
   navigator.geolocation.watchPosition(pos=>{
     lastPos = {lat: pos.coords.latitude, lon: pos.coords.longitude};
     locationLayer.clearLayers();
-    if(inNorway(lastPos.lat, lastPos.lon)){
+    if(isValidGeoFix(lastPos.lat, lastPos.lon)){
       L.marker([lastPos.lat, lastPos.lon],{
         icon: L.divIcon({
           className:'', html:'<div class="map-pin-me"></div>',
@@ -1797,7 +1799,7 @@ document.getElementById('kmlFileInput').addEventListener('change', async (e)=>{
   e.target.value = '';
   // Byte-identical to a stored trip → just switch to it, don't duplicate.
   const existing = Object.keys(tripsIndex.trips).find(id=>(
-    remoteMode ? remoteSources[id] : localStorage.getItem(`norway-trip-src:${id}`)
+    remoteMode ? remoteSources[id] : localStorage.getItem(`tripplan-trip-src:${id}`)
   ) === text);
   if(existing){
     switchTrip(existing);
@@ -2148,7 +2150,7 @@ function updateKmlStatus(){
 // Throws if the source can't be stored; does not switch to the new trip.
 function addTrip(name, filename, source){
   const tripId = newId(), variantId = newId();
-  localStorage.setItem(`norway-trip-src:${tripId}`, source); // may throw on quota
+  localStorage.setItem(`tripplan-trip-src:${tripId}`, source); // may throw on quota
   try{
     localStorage.setItem(variantKey(tripId, variantId), JSON.stringify({plans: null, dayMeta: {}}));
   }catch(e){ console.error('save failed', e); }
@@ -2194,9 +2196,9 @@ async function deleteTrip(tripId){
   saveTripsIndex();
   if(!remoteMode){
     // index is committed; now sweep blobs (prefix sweep self-heals orphans)
-    localStorage.removeItem(`norway-trip-src:${tripId}`);
+    localStorage.removeItem(`tripplan-trip-src:${tripId}`);
     Object.keys(localStorage)
-      .filter(k=>k.startsWith(`norway-variant:${tripId}:`))
+      .filter(k=>k.startsWith(`tripplan-variant:${tripId}:`))
       .forEach(k=>localStorage.removeItem(k));
   }
   switchTrip(next);
@@ -2344,7 +2346,7 @@ function renderTripUi(){
   let loadError = '';
   if(activeTrip()){
     try{
-      const source = localStorage.getItem(`norway-trip-src:${tripsIndex.activeTripId}`);
+      const source = localStorage.getItem(`tripplan-trip-src:${tripsIndex.activeTripId}`);
       if(source === null) throw new Error('trip data is missing from storage');
       applyTrip(parseKmlTrip(source));
       loadVariant();

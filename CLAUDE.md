@@ -1,11 +1,15 @@
-# Norway 2026 Route Planner — context for Claude Code
+# Trip Planner — context for Claude Code
 
 ## What this is
-A trip-planning app for a Norway road trip, Aug 14–24 2026 (fly into Bergen, out of
-Ålesund). It has a day-by-day place list (from a KML export of the itinerary), lets you
-select/reorder stops per day, and calls a routing API to get real driving times.
+A generic, KML-driven trip-planning app — no trip is hardcoded. Users upload a Google My
+Maps KML export; the app derives a day-by-day place list from it, lets you select/reorder
+stops per day, and calls a routing API to get real driving times. The map defaults to
+centering on Norway on first load (arbitrary starting region), but nothing about the data
+model or UI assumes a Norway trip specifically.
 
 ## Trip facts worth knowing
+The user's own real trip currently loaded into the app is a Norway road trip, Aug 14–24
+2026 (fly into Bergen, out of Ålesund) — useful context, not something baked into the app.
 - Overnights: Thon Hotel Sandven (Norheimsund, Aug14→15) → Kinsarvik Camping
   (Aug15→18) → Hesla Gård Pensjonat, Gol (Aug18→20) → Hotel Alexandra, Loen (Aug20→24).
 - Return flight WF459 departs Ålesund Aug24, 19:25, arrives Bergen.
@@ -19,14 +23,14 @@ select/reorder stops per day, and calls a routing API to get real driving times.
   Trip data comes from user-uploaded Google My Maps KML exports, parsed client-side
   (`parseKmlTrip`) — the server never sees them, and there is no server-side places
   endpoint anymore. **Multiple trips** are stored in `localStorage` under a three-key
-  layout: `norway-trips` (index: trip names, active ids, per-trip variant lists and
+  layout: `tripplan-trips` (index: trip names, active ids, per-trip variant lists and
   last-visit — the commit point, written last on add / first on delete),
-  `norway-trip-src:<tripId>` (immutable raw KML; parsing must stay deterministic since
+  `tripplan-trip-src:<tripId>` (immutable raw KML; parsing must stay deterministic since
   variant blobs reference the derived place ids), and
-  `norway-variant:<tripId>:<variantId>` (per-variant `{plans, dayMeta}` — each trip
+  `tripplan-variant:<tripId>:<variantId>` (per-variant `{plans, dayMeta}` — each trip
   has 1+ named plan variants, duplicated/renamed/deleted from the route header;
   switching is via dropdowns). Uploading a KML **adds** a trip (byte-identical
-  re-upload just switches to it). Legacy single-trip keys (`norway-kml` etc.) are
+  re-upload just switches to it). Legacy single-trip keys (`tripplan-kml` etc.) are
   migrated on first load. All trip structure is derived from the KML: one `<Folder>`
   per day; folder names carry the day number ("day N"/"יום N") and date; the folder's
   **last placemark** is that night's accommodation (marked `overnight`, pinned to

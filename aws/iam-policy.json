@@ -13,9 +13,13 @@
         "lambda:GetFunctionUrlConfig",
         "lambda:CreateFunctionUrlConfig",
         "lambda:AddPermission",
-        "lambda:GetPolicy"
+        "lambda:GetPolicy",
+        "lambda:DeleteFunction"
       ],
-      "Resource": "arn:aws:lambda:*:*:function:norway-route-app"
+      "Resource": [
+        "arn:aws:lambda:*:*:function:trip-planner-app",
+        "arn:aws:lambda:*:*:function:norway-route-app"
+      ]
     },
     {
       "Sid": "CloudFrontManage",
@@ -41,9 +45,13 @@
         "dynamodb:UpdateItem",
         "dynamodb:DeleteItem",
         "dynamodb:Query",
-        "dynamodb:Scan"
+        "dynamodb:Scan",
+        "dynamodb:DeleteTable"
       ],
-      "Resource": "arn:aws:dynamodb:*:*:table/norway-app-*"
+      "Resource": [
+        "arn:aws:dynamodb:*:*:table/trip-planner-app-*",
+        "arn:aws:dynamodb:*:*:table/norway-app-*"
+      ]
     },
     {
       "Sid": "IAMRoleForLambda",
@@ -53,9 +61,17 @@
         "iam:CreateRole",
         "iam:AttachRolePolicy",
         "iam:PutRolePolicy",
-        "iam:PassRole"
+        "iam:PassRole",
+        "iam:DeleteRole",
+        "iam:DetachRolePolicy",
+        "iam:DeleteRolePolicy",
+        "iam:ListRolePolicies",
+        "iam:ListAttachedRolePolicies"
       ],
-      "Resource": "arn:aws:iam::*:role/norway-route-app-role"
+      "Resource": [
+        "arn:aws:iam::*:role/trip-planner-app-role",
+        "arn:aws:iam::*:role/norway-route-app-role"
+      ]
     }
   ]
 }

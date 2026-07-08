@@ -11,10 +11,10 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 
 const DRIVER = process.env.STORE_DRIVER
   || (process.env.AWS_LAMBDA_FUNCTION_NAME ? 'dynamo' : 'file');
-const USERS_TABLE = process.env.USERS_TABLE || 'norway-app-users';
-const TRIPS_TABLE = process.env.TRIPS_TABLE || 'norway-app-trips';
-const VARIANTS_TABLE = process.env.VARIANTS_TABLE || 'norway-app-variants';
-const SHARES_TABLE = process.env.SHARES_TABLE || 'norway-app-shares';
+const USERS_TABLE = process.env.USERS_TABLE || 'trip-planner-app-users';
+const TRIPS_TABLE = process.env.TRIPS_TABLE || 'trip-planner-app-trips';
+const VARIANTS_TABLE = process.env.VARIANTS_TABLE || 'trip-planner-app-variants';
+const SHARES_TABLE = process.env.SHARES_TABLE || 'trip-planner-app-shares';
 const USERS_FILE = process.env.USERS_FILE || join(__dirname, '..', 'data', 'users.json');
 const TRIPS_FILE = process.env.TRIPS_FILE || join(__dirname, '..', 'data', 'trips.json');
 

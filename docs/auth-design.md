@@ -25,7 +25,7 @@ This doc is the single reference for the effort; update it as decisions change.
   server-side → upsert user → set HttpOnly Secure SameSite session cookie (signed,
   `SESSION_SECRET` env var). `GET /me`, `POST /auth/logout`. CSRF token for mutating
   endpoints.
-- **DynamoDB** (single-table or few tables, on-demand):
+- **DynamoDB** (single-table or few tables, on-demand, table names prefixed `trip-planner-app-`):
   - `users`: google_sub (pk), email, name, created_at, disabled
   - `trips`: trip_id (pk), owner_sub, name, filename, kml_source, version, created_at
   - `variants`: trip_id (pk), variant_id (sk), name, plans, dayMeta, version

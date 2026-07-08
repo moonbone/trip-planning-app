@@ -1,4 +1,4 @@
-// Norway Route Planner — AWS Lambda handler
+// Trip Planner — AWS Lambda handler
 //
 // Serves the static app (GET /) and proxies routing requests (POST /route)
 // to OpenRouteService using process.env.ORS_API_KEY, which is set as a Lambda

@@ -1,8 +1,9 @@
-# Norway 2026 Route Planner
+# Trip Planner
 
-A small app for planning daily driving routes: pick stops per day, reorder them, and get
-real driving times/distances. Map is OpenStreetMap via Leaflet; routing is OpenRouteService,
-called through a server-side proxy so the API key never reaches the browser or git.
+A small app for planning daily driving routes from your own KML data: upload a Google My
+Maps export, pick stops per day, reorder them, and get real driving times/distances. Map
+is OpenStreetMap via Leaflet; routing is OpenRouteService, called through a server-side
+proxy so the API key never reaches the browser or git.
 
 ## Structure
 
@@ -82,7 +83,7 @@ environment variables only during the workflow run.
 ```bash
 git init
 git add .
-git commit -m "Norway route planner"
+git commit -m "Trip planner"
 git remote add origin https://github.com/<you>/<repo>.git
 git push -u origin main
 ```

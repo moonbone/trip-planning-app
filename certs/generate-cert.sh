@@ -19,7 +19,7 @@ openssl req -x509 -newkey rsa:2048 -nodes \
   -keyout "$CERT_DIR/key.pem" \
   -out "$CERT_DIR/cert.pem" \
   -days 825 \
-  -subj "/CN=norway-route-app.local" \
+  -subj "/CN=trip-planner-app.local" \
   -addext "subjectAltName=$SAN"
 
 echo ""
