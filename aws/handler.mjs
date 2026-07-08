@@ -110,7 +110,8 @@ async function handleRoute(event) {
 }
 
 function handleListTickets() {
-  const tickets = listTickets();
+  // Public listing: submitter emails are private, never expose them here.
+  const tickets = listTickets().map(({ email, ...pub }) => pub);
   return {
     statusCode: 200,
     headers: { ...JSON_HEADERS, ...corsHeaders() },
@@ -144,6 +145,15 @@ function handleCreateTicket(event) {
 }
 
 function handleUpdateTicketStatus(event, id) {
+  // Interim admin gate until real session auth (auth-and-sharing phase 2):
+  // requires the x-admin-token header to match ADMIN_TOKEN. With the env
+  // var unset, status updates are simply disabled.
+  const adminToken = process.env.ADMIN_TOKEN;
+  const given = event.headers?.['x-admin-token'] ?? event.headers?.['X-Admin-Token'];
+  if (!adminToken || given !== adminToken) {
+    return jsonError(403, 'Forbidden');
+  }
+
   let body;
   try {
     body = JSON.parse(event.body || '{}');

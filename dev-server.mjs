@@ -35,6 +35,10 @@ const requestListener = async (req, res) => {
   const result = await handler({
     rawPath: req.url.split('?')[0],
     httpMethod: req.method,
+    // Lambda Function URLs lowercase header names; mirror that here.
+    headers: Object.fromEntries(
+      Object.entries(req.headers).map(([k, v]) => [k.toLowerCase(), v])
+    ),
     body,
   });
 

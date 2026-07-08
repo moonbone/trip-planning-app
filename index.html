@@ -960,14 +960,14 @@ function renderMasterList(){
           : p.id === wake ? 'start' : 'end';
         const row = document.createElement('div');
         row.className = 'place-item selected';
-        row.innerHTML = `<span class="name">${p.name}</span><span class="day-badge">${badge}</span>`;
+        row.innerHTML = `<span class="name">${escapeHtml(p.name)}</span><span class="day-badge">${badge}</span>`;
         el.appendChild(row);
         return;
       }
       const isSelected = (plans[activeDay] || []).includes(p.id);
       const row = document.createElement('div');
       row.className = 'place-item' + (isSelected ? ' selected' : '');
-      row.innerHTML = `<span class="name">${p.name}</span><span class="day-badge">D${p.day}</span>`;
+      row.innerHTML = `<span class="name">${escapeHtml(p.name)}</span><span class="day-badge">D${p.day}</span>`;
       const btn = document.createElement('button');
       btn.className = 'add-btn' + (isSelected ? ' added' : '');
       btn.textContent = isSelected ? '✓' : '+';
@@ -1057,7 +1057,7 @@ function segmentNavLink(fromId, toId){
 function hotelRow(hotelId, label, fromId){
   const row = document.createElement('div');
   row.className = 'route-item hotel-stop';
-  row.innerHTML = `<span class="idx hotel-idx">⌂</span><span class="name">${byId[hotelId].name}</span><span class="hotel-tag">${label}</span>`;
+  row.innerHTML = `<span class="idx hotel-idx">⌂</span><span class="name">${escapeHtml(byId[hotelId].name)}</span><span class="hotel-tag">${label}</span>`;
   if(fromId) row.appendChild(segmentNavLink(fromId, hotelId));
   return row;
 }
@@ -1079,7 +1079,7 @@ function renderRouteList(){
     row.className = 'route-item';
     row.draggable = true;
     row.dataset.placeId = id;
-    row.innerHTML = `<span class="idx">${pos}</span><span class="name">${p.name}</span>`;
+    row.innerHTML = `<span class="idx">${pos}</span><span class="name">${escapeHtml(p.name)}</span>`;
     const stay = document.createElement('input');
     stay.type = 'number';
     stay.min = '0';
@@ -1152,11 +1152,11 @@ function renderMapMarkers(){
   const hotelIds = wake === sleep ? [wake] : [wake, sleep];
   hotelIds.filter(Boolean).forEach(id=>{
     const h = byId[id];
-    addPin(h, '⌂', ' map-pin-hotel', `⌂ ${h.name}`);
+    addPin(h, '⌂', ' map-pin-hotel', `⌂ ${escapeHtml(h.name)}`);
   });
   stops.forEach((id,i)=>{
     const p = byId[id];
-    addPin(p, i+1, '', `${i+1}. ${p.name}`);
+    addPin(p, i+1, '', `${i+1}. ${escapeHtml(p.name)}`);
   });
   if(bounds.length) map.fitBounds(bounds,{padding:[30,30]});
 }
@@ -1194,7 +1194,7 @@ function renderStats(){
       t += lm;
     }
     const stay = stayMinutes(activeDay, id);
-    rows += `<div class="leg stop-leg"><span><b>${fmtClock(t)}</b> ${byId[id].name}</span><span class="leg-time">${stay ? stay + ' min' : ''}</span></div>`;
+    rows += `<div class="leg stop-leg"><span><b>${fmtClock(t)}</b> ${escapeHtml(byId[id].name)}</span><span class="leg-time">${stay ? stay + ' min' : ''}</span></div>`;
     stayTotal += stay;
     t += stay;
   });
@@ -1332,7 +1332,7 @@ async function loadTickets(){
           <span class="status-badge status-${t.status}">${STATUS_LABELS[t.status] || t.status}</span>
         </div>
         <div class="ticket-desc">${escapeHtml(t.description)}</div>
-        <div class="ticket-meta">${escapeHtml(t.email)} · ${escapeHtml(t.created_at)}</div>
+        <div class="ticket-meta">${escapeHtml(t.created_at)}</div>
       </div>
     `).join('');
   }catch(e){
