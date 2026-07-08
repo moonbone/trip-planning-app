@@ -15,7 +15,11 @@ import {
   verifyGoogleCredential, createSessionToken, sessionFromEvent,
   sessionSetCookie, sessionClearCookie, isAdminEmail,
 } from './auth.mjs';
-import { upsertUser } from './store.mjs';
+import {
+  upsertUser, newStoreId, VersionConflictError,
+  createTrip, getTrip, listTripsForOwner, deleteTrip,
+  listVariants, getVariant, putVariant, deleteVariant,
+} from './store.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 // deploy.sh copies the repo's index.html next to this file before zipping,
@@ -84,6 +88,10 @@ export const handler = async (event) => {
         isAdmin: isAdminEmail(session.email),
       }),
     };
+  }
+
+  if (rawPath.startsWith('/api/trips')) {
+    return handleTripsApi(event, method, rawPath);
   }
 
   if (rawPath === '/tickets') {
@@ -189,6 +197,126 @@ async function handleGoogleLogin(event) {
       isAdmin: isAdminEmail(user.email),
     }),
   };
+}
+
+// ---- Trips API (auth-and-sharing phase 3) ----
+// Owner-only for now; shares/roles arrive in phase 4. Writes to variants
+// use optimistic locking: the client sends the version it read, a stale
+// version gets a 409 with the current one.
+
+const MAX_KML_BYTES = 1024 * 1024;
+const MAX_NAME_LEN = 200;
+
+function ok(body, statusCode = 200) {
+  return { statusCode, headers: { ...JSON_HEADERS, ...corsHeaders() }, body: JSON.stringify(body) };
+}
+
+async function handleTripsApi(event, method, rawPath) {
+  const session = sessionFromEvent(event, process.env.SESSION_SECRET);
+  if (!session) return jsonError(401, 'Sign in to sync trips');
+
+  let body = {};
+  if (event.body) {
+    try {
+      body = JSON.parse(event.body);
+    } catch {
+      return jsonError(400, 'Invalid JSON body');
+    }
+  }
+
+  const parts = rawPath.split('/').filter(Boolean); // ['api','trips',id?,'variants'?,vid?]
+  const tripId = parts[2];
+  const variantId = parts[4];
+
+  try {
+    // /api/trips
+    if (!tripId) {
+      if (method === 'GET') return ok(await listTripsForOwner(session.sub));
+      if (method === 'POST') {
+        const { name, filename, kml_source } = body;
+        if (typeof name !== 'string' || !name.trim() || name.length > MAX_NAME_LEN) {
+          return jsonError(400, 'Invalid trip name');
+        }
+        if (typeof kml_source !== 'string' || !kml_source.trim()
+            || Buffer.byteLength(kml_source, 'utf8') > MAX_KML_BYTES) {
+          return jsonError(400, 'Invalid or too large KML source (max 1 MB)');
+        }
+        const trip = await createTrip({
+          trip_id: newStoreId(),
+          owner_sub: session.sub,
+          name: name.trim(),
+          filename: String(filename || '').slice(0, MAX_NAME_LEN),
+          kml_source,
+          created_at: new Date().toISOString(),
+        });
+        const variant = await putVariant(trip.trip_id, {
+          variant_id: newStoreId(), name: 'Main', plans: null, dayMeta: {},
+        }, null);
+        return ok({ trip: { ...trip, kml_source: undefined }, variant }, 201);
+      }
+      return jsonError(405, 'Method not allowed');
+    }
+
+    // everything below needs the trip and ownership
+    const trip = await getTrip(tripId);
+    if (!trip || trip.owner_sub !== session.sub) return jsonError(404, 'Trip not found');
+
+    // /api/trips/:id
+    if (parts.length === 3) {
+      if (method === 'GET') {
+        return ok({ trip, variants: await listVariants(tripId) });
+      }
+      if (method === 'DELETE') {
+        await deleteTrip(tripId);
+        return ok({ ok: true });
+      }
+      return jsonError(405, 'Method not allowed');
+    }
+
+    // /api/trips/:id/variants[/:vid]
+    if (parts[3] !== 'variants') return jsonError(404, 'Not found');
+
+    if (!variantId && method === 'POST') {
+      const { name, plans, dayMeta } = body;
+      if (typeof name !== 'string' || !name.trim() || name.length > MAX_NAME_LEN) {
+        return jsonError(400, 'Invalid variant name');
+      }
+      const variant = await putVariant(tripId, {
+        variant_id: newStoreId(), name: name.trim(),
+        plans: plans ?? null, dayMeta: dayMeta ?? {},
+      }, null);
+      return ok(variant, 201);
+    }
+
+    if (variantId && method === 'PUT') {
+      const existing = await getVariant(tripId, variantId);
+      if (!existing) return jsonError(404, 'Variant not found');
+      if (!Number.isInteger(body.version)) return jsonError(400, 'Missing version');
+      const name = typeof body.name === 'string' && body.name.trim()
+        ? body.name.trim().slice(0, MAX_NAME_LEN) : existing.name;
+      const variant = await putVariant(tripId, {
+        variant_id: variantId, name,
+        plans: body.plans ?? existing.plans,
+        dayMeta: body.dayMeta ?? existing.dayMeta,
+      }, body.version);
+      return ok(variant);
+    }
+
+    if (variantId && method === 'DELETE') {
+      const variants = await listVariants(tripId);
+      if (variants.length < 2) return jsonError(400, 'A trip needs at least one variant');
+      await deleteVariant(tripId, variantId);
+      return ok({ ok: true });
+    }
+
+    return jsonError(405, 'Method not allowed');
+  } catch (e) {
+    if (e instanceof VersionConflictError) {
+      return ok({ error: 'Version conflict', currentVersion: e.currentVersion }, 409);
+    }
+    console.error('trips api error', e);
+    return jsonError(500, 'Internal error');
+  }
 }
 
 function handleListTickets() {

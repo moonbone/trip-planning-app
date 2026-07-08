@@ -98,6 +98,43 @@ else
   aws lambda wait function-active --function-name "$FUNCTION_NAME" --region "$REGION"
 fi
 
+echo "==> Ensuring DynamoDB tables + role access (auth-and-sharing)..."
+# Tolerant of missing permissions: warns and continues so deploys keep
+# working until the unified aws/iam-policy.json is attached to the deployer.
+ensure_table() {
+  local name="$1"; shift
+  if ! aws dynamodb describe-table --table-name "$name" --region "$REGION" >/dev/null 2>&1; then
+    if aws dynamodb create-table --table-name "$name" --region "$REGION" \
+        --billing-mode PAY_PER_REQUEST "$@" >/dev/null 2>&1; then
+      echo "    created table $name"
+    else
+      echo "    WARNING: could not create table $name (missing DynamoDB perms? see aws/iam-policy.json)" >&2
+    fi
+  fi
+}
+ensure_table norway-app-users \
+  --attribute-definitions AttributeName=sub,AttributeType=S \
+  --key-schema AttributeName=sub,KeyType=HASH
+ensure_table norway-app-trips \
+  --attribute-definitions AttributeName=trip_id,AttributeType=S \
+  --key-schema AttributeName=trip_id,KeyType=HASH
+ensure_table norway-app-variants \
+  --attribute-definitions AttributeName=trip_id,AttributeType=S AttributeName=variant_id,AttributeType=S \
+  --key-schema AttributeName=trip_id,KeyType=HASH AttributeName=variant_id,KeyType=RANGE
+
+if ! aws iam put-role-policy --role-name "$ROLE_NAME" \
+    --policy-name norway-app-dynamodb \
+    --policy-document '{
+      "Version": "2012-10-17",
+      "Statement": [{
+        "Effect": "Allow",
+        "Action": ["dynamodb:GetItem","dynamodb:PutItem","dynamodb:UpdateItem","dynamodb:DeleteItem","dynamodb:Query","dynamodb:Scan"],
+        "Resource": "arn:aws:dynamodb:*:*:table/norway-app-*"
+      }]
+    }' >/dev/null 2>&1; then
+  echo "    WARNING: could not attach DynamoDB policy to $ROLE_NAME (missing iam:PutRolePolicy?)" >&2
+fi
+
 echo "==> Ensuring public Function URL exists..."
 if ! aws lambda get-function-url-config --function-name "$FUNCTION_NAME" --region "$REGION" >/dev/null 2>&1; then
   aws lambda create-function-url-config \

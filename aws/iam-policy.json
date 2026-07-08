@@ -31,12 +31,28 @@
       "Resource": "*"
     },
     {
+      "Sid": "DynamoDBManage",
+      "Effect": "Allow",
+      "Action": [
+        "dynamodb:CreateTable",
+        "dynamodb:DescribeTable",
+        "dynamodb:GetItem",
+        "dynamodb:PutItem",
+        "dynamodb:UpdateItem",
+        "dynamodb:DeleteItem",
+        "dynamodb:Query",
+        "dynamodb:Scan"
+      ],
+      "Resource": "arn:aws:dynamodb:*:*:table/norway-app-*"
+    },
+    {
       "Sid": "IAMRoleForLambda",
       "Effect": "Allow",
       "Action": [
         "iam:GetRole",
         "iam:CreateRole",
         "iam:AttachRolePolicy",
+        "iam:PutRolePolicy",
         "iam:PassRole"
       ],
       "Resource": "arn:aws:iam::*:role/norway-route-app-role"
