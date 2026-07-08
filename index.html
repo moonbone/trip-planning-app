@@ -776,6 +776,11 @@ let currentView = 'planner';
 // (immutable), per-variant state in norway-variant:<tripId>:<variantId>.
 // Multi-tab editing is last-write-wins on the index — out of scope.
 let tripsIndex = {activeTripId: null, trips: {}};
+// Signed-in mode: the server owns trips/variants; tripsIndex mirrors it,
+// remoteVersions tracks optimistic-lock versions, remoteSources caches KML.
+let remoteMode = false;
+let remoteVersions = {}; // `${tripId}:${variantId}` -> version
+let remoteSources = {};  // tripId -> kml source
 
 function newId(){
   return Date.now().toString(36) + Math.random().toString(36).slice(2,6);
@@ -798,6 +803,7 @@ function loadTripsIndex(){
   }
 }
 function saveTripsIndex(){
+  if(remoteMode){ saveRemotePrefs(); return; }
   try{ localStorage.setItem('norway-trips', JSON.stringify(tripsIndex)); }
   catch(e){ console.error('save failed', e); }
 }
@@ -812,7 +818,11 @@ function loadVariant(){
   const trip = activeTrip();
   plans = null;
   dayMeta = {};
-  if(trip){
+  if(trip && remoteMode){
+    const state = remoteVariantState[`${tripsIndex.activeTripId}:${trip.activeVariantId}`];
+    if(state && state.plans) plans = JSON.parse(JSON.stringify(state.plans));
+    if(state && state.dayMeta) dayMeta = JSON.parse(JSON.stringify(state.dayMeta));
+  }else if(trip){
     try{
       const raw = localStorage.getItem(variantKey(tripsIndex.activeTripId, trip.activeVariantId));
       if(raw){
@@ -830,6 +840,7 @@ function loadVariant(){
 function saveVariant(){
   const trip = activeTrip();
   if(!trip) return;
+  if(remoteMode){ scheduleRemoteSave(); return; }
   try{
     localStorage.setItem(
       variantKey(tripsIndex.activeTripId, trip.activeVariantId),
@@ -839,6 +850,184 @@ function saveVariant(){
 }
 function saveState(){ saveVariant(); }
 function saveMeta(){ saveVariant(); }
+
+// ---- Remote (signed-in) persistence ----
+
+async function api(path, opts){
+  const res = await fetch(path, {headers:{'Content-Type':'application/json'}, ...opts});
+  const data = await res.json().catch(()=>({}));
+  if(!res.ok){
+    const err = new Error(data.error || ('HTTP ' + res.status));
+    err.status = res.status;
+    err.currentVersion = data.currentVersion;
+    throw err;
+  }
+  return data;
+}
+
+// Client-side prefs the server doesn't own (active ids, last visit per trip).
+function loadRemotePrefs(){
+  try{ return JSON.parse(localStorage.getItem('norway-remote-prefs')) || {}; }
+  catch(e){ return {}; }
+}
+function saveRemotePrefs(){
+  const prefs = {activeTripId: tripsIndex.activeTripId, trips: {}};
+  Object.entries(tripsIndex.trips).forEach(([id, t])=>{
+    prefs.trips[id] = {activeVariantId: t.activeVariantId, lastVisit: t.lastVisit};
+  });
+  try{ localStorage.setItem('norway-remote-prefs', JSON.stringify(prefs)); }
+  catch(e){ console.error('save failed', e); }
+}
+
+// Rebuilds tripsIndex from the server; keeps local prefs where still valid.
+async function loadRemoteIndex(){
+  const prefs = loadRemotePrefs();
+  const trips = await api('/api/trips');
+  const idx = {activeTripId: null, trips: {}};
+  for(const t of trips){
+    const detail = await api('/api/trips/' + t.trip_id);
+    remoteSources[t.trip_id] = detail.trip.kml_source;
+    const variants = {};
+    detail.variants.forEach(v=>{
+      variants[v.variant_id] = v.name;
+      remoteVersions[`${t.trip_id}:${v.variant_id}`] = v.version;
+      remoteVariantState[`${t.trip_id}:${v.variant_id}`] = {plans: v.plans, dayMeta: v.dayMeta};
+    });
+    const p = prefs.trips?.[t.trip_id] || {};
+    idx.trips[t.trip_id] = {
+      name: t.name, filename: t.filename,
+      activeVariantId: variants[p.activeVariantId] !== undefined ? p.activeVariantId : Object.keys(variants)[0],
+      variants, lastVisit: p.lastVisit || null,
+    };
+  }
+  idx.activeTripId = idx.trips[prefs.activeTripId] ? prefs.activeTripId : (Object.keys(idx.trips)[0] || null);
+  tripsIndex = idx;
+}
+let remoteVariantState = {}; // `${tripId}:${variantId}` -> {plans, dayMeta}
+
+// Debounced push of the live plans/dayMeta to the server. A 409 means
+// someone else saved first: reload their state and re-render.
+let syncTimer = null;
+function scheduleRemoteSave(){
+  clearTimeout(syncTimer);
+  syncTimer = setTimeout(pushVariant, 600);
+}
+async function pushVariant(){
+  const trip = activeTrip();
+  if(!trip) return;
+  const tripId = tripsIndex.activeTripId, variantId = trip.activeVariantId;
+  const key = `${tripId}:${variantId}`;
+  try{
+    const v = await api(`/api/trips/${tripId}/variants/${variantId}`, {
+      method:'PUT',
+      body: JSON.stringify({version: remoteVersions[key] || 1, plans, dayMeta}),
+    });
+    remoteVersions[key] = v.version;
+    remoteVariantState[key] = {plans: v.plans, dayMeta: v.dayMeta};
+  }catch(e){
+    if(e.status === 409){
+      try{
+        const detail = await api('/api/trips/' + tripId);
+        const v = detail.variants.find(v=>v.variant_id===variantId);
+        if(v){
+          remoteVersions[key] = v.version;
+          remoteVariantState[key] = {plans: v.plans, dayMeta: v.dayMeta};
+          plans = JSON.parse(JSON.stringify(v.plans || {}));
+          dayMeta = JSON.parse(JSON.stringify(v.dayMeta || {}));
+          lastRoute = null;
+          renderAll();
+        }
+        document.getElementById('errorNote').textContent =
+          'This plan was changed elsewhere — reloaded the latest version.';
+      }catch(e2){ console.error('conflict reload failed', e2); }
+    }else{
+      document.getElementById('errorNote').textContent = 'Sync failed: ' + e.message;
+    }
+  }
+}
+
+// Offers to copy this browser's local trips into the signed-in account.
+// Asked once per account+browser (declining is remembered).
+async function importLocalTrips(email){
+  const offeredKey = 'norway-import-offered:' + email;
+  if(localStorage.getItem(offeredKey)) return;
+  const localIdx = (()=>{ try{ return JSON.parse(localStorage.getItem('norway-trips')); }catch(e){ return null; } })();
+  const ids = localIdx ? Object.keys(localIdx.trips) : [];
+  if(!ids.length) return;
+  localStorage.setItem(offeredKey, '1');
+  if(!confirm(`Import ${ids.length} local trip${ids.length>1?'s':''} from this browser into your account?`)) return;
+  for(const id of ids){
+    const t = localIdx.trips[id];
+    const source = localStorage.getItem('norway-trip-src:' + id);
+    if(!source) continue;
+    try{
+      const created = await api('/api/trips', {
+        method:'POST',
+        body: JSON.stringify({name: t.name, filename: t.filename, kml_source: source}),
+      });
+      const tripId = created.trip.trip_id;
+      let first = true;
+      for(const [vid, vname] of Object.entries(t.variants)){
+        let state = {plans: null, dayMeta: {}};
+        try{ state = JSON.parse(localStorage.getItem(`norway-variant:${id}:${vid}`)) || state; }catch(e){}
+        if(first){
+          await api(`/api/trips/${tripId}/variants/${created.variant.variant_id}`, {
+            method:'PUT',
+            body: JSON.stringify({version: created.variant.version, name: vname, plans: state.plans, dayMeta: state.dayMeta}),
+          });
+          first = false;
+        }else{
+          await api(`/api/trips/${tripId}/variants`, {
+            method:'POST',
+            body: JSON.stringify({name: vname, plans: state.plans, dayMeta: state.dayMeta}),
+          });
+        }
+      }
+    }catch(e){
+      document.getElementById('errorNote').textContent = `Import of "${t.name}" failed: ` + e.message;
+    }
+  }
+}
+
+// Switches the whole app between local and remote persistence.
+async function enterRemoteMode(email){
+  await importLocalTrips(email);
+  remoteVersions = {}; remoteSources = {}; remoteVariantState = {};
+  await loadRemoteIndex();
+  remoteMode = true;
+  activateCurrentTrip();
+}
+function exitRemoteMode(){
+  remoteMode = false;
+  remoteVersions = {}; remoteSources = {}; remoteVariantState = {};
+  loadTripsIndex();
+  activateCurrentTrip();
+}
+// (Re)applies the active trip of whichever index is current.
+function activateCurrentTrip(){
+  lastRoute = null;
+  const trip = activeTrip();
+  if(!trip){
+    clearActiveTrip();
+    renderAll();
+    return;
+  }
+  try{
+    const source = remoteMode
+      ? remoteSources[tripsIndex.activeTripId]
+      : localStorage.getItem(`norway-trip-src:${tripsIndex.activeTripId}`);
+    if(source == null) throw new Error('trip data is missing');
+    applyTrip(parseKmlTrip(source));
+  }catch(e){
+    clearActiveTrip();
+    renderAll();
+    document.getElementById('errorNote').textContent = 'Could not load trip: ' + e.message;
+    return;
+  }
+  loadVariant();
+  activeDay = initialDay();
+  renderAll();
+}
 
 // One-time migration from the single-trip storage layout.
 function migrateLegacyStorage(){
@@ -1499,10 +1688,33 @@ document.getElementById('kmlFileInput').addEventListener('change', async (e)=>{
   }
   e.target.value = '';
   // Byte-identical to a stored trip → just switch to it, don't duplicate.
-  const existing = Object.keys(tripsIndex.trips)
-    .find(id=>localStorage.getItem(`norway-trip-src:${id}`) === text);
+  const existing = Object.keys(tripsIndex.trips).find(id=>(
+    remoteMode ? remoteSources[id] : localStorage.getItem(`norway-trip-src:${id}`)
+  ) === text);
   if(existing){
     switchTrip(existing);
+    return;
+  }
+  if(remoteMode){
+    try{
+      const created = await api('/api/trips', {
+        method:'POST',
+        body: JSON.stringify({name: parsed.docName || file.name, filename: file.name, kml_source: text}),
+      });
+      const tripId = created.trip.trip_id;
+      remoteSources[tripId] = text;
+      remoteVersions[`${tripId}:${created.variant.variant_id}`] = created.variant.version;
+      remoteVariantState[`${tripId}:${created.variant.variant_id}`] = {plans: null, dayMeta: {}};
+      tripsIndex.trips[tripId] = {
+        name: created.trip.name, filename: created.trip.filename,
+        activeVariantId: created.variant.variant_id,
+        variants: {[created.variant.variant_id]: created.variant.name},
+        lastVisit: null,
+      };
+      switchTrip(tripId);
+    }catch(err){
+      errEl.textContent = 'Could not store trip: ' + err.message;
+    }
     return;
   }
   try{
@@ -1571,6 +1783,10 @@ async function submitCredential(credential){
   if(!res.ok) throw new Error(data.error || ('HTTP ' + res.status));
   currentUser = data;
   renderAuthUi();
+  try{ await enterRemoteMode(currentUser.user.email); }
+  catch(e){
+    document.getElementById('errorNote').textContent = 'Could not load account trips: ' + e.message;
+  }
 }
 
 function startGoogleSignIn(){
@@ -1603,6 +1819,7 @@ document.getElementById('signOutBtn').addEventListener('click', async ()=>{
   try{ await fetch('/auth/logout', {method:'POST'}); }catch(e){}
   currentUser = null;
   renderAuthUi();
+  exitRemoteMode();
 });
 
 async function initAuth(){
@@ -1614,6 +1831,12 @@ async function initAuth(){
     if(res.ok) currentUser = await res.json();
   }catch(e){ /* stay signed out */ }
   renderAuthUi();
+  if(currentUser){
+    try{ await enterRemoteMode(currentUser.user.email); }
+    catch(e){
+      document.getElementById('errorNote').textContent = 'Could not load account trips: ' + e.message;
+    }
+  }
 }
 document.getElementById('ticketForm').addEventListener('submit', submitTicket);
 
@@ -1741,57 +1964,64 @@ function clearActiveTrip(){
 function switchTrip(tripId){
   tripsIndex.activeTripId = tripId;
   saveTripsIndex();
-  lastRoute = null;
-  const trip = activeTrip();
-  if(!trip){
-    clearActiveTrip();
-    renderAll();
-    return;
-  }
-  try{
-    const source = localStorage.getItem(`norway-trip-src:${tripId}`);
-    if(source === null) throw new Error('trip data is missing from storage');
-    applyTrip(parseKmlTrip(source));
-  }catch(e){
-    clearActiveTrip();
-    renderAll();
-    document.getElementById('errorNote').textContent = 'Could not load trip: ' + e.message;
-    return;
-  }
-  loadVariant();
-  activeDay = initialDay();
-  renderAll();
+  activateCurrentTrip();
 }
 
-function deleteTrip(tripId){
+async function deleteTrip(tripId){
   const trip = tripsIndex.trips[tripId];
   if(!trip) return;
   if(!confirm(`Delete trip "${trip.name}" and all its plan variants? This can't be undone.`)) return;
+  if(remoteMode){
+    try{ await api('/api/trips/' + tripId, {method:'DELETE'}); }
+    catch(e){
+      document.getElementById('errorNote').textContent = 'Delete failed: ' + e.message;
+      return;
+    }
+    delete remoteSources[tripId];
+  }
   delete tripsIndex.trips[tripId];
   const next = Object.keys(tripsIndex.trips)[0] || null;
   tripsIndex.activeTripId = next;
   saveTripsIndex();
-  // index is committed; now sweep blobs (prefix sweep self-heals orphans)
-  localStorage.removeItem(`norway-trip-src:${tripId}`);
-  Object.keys(localStorage)
-    .filter(k=>k.startsWith(`norway-variant:${tripId}:`))
-    .forEach(k=>localStorage.removeItem(k));
+  if(!remoteMode){
+    // index is committed; now sweep blobs (prefix sweep self-heals orphans)
+    localStorage.removeItem(`norway-trip-src:${tripId}`);
+    Object.keys(localStorage)
+      .filter(k=>k.startsWith(`norway-variant:${tripId}:`))
+      .forEach(k=>localStorage.removeItem(k));
+  }
   switchTrip(next);
 }
 
-function addVariant(){
+async function addVariant(){
   const trip = activeTrip();
   if(!trip) return;
   const name = prompt('Name for the new variant (a copy of the current one):',
     'Variant ' + (Object.keys(trip.variants).length + 1));
   if(!name || !name.trim()) return;
-  const variantId = newId();
-  try{
-    localStorage.setItem(
-      variantKey(tripsIndex.activeTripId, variantId),
-      JSON.stringify({plans: JSON.parse(JSON.stringify(plans)), dayMeta: JSON.parse(JSON.stringify(dayMeta))})
-    );
-  }catch(e){ console.error('save failed', e); return; }
+  let variantId;
+  if(remoteMode){
+    try{
+      const v = await api(`/api/trips/${tripsIndex.activeTripId}/variants`, {
+        method:'POST',
+        body: JSON.stringify({name: name.trim(), plans, dayMeta}),
+      });
+      variantId = v.variant_id;
+      remoteVersions[`${tripsIndex.activeTripId}:${variantId}`] = v.version;
+      remoteVariantState[`${tripsIndex.activeTripId}:${variantId}`] = {plans: v.plans, dayMeta: v.dayMeta};
+    }catch(e){
+      document.getElementById('errorNote').textContent = 'Could not create variant: ' + e.message;
+      return;
+    }
+  }else{
+    variantId = newId();
+    try{
+      localStorage.setItem(
+        variantKey(tripsIndex.activeTripId, variantId),
+        JSON.stringify({plans: JSON.parse(JSON.stringify(plans)), dayMeta: JSON.parse(JSON.stringify(dayMeta))})
+      );
+    }catch(e){ console.error('save failed', e); return; }
+  }
   trip.variants[variantId] = name.trim();
   trip.activeVariantId = variantId;
   saveTripsIndex();
@@ -1810,25 +2040,46 @@ function switchVariant(variantId){
   renderAll();
 }
 
-function deleteVariant(){
+async function deleteVariant(){
   const trip = activeTrip();
   if(!trip || Object.keys(trip.variants).length < 2) return;
   const variantId = trip.activeVariantId;
   if(!confirm(`Delete plan variant "${trip.variants[variantId]}"? This can't be undone.`)) return;
+  if(remoteMode){
+    try{ await api(`/api/trips/${tripsIndex.activeTripId}/variants/${variantId}`, {method:'DELETE'}); }
+    catch(e){
+      document.getElementById('errorNote').textContent = 'Delete failed: ' + e.message;
+      return;
+    }
+  }
   delete trip.variants[variantId];
   trip.activeVariantId = Object.keys(trip.variants)[0];
   saveTripsIndex();
-  localStorage.removeItem(variantKey(tripsIndex.activeTripId, variantId));
+  if(!remoteMode) localStorage.removeItem(variantKey(tripsIndex.activeTripId, variantId));
   loadVariant();
   lastRoute = null;
   renderAll();
 }
 
-function renameVariant(){
+async function renameVariant(){
   const trip = activeTrip();
   if(!trip) return;
   const name = prompt('Rename this variant:', trip.variants[trip.activeVariantId]);
   if(!name || !name.trim()) return;
+  if(remoteMode){
+    const tripId = tripsIndex.activeTripId, variantId = trip.activeVariantId;
+    const key = `${tripId}:${variantId}`;
+    try{
+      const v = await api(`/api/trips/${tripId}/variants/${variantId}`, {
+        method:'PUT',
+        body: JSON.stringify({version: remoteVersions[key] || 1, name: name.trim(), plans, dayMeta}),
+      });
+      remoteVersions[key] = v.version;
+    }catch(e){
+      document.getElementById('errorNote').textContent = 'Rename failed: ' + e.message;
+      return;
+    }
+  }
   trip.variants[trip.activeVariantId] = name.trim();
   saveTripsIndex();
   renderAll();
