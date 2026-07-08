@@ -287,6 +287,18 @@
     justify-content:center;
   }
   .map-pin-hotel{background:var(--rust);}
+  .route-arrow{
+    width:16px;height:16px;
+    line-height:15px;
+    text-align:center;
+    font-size:10px;
+    color:var(--rust);
+    background:#fff;
+    border:1px solid var(--rust);
+    border-radius:50%;
+    box-shadow:0 1px 2px rgba(0,0,0,0.25);
+    pointer-events:none;
+  }
   .map-pin-me{
     width:16px;height:16px;
     border-radius:50%;
@@ -338,6 +350,12 @@
     font-size:13px;
   }
   .route-item.dragging{opacity:0.4;}
+  .route-leg-info{
+    font-family:'IBM Plex Mono',monospace;
+    font-size:11px;
+    color:var(--ink-soft);
+    padding:0 10px 6px 14px;
+  }
   .route-item.hotel-stop{
     cursor:default;
     background:var(--panel);
@@ -1327,11 +1345,29 @@ function renderRouteList(){
   document.getElementById('routeLabel').textContent = `Day ${activeDay} route (${stops.length} stops)`;
   const el = document.getElementById('routeList');
   el.innerHTML = '';
+  // Per-leg drive times inline in the route list, available once a route was
+  // calculated and the plan hasn't changed since (same guard as renderStats).
+  const legByPair = {};
+  if(lastRoute && lastRoute.day === activeDay
+     && lastRoute.ids.join() === getRouteIds(activeDay).join()){
+    lastRoute.ids.forEach((id,i)=>{
+      if(i > 0) legByPair[`${lastRoute.ids[i-1]}>${id}`] = lastRoute.route.legs[i-1];
+    });
+  }
+  const appendLegInfo = (fromId, toId)=>{
+    const leg = legByPair[`${fromId}>${toId}`];
+    if(!leg) return;
+    const div = document.createElement('div');
+    div.className = 'route-leg-info';
+    div.textContent = `↓ ${Math.round(leg.duration/60)} min · ${(leg.distance/1000).toFixed(0)} km`;
+    el.appendChild(div);
+  };
   if(wake) el.appendChild(hotelRow(wake, 'Start'));
   let pos = 0;
   let prevId = wake;
   (plans[activeDay] || []).forEach((id,i)=>{
     if(id===wake || id===sleep) return;
+    if(prevId) appendLegInfo(prevId, id);
     pos++;
     const p = byId[id];
     const row = document.createElement('div');
@@ -1385,7 +1421,10 @@ function renderRouteList(){
     });
     el.appendChild(row);
   });
-  if(sleep) el.appendChild(hotelRow(sleep, isLoopDay(activeDay) ? 'Return' : 'End', prevId));
+  if(sleep){
+    if(prevId) appendLegInfo(prevId, sleep);
+    el.appendChild(hotelRow(sleep, isLoopDay(activeDay) ? 'Return' : 'End', prevId));
+  }
   if(stops.length===0 && !wake && !sleep){
     el.innerHTML = '<div class="empty-note">No stops yet — add some from the left.</div>';
   }
@@ -1720,9 +1759,11 @@ async function calculateRoute(){
     L.geoJSON(route.geometry, {
       style:{ color:'#C0552E', weight:4, opacity:0.85, dashArray:'1,8', lineCap:'round' }
     }).addTo(routeLayer);
+    addRouteArrows(route.geometry);
     map.fitBounds(L.geoJSON(route.geometry).getBounds(),{padding:[30,30]});
 
     lastRoute = {day: activeDay, ids, route};
+    renderRouteList(); // show the per-leg drive times inline
     renderStats();
     if(!errEl.textContent) errEl.textContent = '';
   }catch(e){
@@ -1738,6 +1779,42 @@ function haversineKm(a, b){
   const dLat = rad(b.lat - a.lat), dLon = rad(b.lon - a.lon);
   const h = Math.sin(dLat/2)**2 + Math.cos(rad(a.lat))*Math.cos(rad(b.lat))*Math.sin(dLon/2)**2;
   return 12742 * Math.asin(Math.sqrt(h));
+}
+
+// Directional hints: small arrows placed at even intervals along the route
+// line, rotated to the local bearing, so out-and-back stretches are readable.
+// Added to routeLayer so they clear together with the line.
+function addRouteArrows(geometry){
+  const lines = geometry.type === 'LineString' ? [geometry.coordinates]
+    : geometry.type === 'MultiLineString' ? geometry.coordinates : [];
+  const pts = lines.flat();
+  if(pts.length < 2) return;
+  const cum = [0];
+  for(let i = 1; i < pts.length; i++){
+    cum.push(cum[i-1] + haversineKm(
+      {lat: pts[i-1][1], lon: pts[i-1][0]}, {lat: pts[i][1], lon: pts[i][0]}));
+  }
+  const total = cum[cum.length-1];
+  if(!total) return;
+  // roughly one arrow per 8 km, clamped so short and long days both read well
+  const count = Math.max(3, Math.min(12, Math.round(total/8)));
+  for(let n = 1; n <= count; n++){
+    const target = total*n/(count+1);
+    const i = cum.findIndex(c=>c >= target);
+    if(i < 1) continue;
+    const [lon1, lat1] = pts[i-1], [lon2, lat2] = pts[i];
+    // screen-space bearing (0 = up/north, clockwise); lon compressed by cos(lat)
+    const dx = (lon2-lon1)*Math.cos(lat1*Math.PI/180), dy = lat2-lat1;
+    const deg = Math.round(Math.atan2(dx, dy)*180/Math.PI);
+    L.marker([(lat1+lat2)/2, (lon1+lon2)/2], {
+      interactive: false,
+      icon: L.divIcon({
+        className:'',
+        html:`<div class="route-arrow" style="transform:rotate(${deg}deg)">▲</div>`,
+        iconSize:[16,16], iconAnchor:[8,8]
+      })
+    }).addTo(routeLayer);
+  }
 }
 
 // Next destination guess: the stop after the route stop nearest to the
