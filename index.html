@@ -1971,22 +1971,32 @@ function loadGoogleIdentityScript(){
   });
 }
 
-let googleButtonRendered = false;
+let googleInitialized = false;
+async function ensureGoogleInitialized(){
+  if(googleInitialized) return;
+  await loadGoogleIdentityScript();
+  google.accounts.id.initialize({
+    client_id: authConfig.googleClientId,
+    callback: (resp)=>{
+      submitCredential(resp.credential)
+        .catch(e=>alert('Sign-in failed: ' + e.message));
+    },
+  });
+  googleInitialized = true;
+}
+
+// Re-renders the button fresh every time it needs to show, instead of
+// rendering once and toggling the container's display — Google's button
+// is an iframe, and hiding/showing its container via display:none can
+// leave it stuck non-interactive after a sign-out/sign-in cycle.
 async function renderGoogleButton(){
-  if(googleButtonRendered) return;
   try{
-    await loadGoogleIdentityScript();
-    google.accounts.id.initialize({
-      client_id: authConfig.googleClientId,
-      callback: (resp)=>{
-        submitCredential(resp.credential)
-          .catch(e=>alert('Sign-in failed: ' + e.message));
-      },
-    });
-    google.accounts.id.renderButton(document.getElementById('googleBtnContainer'), {
+    await ensureGoogleInitialized();
+    const container = document.getElementById('googleBtnContainer');
+    container.innerHTML = '';
+    google.accounts.id.renderButton(container, {
       theme:'outline', size:'medium', text:'signin_with', shape:'pill',
     });
-    googleButtonRendered = true;
     // Opportunistic One Tap alongside the button — pure convenience, doesn't
     // replace the button's full "use another account" chooser.
     google.accounts.id.prompt();
@@ -2005,6 +2015,12 @@ document.getElementById('signInBtn').addEventListener('click', ()=>{
 });
 document.getElementById('signOutBtn').addEventListener('click', async ()=>{
   try{ await fetch('/auth/logout', {method:'POST'}); }catch(e){}
+  // Clears Google's client-side "remember this account" state so the next
+  // sign-in reliably shows the chooser instead of silently reusing the
+  // just-signed-out session.
+  if(window.google?.accounts?.id){
+    try{ google.accounts.id.disableAutoSelect(); }catch(e){}
+  }
   currentUser = null;
   renderAuthUi();
   exitRemoteMode();
