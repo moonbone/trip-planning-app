@@ -2,7 +2,7 @@ name: Deploy to AWS Lambda
 
 on:
   push:
-    branches: [main]
+    branches: [master]
   workflow_dispatch: {}   # allows manual "Run workflow" from the Actions tab too
 
 jobs:
@@ -19,9 +19,19 @@ jobs:
           aws-region: ${{ secrets.AWS_REGION }}
 
       - name: Deploy
+        # deploy.sh replaces the Lambda's ENTIRE environment on every run
+        # (update-function-configuration is not additive), so every var the
+        # function needs at runtime must be passed here — omitting one silently
+        # drops it from production. SESSION_SECRET must be a STABLE value (a
+        # rotation logs everyone out); GOOGLE_CLIENT_ID missing breaks sign-in.
+        # AUTH_DEV_FAKE is deliberately never set here — it's a dev-only bypass.
         env:
           ORS_API_KEY: ${{ secrets.ORS_API_KEY }}
           AWS_REGION: ${{ secrets.AWS_REGION }}
+          SESSION_SECRET: ${{ secrets.SESSION_SECRET }}
+          GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
+          ADMIN_EMAILS: ${{ secrets.ADMIN_EMAILS }}
+          ADMIN_TOKEN: ${{ secrets.ADMIN_TOKEN }}
         run: |
           chmod +x aws/deploy.sh
           ./aws/deploy.sh
