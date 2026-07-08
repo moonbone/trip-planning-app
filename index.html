@@ -336,6 +336,38 @@
     border-radius:10px;
     border:1px solid var(--border-strong);
     margin-bottom:14px;
+    position:relative;
+  }
+  @keyframes spin{to{transform:rotate(360deg);}}
+  .spinner{
+    display:inline-block;
+    width:13px;height:13px;
+    border:2px solid var(--border-strong);
+    border-top-color:var(--accent);
+    border-radius:50%;
+    animation:spin .7s linear infinite;
+    flex-shrink:0;
+  }
+  .spinner-lg{width:28px;height:28px;border-width:3px;}
+  .calc-btn .spinner{
+    border-color:rgba(255,255,255,0.35);
+    border-top-color:#fff;
+    margin-right:8px;
+    vertical-align:-2px;
+  }
+  .map-loading{
+    position:absolute;inset:0;
+    display:flex;align-items:center;justify-content:center;
+    background:rgba(237,238,233,0.45);
+    z-index:800;
+    pointer-events:none;
+    border-radius:10px;
+  }
+  .sync-status{
+    display:inline-flex;align-items:center;gap:6px;
+    font-size:12px;
+    color:var(--ink-soft);
+    white-space:nowrap;
   }
   .route-item{
     display:flex;
@@ -625,6 +657,7 @@
     <p>Pick places for each day, reorder them, get real driving times.</p>
   </div>
   <div class="header-actions">
+    <span class="sync-status" id="syncStatus" style="display:none;"><span class="spinner"></span><span id="syncStatusText"></span></span>
     <span class="user-badge" id="userBadge" style="display:none;"></span>
     <button class="view-toggle-btn" id="backofficeBtn" style="display:none;">Backoffice</button>
     <button class="view-toggle-btn" id="signInBtn" style="display:none;">Sign in</button>
@@ -654,7 +687,7 @@
   </div>
 
   <div class="col col-middle">
-    <div id="map"></div>
+    <div id="map"><div class="map-loading" id="mapLoading" style="display:none;"><div class="spinner spinner-lg"></div></div></div>
     <div class="route-header">
       <p class="section-label" id="routeLabel">Today's route</p>
       <div class="route-tools">
@@ -939,6 +972,15 @@ async function loadRemoteIndex(){
 }
 let remoteVariantState = {}; // `${tripId}:${variantId}` -> {plans, dayMeta}
 
+// Small header indicator for remote activity (loading trips, saving).
+function showSync(text){
+  document.getElementById('syncStatusText').textContent = text;
+  document.getElementById('syncStatus').style.display = '';
+}
+function hideSync(){
+  document.getElementById('syncStatus').style.display = 'none';
+}
+
 // Debounced push of the live plans/dayMeta to the server. A 409 means
 // someone else saved first: reload their state and re-render.
 let syncTimer = null;
@@ -956,6 +998,7 @@ async function pushVariant(){
   }
   const tripId = tripsIndex.activeTripId, variantId = trip.activeVariantId;
   const key = `${tripId}:${variantId}`;
+  showSync('Saving…');
   try{
     const v = await api(`/api/trips/${tripId}/variants/${variantId}`, {
       method:'PUT',
@@ -982,6 +1025,8 @@ async function pushVariant(){
     }else{
       document.getElementById('errorNote').textContent = 'Sync failed: ' + e.message;
     }
+  }finally{
+    hideSync();
   }
 }
 
@@ -1050,11 +1095,16 @@ async function importLocalTrips(email){
 
 // Switches the whole app between local and remote persistence.
 async function enterRemoteMode(email){
-  await importLocalTrips(email);
-  remoteVersions = {}; remoteSources = {}; remoteVariantState = {};
-  await loadRemoteIndex();
-  remoteMode = true;
-  activateCurrentTrip();
+  showSync('Loading trips…');
+  try{
+    await importLocalTrips(email);
+    remoteVersions = {}; remoteSources = {}; remoteVariantState = {};
+    await loadRemoteIndex();
+    remoteMode = true;
+    activateCurrentTrip();
+  }finally{
+    hideSync();
+  }
 }
 function exitRemoteMode(){
   remoteMode = false;
@@ -1749,7 +1799,8 @@ async function calculateRoute(){
   }
   const btn = document.getElementById('calcBtn');
   btn.disabled = true;
-  btn.textContent = 'Calculating…';
+  btn.innerHTML = '<span class="spinner"></span>Calculating…';
+  document.getElementById('mapLoading').style.display = '';
   try{
     let route;
     try{ route = await fetchFromProxy(ids); }
@@ -1771,6 +1822,7 @@ async function calculateRoute(){
   }finally{
     btn.disabled = false;
     btn.textContent = 'Calculate driving times';
+    document.getElementById('mapLoading').style.display = 'none';
   }
 }
 
