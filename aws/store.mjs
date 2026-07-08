@@ -15,8 +15,10 @@ const USERS_TABLE = process.env.USERS_TABLE || 'trip-planner-app-users';
 const TRIPS_TABLE = process.env.TRIPS_TABLE || 'trip-planner-app-trips';
 const VARIANTS_TABLE = process.env.VARIANTS_TABLE || 'trip-planner-app-variants';
 const SHARES_TABLE = process.env.SHARES_TABLE || 'trip-planner-app-shares';
+const TICKETS_TABLE = process.env.TICKETS_TABLE || 'trip-planner-app-tickets';
 const USERS_FILE = process.env.USERS_FILE || join(__dirname, '..', 'data', 'users.json');
 const TRIPS_FILE = process.env.TRIPS_FILE || join(__dirname, '..', 'data', 'trips.json');
+const TICKETS_FILE = process.env.TICKETS_FILE || join(__dirname, '..', 'data', 'tickets.json');
 
 // Thrown by variant writes whose version doesn't match the stored one —
 // the API layer turns this into a 409 (optimistic locking).
@@ -154,6 +156,51 @@ const fileTripsDriver = {
     const db = tripsRead();
     delete db.shares[`${tripId}:${email.toLowerCase()}`];
     tripsWrite(db);
+  },
+};
+
+// ---- tickets (file driver) ----
+// Replaced the old node:sqlite tickets-db.mjs so tickets work on Lambda
+// (DynamoDB) as well as locally (JSON file), same split as everything else.
+
+function ticketsRead() {
+  try {
+    return JSON.parse(readFileSync(TICKETS_FILE, 'utf8'));
+  } catch {
+    return { tickets: {} };
+  }
+}
+function ticketsWrite(db) {
+  mkdirSync(dirname(TICKETS_FILE), { recursive: true });
+  writeFileSync(TICKETS_FILE, JSON.stringify(db, null, 2));
+}
+
+const fileTicketsDriver = {
+  async createTicket({ subject, description, email }) {
+    const db = ticketsRead();
+    const ticket = {
+      id: newStoreId(),
+      subject, description, email,
+      status: 'new',
+      created_at: new Date().toISOString(),
+    };
+    db.tickets[ticket.id] = ticket;
+    ticketsWrite(db);
+    return ticket;
+  },
+  async listTickets() {
+    return Object.values(ticketsRead().tickets)
+      .sort((a, b) => (a.created_at < b.created_at ? 1 : -1));
+  },
+  async getTicket(id) {
+    return ticketsRead().tickets[id] || null;
+  },
+  async updateTicketStatus(id, status) {
+    const db = ticketsRead();
+    if (!db.tickets[id]) return null;
+    db.tickets[id].status = status;
+    ticketsWrite(db);
+    return db.tickets[id];
   },
 };
 
@@ -376,6 +423,73 @@ const dynamoTripsDriver = {
   },
 };
 
+const dynamoTicketsDriver = {
+  async createTicket({ subject, description, email }) {
+    const d = await dynamo();
+    const ticket = {
+      id: newStoreId(),
+      subject, description, email,
+      status: 'new',
+      created_at: new Date().toISOString(),
+    };
+    await d.client.send(new d.PutItemCommand({
+      TableName: TICKETS_TABLE,
+      Item: {
+        id: { S: ticket.id },
+        subject: { S: ticket.subject },
+        description: { S: ticket.description },
+        email: { S: ticket.email },
+        status: { S: ticket.status },
+        created_at: { S: ticket.created_at },
+      },
+    }));
+    return ticket;
+  },
+  async listTickets() {
+    const d = await dynamo();
+    // Scan is fine at personal scale (same call as listUsers).
+    const res = await d.client.send(new d.ScanCommand({ TableName: TICKETS_TABLE }));
+    return (res.Items || []).map(ticketFromItem)
+      .sort((a, b) => (a.created_at < b.created_at ? 1 : -1));
+  },
+  async getTicket(id) {
+    const d = await dynamo();
+    const res = await d.client.send(new d.GetItemCommand({
+      TableName: TICKETS_TABLE, Key: { id: { S: id } },
+    }));
+    return res.Item ? ticketFromItem(res.Item) : null;
+  },
+  async updateTicketStatus(id, status) {
+    const existing = await this.getTicket(id);
+    if (!existing) return null;
+    const d = await dynamo();
+    const updated = { ...existing, status };
+    await d.client.send(new d.PutItemCommand({
+      TableName: TICKETS_TABLE,
+      Item: {
+        id: { S: updated.id },
+        subject: { S: updated.subject },
+        description: { S: updated.description },
+        email: { S: updated.email },
+        status: { S: updated.status },
+        created_at: { S: updated.created_at },
+      },
+    }));
+    return updated;
+  },
+};
+
+function ticketFromItem(i) {
+  return {
+    id: i.id.S,
+    subject: i.subject?.S || '',
+    description: i.description?.S || '',
+    email: i.email?.S || '',
+    status: i.status?.S || 'new',
+    created_at: i.created_at?.S,
+  };
+}
+
 function shareFromItem(i) {
   return {
     trip_id: i.trip_id.S, email: i.email.S, role: i.role.S,
@@ -397,6 +511,7 @@ function variantFromItem(i) {
 
 const driver = DRIVER === 'dynamo' ? dynamoDriver : fileDriver;
 const tripsDriver = DRIVER === 'dynamo' ? dynamoTripsDriver : fileTripsDriver;
+const ticketsDriver = DRIVER === 'dynamo' ? dynamoTicketsDriver : fileTicketsDriver;
 
 export const upsertUser = driver.upsertUser.bind(driver);
 export const getUser = driver.getUser.bind(driver);
@@ -414,3 +529,8 @@ export const listSharesForTrip = tripsDriver.listSharesForTrip.bind(tripsDriver)
 export const listSharesForEmail = tripsDriver.listSharesForEmail.bind(tripsDriver);
 export const putShare = tripsDriver.putShare.bind(tripsDriver);
 export const deleteShare = tripsDriver.deleteShare.bind(tripsDriver);
+
+export const createTicket = ticketsDriver.createTicket.bind(ticketsDriver);
+export const listTickets = ticketsDriver.listTickets.bind(ticketsDriver);
+export const getTicket = ticketsDriver.getTicket.bind(ticketsDriver);
+export const updateTicketStatus = ticketsDriver.updateTicketStatus.bind(ticketsDriver);

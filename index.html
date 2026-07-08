@@ -687,11 +687,10 @@
     <form id="ticketForm">
       <input type="text" id="ticketSubject" placeholder="Subject" maxlength="150" autocomplete="off">
       <textarea id="ticketDescription" placeholder="Description" maxlength="2000" rows="6"></textarea>
-      <input type="email" id="ticketEmail" placeholder="Your email" autocomplete="off">
       <div class="ticket-error" id="ticketError"></div>
       <button type="submit" class="calc-btn">Submit request</button>
     </form>
-    <p class="source-note">Only English letters, numbers, spaces, and . , - @ are accepted in any field — anything else is rejected, both here and on the server.</p>
+    <p class="source-note" id="ticketAuthNote" style="display:none;">Sign in to submit a feature request — your account email is attached to the request automatically (it is never shown publicly).</p>
   </div>
   <div class="tickets-col">
     <p class="section-label">Submitted requests</p>
@@ -1540,7 +1539,7 @@ function setView(view){
   document.getElementById('adminView').style.display = view === 'admin' ? 'grid' : 'none';
   document.getElementById('viewToggleBtn').textContent = view === 'tickets' ? '← Back to planner' : 'Feature requests';
   document.getElementById('backofficeBtn').textContent = view === 'admin' ? '← Back to planner' : 'Backoffice';
-  if(view === 'tickets') loadTickets();
+  if(view === 'tickets'){ loadTickets(); updateTicketFormAuth(); }
   if(view === 'admin') loadAdminUsers();
 }
 
@@ -1587,26 +1586,21 @@ async function loadAdminUsers(){
 
 // Mirrors aws/validate.mjs for instant feedback — the server re-validates
 // with the same rules and is the actual gate, never trust this alone.
-const TICKET_LINE_CHARS = /^[A-Za-z0-9.,\- @]*$/;
-const TICKET_TEXT_CHARS = /^[A-Za-z0-9.,\- @\r\n]*$/;
-const TICKET_EMAIL_RE = /^[A-Za-z0-9.-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$/;
-
+// Any characters are allowed; the server strips control chars and every
+// render path HTML-escapes, so nothing needs rejecting here beyond
+// required fields and length.
 const STATUS_LABELS = { new:'New', in_progress:'In progress', processed:'Processed', done:'Done' };
 
-function validateTicketClient(subject, description, email){
+function validateTicketClient(subject, description){
   subject = subject.trim();
   description = description.trim();
-  email = email.trim();
 
   const errors = [];
   if(!subject) errors.push('Subject is required.');
-  else if(!TICKET_LINE_CHARS.test(subject)) errors.push('Subject may only contain English letters, numbers, spaces, and . , - @');
+  else if(subject.length > 150) errors.push('Subject must be 150 characters or fewer.');
 
   if(!description) errors.push('Description is required.');
-  else if(!TICKET_TEXT_CHARS.test(description)) errors.push('Description may only contain English letters, numbers, spaces, line breaks, and . , - @');
-
-  if(!email) errors.push('Email is required.');
-  else if(!TICKET_EMAIL_RE.test(email)) errors.push('Email must be a valid address using only English letters, numbers, . - @');
+  else if(description.length > 2000) errors.push('Description must be 2000 characters or fewer.');
 
   return errors;
 }
@@ -1663,15 +1657,23 @@ async function loadTickets(){
   }
 }
 
+// The form is only usable when signed in — the server takes the submitter
+// email from the session, so there's no email field to fill.
+function updateTicketFormAuth(){
+  const signedIn = !!currentUser;
+  document.querySelectorAll('#ticketForm input, #ticketForm textarea, #ticketForm button')
+    .forEach(el=>{ el.disabled = !signedIn; });
+  document.getElementById('ticketAuthNote').style.display = signedIn ? 'none' : '';
+}
+
 async function submitTicket(e){
   e.preventDefault();
   const subjectEl = document.getElementById('ticketSubject');
   const descriptionEl = document.getElementById('ticketDescription');
-  const emailEl = document.getElementById('ticketEmail');
   const errEl = document.getElementById('ticketError');
-  const subject = subjectEl.value.trim(), description = descriptionEl.value.trim(), email = emailEl.value.trim();
+  const subject = subjectEl.value.trim(), description = descriptionEl.value.trim();
 
-  const clientErrors = validateTicketClient(subject, description, email);
+  const clientErrors = validateTicketClient(subject, description);
   if(clientErrors.length){ errEl.textContent = clientErrors.join(' '); return; }
   errEl.textContent = '';
 
@@ -1681,7 +1683,7 @@ async function submitTicket(e){
     const res = await fetch(TICKETS_URL, {
       method:'POST',
       headers:{ 'Content-Type':'application/json' },
-      body: JSON.stringify({subject, description, email})
+      body: JSON.stringify({subject, description})
     });
     const data = await res.json();
     if(!res.ok){
@@ -1937,6 +1939,7 @@ function renderAuthUi(){
       googleBtn.style.display = 'none';
     }
   }
+  updateTicketFormAuth();
 }
 
 async function submitCredential(credential){

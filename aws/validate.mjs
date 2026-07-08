@@ -2,38 +2,38 @@
 // truth — the client (index.html) mirrors these same rules for instant
 // feedback, but only this module's checks are actually trusted.
 //
-// Whitelist policy: English letters, digits, space, and . , - @ only. No
-// other punctuation, no non-English characters, no HTML metacharacters.
-// Rejecting disallowed input (rather than stripping it) keeps behavior
-// predictable and avoids silently mangling what the user typed.
-
-const LINE_CHARS = /^[A-Za-z0-9.,\- @]*$/;
-const TEXT_CHARS = /^[A-Za-z0-9.,\- @\r\n]*$/;
-const EMAIL_RE = /^[A-Za-z0-9.-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$/;
+// Sanitize-not-whitelist policy: any printable characters are accepted
+// (any language, any punctuation). Control characters are stripped (except
+// newlines in the description) and length limits enforced. XSS is prevented
+// at render time — every consumer must HTML-escape on output (index.html
+// does, via escapeHtml) — and storage is DynamoDB/JSON with parameterized
+// writes, so there is no SQL to inject into.
 
 const SUBJECT_MAX = 150;
 const DESCRIPTION_MAX = 2000;
-const EMAIL_MAX = 254;
+
+// Strips C0/C1 control chars; keepNewlines preserves \n (and normalizes \r\n).
+function sanitize(s, { keepNewlines = false } = {}) {
+  const normalized = keepNewlines ? s.replace(/\r\n?/g, '\n') : s;
+  const re = keepNewlines
+    ? /[\x00-\x09\x0B-\x1F\x7F-\x9F]/g
+    : /[\x00-\x1F\x7F-\x9F]/g;
+  return normalized.replace(re, '').trim();
+}
 
 export function validateTicket(input) {
   const errors = [];
-  const subject = typeof input?.subject === 'string' ? input.subject.trim() : '';
-  const description = typeof input?.description === 'string' ? input.description.trim() : '';
-  const email = typeof input?.email === 'string' ? input.email.trim() : '';
+  const subject = typeof input?.subject === 'string' ? sanitize(input.subject) : '';
+  const description = typeof input?.description === 'string'
+    ? sanitize(input.description, { keepNewlines: true }) : '';
 
   if (!subject) errors.push('Subject is required.');
   else if (subject.length > SUBJECT_MAX) errors.push(`Subject must be ${SUBJECT_MAX} characters or fewer.`);
-  else if (!LINE_CHARS.test(subject)) errors.push('Subject may only contain English letters, numbers, spaces, and . , - @');
 
   if (!description) errors.push('Description is required.');
   else if (description.length > DESCRIPTION_MAX) errors.push(`Description must be ${DESCRIPTION_MAX} characters or fewer.`);
-  else if (!TEXT_CHARS.test(description)) errors.push('Description may only contain English letters, numbers, spaces, line breaks, and . , - @');
 
-  if (!email) errors.push('Email is required.');
-  else if (email.length > EMAIL_MAX) errors.push(`Email must be ${EMAIL_MAX} characters or fewer.`);
-  else if (!EMAIL_RE.test(email)) errors.push('Email must be a valid address using only English letters, numbers, . - @');
-
-  return { valid: errors.length === 0, errors, value: { subject, description, email } };
+  return { valid: errors.length === 0, errors, value: { subject, description } };
 }
 
 export function validateStatus(status, allowedStatuses) {

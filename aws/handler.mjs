@@ -10,7 +10,7 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { validateTicket, validateStatus } from './validate.mjs';
-import { createTicket, listTickets, updateTicketStatus, isAvailable as ticketsAvailable, STATUSES } from './tickets-db.mjs';
+
 import {
   verifyGoogleCredential, createSessionToken, sessionFromEvent,
   sessionSetCookie, sessionClearCookie, isAdminEmail,
@@ -20,7 +20,10 @@ import {
   createTrip, getTrip, listTripsForOwner, deleteTrip,
   listVariants, getVariant, putVariant, deleteVariant,
   listSharesForTrip, listSharesForEmail, putShare, deleteShare,
+  createTicket, listTickets, updateTicketStatus,
 } from './store.mjs';
+
+const TICKET_STATUSES = ['new', 'in_progress', 'processed', 'done'];
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 // deploy.sh copies the repo's index.html next to this file before zipping,
@@ -104,20 +107,20 @@ export const handler = async (event) => {
       return { statusCode: 204, headers: corsHeaders() };
     }
     if (method === 'GET') {
-      return ticketsAvailable() ? handleListTickets() : ticketsUnavailable();
+      return handleListTickets();
     }
     if (method === 'POST') {
-      return ticketsAvailable() ? handleCreateTicket(event) : ticketsUnavailable();
+      return handleCreateTicket(event);
     }
   }
 
-  const ticketIdMatch = rawPath.match(/^\/tickets\/(\d+)$/);
+  const ticketIdMatch = rawPath.match(/^\/tickets\/([A-Za-z0-9]+)$/);
   if (ticketIdMatch) {
     if (method === 'OPTIONS') {
       return { statusCode: 204, headers: corsHeaders() };
     }
     if (method === 'PATCH') {
-      return ticketsAvailable() ? handleUpdateTicketStatus(event, Number(ticketIdMatch[1])) : ticketsUnavailable();
+      return handleUpdateTicketStatus(event, ticketIdMatch[1]);
     }
   }
 
@@ -410,9 +413,9 @@ async function handleAdminApi(event, method, rawPath) {
   return jsonError(404, 'Not found');
 }
 
-function handleListTickets() {
+async function handleListTickets() {
   // Public listing: submitter emails are private, never expose them here.
-  const tickets = listTickets().map(({ email, ...pub }) => pub);
+  const tickets = (await listTickets()).map(({ email, ...pub }) => pub);
   return {
     statusCode: 200,
     headers: { ...JSON_HEADERS, ...corsHeaders() },
@@ -420,7 +423,12 @@ function handleListTickets() {
   };
 }
 
-function handleCreateTicket(event) {
+async function handleCreateTicket(event) {
+  // Submissions require a signed-in user; the email is taken from the
+  // session, never from the request body (so it can't be spoofed).
+  const session = sessionFromEvent(event, process.env.SESSION_SECRET);
+  if (!session) return jsonError(401, 'Sign in to submit a feature request');
+
   let body;
   try {
     body = JSON.parse(event.body || '{}');
@@ -437,18 +445,18 @@ function handleCreateTicket(event) {
     };
   }
 
-  const ticket = createTicket(value);
+  const ticket = await createTicket({ ...value, email: session.email });
+  const { email, ...pub } = ticket;
   return {
     statusCode: 201,
     headers: { ...JSON_HEADERS, ...corsHeaders() },
-    body: JSON.stringify(ticket),
+    body: JSON.stringify(pub),
   };
 }
 
-function handleUpdateTicketStatus(event, id) {
-  // Interim admin gate until real session auth (auth-and-sharing phase 2):
-  // requires the x-admin-token header to match ADMIN_TOKEN. With the env
-  // var unset, status updates are simply disabled.
+async function handleUpdateTicketStatus(event, id) {
+  // Admin session cookie, or the legacy x-admin-token header (kept for
+  // scripted use; disabled entirely when ADMIN_TOKEN is unset).
   const adminToken = process.env.ADMIN_TOKEN;
   const given = event.headers?.['x-admin-token'] ?? event.headers?.['X-Admin-Token'];
   const session = sessionFromEvent(event, process.env.SESSION_SECRET);
@@ -464,7 +472,7 @@ function handleUpdateTicketStatus(event, id) {
     return jsonError(400, 'Invalid JSON body');
   }
 
-  const { valid, errors } = validateStatus(body.status, STATUSES);
+  const { valid, errors } = validateStatus(body.status, TICKET_STATUSES);
   if (!valid) {
     return {
       statusCode: 400,
@@ -473,7 +481,7 @@ function handleUpdateTicketStatus(event, id) {
     };
   }
 
-  const ticket = updateTicketStatus(id, body.status);
+  const ticket = await updateTicketStatus(id, body.status);
   if (!ticket) {
     return jsonError(404, 'Ticket not found');
   }
@@ -482,10 +490,6 @@ function handleUpdateTicketStatus(event, id) {
     headers: { ...JSON_HEADERS, ...corsHeaders() },
     body: JSON.stringify(ticket),
   };
-}
-
-function ticketsUnavailable() {
-  return jsonError(503, 'Feature requests are not available on this deployment.');
 }
 
 function jsonError(statusCode, message) {

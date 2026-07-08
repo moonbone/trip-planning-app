@@ -13,14 +13,6 @@ set -euo pipefail
 
 FUNCTION_NAME="${FUNCTION_NAME:-trip-planner-app}"
 REGION="${AWS_REGION:-us-east-1}"
-# Feature-request tickets (aws/tickets-db.mjs) are intentionally disabled on
-# this deployment: node:sqlite needs Node 22.5+ and a writable filesystem,
-# neither of which nodejs20.x Lambda has (read-only outside ephemeral /tmp).
-# tickets-db.mjs detects that at runtime and disables itself gracefully
-# (returns 503 on /tickets) rather than crashing the whole function - so
-# nodejs20.x is fine here. Tickets only work via local/laptop hosting
-# (dev-server.mjs) for now; a real Lambda deployment would need
-# DynamoDB/RDS/EFS instead of SQLite.
 RUNTIME="nodejs20.x"
 ROLE_NAME="${ROLE_NAME:-trip-planner-app-role}"
 
@@ -55,7 +47,6 @@ rm -rf build function.zip
 mkdir build
 cp aws/handler.mjs build/index.mjs
 cp aws/validate.mjs build/validate.mjs
-cp aws/tickets-db.mjs build/tickets-db.mjs
 cp aws/auth.mjs build/auth.mjs
 cp aws/store.mjs build/store.mjs
 cp index.html build/index.html
@@ -131,6 +122,9 @@ ensure_table trip-planner-app-variants \
 ensure_table trip-planner-app-shares \
   --attribute-definitions AttributeName=trip_id,AttributeType=S AttributeName=email,AttributeType=S \
   --key-schema AttributeName=trip_id,KeyType=HASH AttributeName=email,KeyType=RANGE
+ensure_table trip-planner-app-tickets \
+  --attribute-definitions AttributeName=id,AttributeType=S \
+  --key-schema AttributeName=id,KeyType=HASH
 
 if ! aws iam put-role-policy --role-name "$ROLE_NAME" \
     --policy-name trip-planner-app-dynamodb \

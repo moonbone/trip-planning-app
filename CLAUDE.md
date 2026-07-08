@@ -53,17 +53,16 @@ The user's own real trip currently loaded into the app is a Norway road trip, Au
   `POST /route` to OpenRouteService using `process.env.ORS_API_KEY`, and handles
   `GET /tickets` + `POST /tickets` for feature requests. One function, one Function URL,
   no API Gateway.
-- `aws/validate.mjs` — whitelist validation for ticket fields (subject/description/email):
-  English letters, digits, space, and `. , - @` only, nothing else. This is the real gate;
-  `index.html` mirrors the same regexes client-side for instant feedback only, never trust
-  that alone.
-- `aws/tickets-db.mjs` — SQLite storage for tickets via Node's built-in `node:sqlite`
-  (no npm dependency). DB file defaults to `data/tickets.db` (gitignored), overridable via
-  `TICKETS_DB_PATH`. **Needs Node 22.5+** — not available on the `nodejs20.x` Lambda
-  runtime, which is why `aws/deploy.sh` now targets `nodejs22.x`. Even so, this is
-  local/laptop-hosting-only for now: Lambda's filesystem is read-only outside `/tmp`, and
-  `/tmp` is ephemeral per-instance, so tickets would not reliably persist if actually
-  deployed to Lambda. Would need DynamoDB/RDS/EFS for real Lambda persistence.
+- `aws/validate.mjs` — sanitizing validation for ticket fields (subject/description):
+  any printable characters accepted, control chars stripped, length limits enforced.
+  XSS is handled at render time (`escapeHtml` in index.html on every ticket field) and
+  storage is DynamoDB/JSON (no SQL), so there's nothing to whitelist. This is the real
+  gate; `index.html` mirrors the required/length checks client-side for instant feedback
+  only, never trust that alone.
+- Tickets live in `aws/store.mjs` alongside users/trips (DynamoDB `trip-planner-app-tickets`
+  on Lambda, `data/tickets.json` locally). Submitting requires a signed-in session — the
+  submitter email comes from the session cookie, never the request body, and is stripped
+  from all public responses. The old `aws/tickets-db.mjs` (node:sqlite) is gone.
 - `dev-server.mjs` — runs `aws/handler.mjs` locally over plain HTTP (`node --env-file=.env
   dev-server.mjs`), so the real proxy and tickets routes can be tested before deploying.
   Copies root `index.html` into `aws/index.html` at startup (mirroring what `deploy.sh`
