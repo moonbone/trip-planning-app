@@ -623,6 +623,7 @@
       <p class="source-note" id="kmlStatus"></p>
       <div class="trip-row" id="tripRow">
         <select id="tripSelect"></select>
+        <button class="reset-btn" id="shareTripBtn" style="display:none;">Share</button>
         <button class="reset-btn" id="deleteTripBtn">Delete trip</button>
       </div>
       <input type="file" id="kmlFileInput" accept=".kml,.xml">
@@ -895,7 +896,7 @@ async function loadRemoteIndex(){
     });
     const p = prefs.trips?.[t.trip_id] || {};
     idx.trips[t.trip_id] = {
-      name: t.name, filename: t.filename,
+      name: t.name, filename: t.filename, role: t.role || 'owner',
       activeVariantId: variants[p.activeVariantId] !== undefined ? p.activeVariantId : Object.keys(variants)[0],
       variants, lastVisit: p.lastVisit || null,
     };
@@ -915,6 +916,11 @@ function scheduleRemoteSave(){
 async function pushVariant(){
   const trip = activeTrip();
   if(!trip) return;
+  if(trip.role === 'viewer'){
+    document.getElementById('errorNote').textContent =
+      'View-only trip — your changes are not saved to the shared plan.';
+    return;
+  }
   const tripId = tripsIndex.activeTripId, variantId = trip.activeVariantId;
   const key = `${tripId}:${variantId}`;
   try{
@@ -1750,6 +1756,42 @@ document.getElementById('kmlFileInput').addEventListener('change', async (e)=>{
 });
 
 document.getElementById('tripSelect').addEventListener('change', (e)=>switchTrip(e.target.value));
+document.getElementById('shareTripBtn').addEventListener('click', async ()=>{
+  const trip = activeTrip();
+  if(!trip) return;
+  const tripId = tripsIndex.activeTripId;
+  let shares = [];
+  try{ shares = await api(`/api/trips/${tripId}/shares`); }
+  catch(e){
+    document.getElementById('errorNote').textContent = 'Could not load shares: ' + e.message;
+    return;
+  }
+  const current = shares.length
+    ? '\nCurrently shared with:\n' + shares.map(s=>`  ${s.email} (${s.role})`).join('\n')
+    : '\nNot shared with anyone yet.';
+  const email = prompt(`Share "${trip.name}" with (Google email):${current}`);
+  if(!email || !email.trim()) return;
+  const existing = shares.find(s=>s.email === email.trim().toLowerCase());
+  const role = prompt(
+    `Role for ${email.trim()} — viewer, editor, or co-owner` +
+    (existing ? ` (currently ${existing.role}; type "remove" to revoke)` : ''),
+    existing ? existing.role : 'editor'
+  );
+  if(!role || !role.trim()) return;
+  try{
+    if(role.trim().toLowerCase() === 'remove'){
+      await api(`/api/trips/${tripId}/shares/${encodeURIComponent(email.trim().toLowerCase())}`, {method:'DELETE'});
+    }else{
+      await api(`/api/trips/${tripId}/shares`, {
+        method:'POST',
+        body: JSON.stringify({email: email.trim(), role: role.trim().toLowerCase()}),
+      });
+    }
+    document.getElementById('errorNote').textContent = '';
+  }catch(e){
+    document.getElementById('errorNote').textContent = 'Share failed: ' + e.message;
+  }
+});
 document.getElementById('deleteTripBtn').addEventListener('click', ()=>deleteTrip(tripsIndex.activeTripId));
 document.getElementById('variantSelect').addEventListener('change', (e)=>switchVariant(e.target.value));
 document.getElementById('variantAddBtn').addEventListener('click', addVariant);
@@ -2118,12 +2160,18 @@ function renderTripUi(){
   tripSel.style.display = tripIds.length > 1 ? '' : 'none';
   tripSel.innerHTML = '';
   tripIds.forEach(id=>{
+    const t = tripsIndex.trips[id];
     const opt = document.createElement('option');
     opt.value = id;
-    opt.textContent = tripsIndex.trips[id].name;
+    opt.textContent = t.name + (t.role && t.role !== 'owner' ? ` (shared · ${t.role})` : '');
     opt.selected = id === tripsIndex.activeTripId;
     tripSel.appendChild(opt);
   });
+  const role = trip ? (trip.role || 'owner') : null;
+  document.getElementById('shareTripBtn').style.display =
+    remoteMode && trip && (role === 'owner' || role === 'co-owner') ? '' : 'none';
+  document.getElementById('deleteTripBtn').style.display =
+    trip && (!remoteMode || role === 'owner') ? '' : 'none';
 
   const tools = document.getElementById('variantTools');
   tools.style.display = trip ? '' : 'none';

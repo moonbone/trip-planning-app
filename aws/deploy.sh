@@ -121,6 +121,9 @@ ensure_table norway-app-trips \
 ensure_table norway-app-variants \
   --attribute-definitions AttributeName=trip_id,AttributeType=S AttributeName=variant_id,AttributeType=S \
   --key-schema AttributeName=trip_id,KeyType=HASH AttributeName=variant_id,KeyType=RANGE
+ensure_table norway-app-shares \
+  --attribute-definitions AttributeName=trip_id,AttributeType=S AttributeName=email,AttributeType=S \
+  --key-schema AttributeName=trip_id,KeyType=HASH AttributeName=email,KeyType=RANGE
 
 if ! aws iam put-role-policy --role-name "$ROLE_NAME" \
     --policy-name norway-app-dynamodb \

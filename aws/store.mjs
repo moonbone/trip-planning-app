@@ -14,6 +14,7 @@ const DRIVER = process.env.STORE_DRIVER
 const USERS_TABLE = process.env.USERS_TABLE || 'norway-app-users';
 const TRIPS_TABLE = process.env.TRIPS_TABLE || 'norway-app-trips';
 const VARIANTS_TABLE = process.env.VARIANTS_TABLE || 'norway-app-variants';
+const SHARES_TABLE = process.env.SHARES_TABLE || 'norway-app-shares';
 const USERS_FILE = process.env.USERS_FILE || join(__dirname, '..', 'data', 'users.json');
 const TRIPS_FILE = process.env.TRIPS_FILE || join(__dirname, '..', 'data', 'trips.json');
 
@@ -67,11 +68,16 @@ const fileDriver = {
 };
 
 function tripsRead() {
+  let db;
   try {
-    return JSON.parse(readFileSync(TRIPS_FILE, 'utf8'));
+    db = JSON.parse(readFileSync(TRIPS_FILE, 'utf8'));
   } catch {
-    return { trips: {}, variants: {} };
+    db = {};
   }
+  db.trips ||= {};
+  db.variants ||= {};
+  db.shares ||= {};
+  return db;
 }
 function tripsWrite(db) {
   mkdirSync(dirname(TRIPS_FILE), { recursive: true });
@@ -96,6 +102,9 @@ const fileTripsDriver = {
     delete db.trips[tripId];
     for (const key of Object.keys(db.variants)) {
       if (key.startsWith(tripId + ':')) delete db.variants[key];
+    }
+    for (const key of Object.keys(db.shares)) {
+      if (db.shares[key].trip_id === tripId) delete db.shares[key];
     }
     tripsWrite(db);
   },
@@ -125,6 +134,24 @@ const fileTripsDriver = {
   async deleteVariant(tripId, variantId) {
     const db = tripsRead();
     delete db.variants[`${tripId}:${variantId}`];
+    tripsWrite(db);
+  },
+  async listSharesForTrip(tripId) {
+    return Object.values(tripsRead().shares).filter((s) => s.trip_id === tripId);
+  },
+  async listSharesForEmail(email) {
+    const e = email.toLowerCase();
+    return Object.values(tripsRead().shares).filter((s) => s.email === e);
+  },
+  async putShare(share) {
+    const db = tripsRead();
+    db.shares[`${share.trip_id}:${share.email}`] = share;
+    tripsWrite(db);
+    return share;
+  },
+  async deleteShare(tripId, email) {
+    const db = tripsRead();
+    delete db.shares[`${tripId}:${email.toLowerCase()}`];
     tripsWrite(db);
   },
 };
@@ -307,7 +334,53 @@ const dynamoTripsDriver = {
       Key: { trip_id: { S: tripId }, variant_id: { S: variantId } },
     }));
   },
+  async listSharesForTrip(tripId) {
+    const d = await dynamo();
+    const res = await d.client.send(new d.QueryCommand({
+      TableName: SHARES_TABLE,
+      KeyConditionExpression: 'trip_id = :t',
+      ExpressionAttributeValues: { ':t': { S: tripId } },
+    }));
+    return (res.Items || []).map(shareFromItem);
+  },
+  async listSharesForEmail(email) {
+    const d = await dynamo();
+    const res = await d.client.send(new d.ScanCommand({
+      TableName: SHARES_TABLE,
+      FilterExpression: 'email = :e',
+      ExpressionAttributeValues: { ':e': { S: email.toLowerCase() } },
+    }));
+    return (res.Items || []).map(shareFromItem);
+  },
+  async putShare(share) {
+    const d = await dynamo();
+    await d.client.send(new d.PutItemCommand({
+      TableName: SHARES_TABLE,
+      Item: {
+        trip_id: { S: share.trip_id },
+        email: { S: share.email },
+        role: { S: share.role },
+        invited_by: { S: share.invited_by },
+        created_at: { S: share.created_at },
+      },
+    }));
+    return share;
+  },
+  async deleteShare(tripId, email) {
+    const d = await dynamo();
+    await d.client.send(new d.DeleteItemCommand({
+      TableName: SHARES_TABLE,
+      Key: { trip_id: { S: tripId }, email: { S: email.toLowerCase() } },
+    }));
+  },
 };
+
+function shareFromItem(i) {
+  return {
+    trip_id: i.trip_id.S, email: i.email.S, role: i.role.S,
+    invited_by: i.invited_by?.S, created_at: i.created_at?.S,
+  };
+}
 
 function variantFromItem(i) {
   const state = JSON.parse(i.state?.S || '{}');
@@ -336,3 +409,7 @@ export const listVariants = tripsDriver.listVariants.bind(tripsDriver);
 export const getVariant = tripsDriver.getVariant.bind(tripsDriver);
 export const putVariant = tripsDriver.putVariant.bind(tripsDriver);
 export const deleteVariant = tripsDriver.deleteVariant.bind(tripsDriver);
+export const listSharesForTrip = tripsDriver.listSharesForTrip.bind(tripsDriver);
+export const listSharesForEmail = tripsDriver.listSharesForEmail.bind(tripsDriver);
+export const putShare = tripsDriver.putShare.bind(tripsDriver);
+export const deleteShare = tripsDriver.deleteShare.bind(tripsDriver);

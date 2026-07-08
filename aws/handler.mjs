@@ -19,6 +19,7 @@ import {
   upsertUser, newStoreId, VersionConflictError,
   createTrip, getTrip, listTripsForOwner, deleteTrip,
   listVariants, getVariant, putVariant, deleteVariant,
+  listSharesForTrip, listSharesForEmail, putShare, deleteShare,
 } from './store.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -207,6 +208,21 @@ async function handleGoogleLogin(event) {
 const MAX_KML_BYTES = 1024 * 1024;
 const MAX_NAME_LEN = 200;
 
+// Sharing roles (phase 4): viewer < editor < co-owner < owner. Editors
+// change plans/variants; co-owners also manage shares; only the owner
+// deletes the trip. Shares are keyed by (trip, lowercased email) — an
+// invite to an address that hasn't logged in yet simply starts working
+// on their first login (pending-invite semantics for free).
+const ROLE_RANK = { viewer: 1, editor: 2, 'co-owner': 3, owner: 4 };
+const SHAREABLE_ROLES = ['viewer', 'editor', 'co-owner'];
+
+async function tripRole(session, trip) {
+  if (trip.owner_sub === session.sub) return 'owner';
+  const shares = await listSharesForTrip(trip.trip_id);
+  const share = shares.find((s) => s.email === (session.email || '').toLowerCase());
+  return share ? share.role : null;
+}
+
 function ok(body, statusCode = 200) {
   return { statusCode, headers: { ...JSON_HEADERS, ...corsHeaders() }, body: JSON.stringify(body) };
 }
@@ -231,7 +247,23 @@ async function handleTripsApi(event, method, rawPath) {
   try {
     // /api/trips
     if (!tripId) {
-      if (method === 'GET') return ok(await listTripsForOwner(session.sub));
+      if (method === 'GET') {
+        const owned = (await listTripsForOwner(session.sub)).map((t) => ({
+          trip_id: t.trip_id, name: t.name, filename: t.filename,
+          created_at: t.created_at, role: 'owner',
+        }));
+        const shared = [];
+        for (const s of await listSharesForEmail(session.email || '')) {
+          const t = await getTrip(s.trip_id);
+          if (t) {
+            shared.push({
+              trip_id: t.trip_id, name: t.name, filename: t.filename,
+              created_at: t.created_at, role: s.role,
+            });
+          }
+        }
+        return ok([...owned, ...shared]);
+      }
       if (method === 'POST') {
         const { name, filename, kml_source } = body;
         if (typeof name !== 'string' || !name.trim() || name.length > MAX_NAME_LEN) {
@@ -257,24 +289,50 @@ async function handleTripsApi(event, method, rawPath) {
       return jsonError(405, 'Method not allowed');
     }
 
-    // everything below needs the trip and ownership
+    // everything below needs the trip and at least viewer access
     const trip = await getTrip(tripId);
-    if (!trip || trip.owner_sub !== session.sub) return jsonError(404, 'Trip not found');
+    const role = trip ? await tripRole(session, trip) : null;
+    if (!role) return jsonError(404, 'Trip not found');
 
     // /api/trips/:id
     if (parts.length === 3) {
       if (method === 'GET') {
-        return ok({ trip, variants: await listVariants(tripId) });
+        return ok({ trip, variants: await listVariants(tripId), role });
       }
       if (method === 'DELETE') {
+        if (role !== 'owner') return jsonError(403, 'Only the owner can delete a trip');
         await deleteTrip(tripId);
         return ok({ ok: true });
       }
       return jsonError(405, 'Method not allowed');
     }
 
-    // /api/trips/:id/variants[/:vid]
+    // /api/trips/:id/shares[/:email] — co-owner and up
+    if (parts[3] === 'shares') {
+      if (ROLE_RANK[role] < ROLE_RANK['co-owner']) return jsonError(403, 'Not allowed');
+      if (!parts[4] && method === 'GET') return ok(await listSharesForTrip(tripId));
+      if (!parts[4] && method === 'POST') {
+        const email = String(body.email || '').trim().toLowerCase();
+        if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return jsonError(400, 'Invalid email');
+        if (!SHAREABLE_ROLES.includes(body.role)) return jsonError(400, 'Role must be viewer, editor, or co-owner');
+        if (email === (session.email || '').toLowerCase()) return jsonError(400, 'That is you');
+        return ok(await putShare({
+          trip_id: tripId, email, role: body.role,
+          invited_by: session.email, created_at: new Date().toISOString(),
+        }), 201);
+      }
+      if (parts[4] && method === 'DELETE') {
+        await deleteShare(tripId, decodeURIComponent(parts[4]));
+        return ok({ ok: true });
+      }
+      return jsonError(405, 'Method not allowed');
+    }
+
+    // /api/trips/:id/variants[/:vid] — writes need editor and up
     if (parts[3] !== 'variants') return jsonError(404, 'Not found');
+    if (method !== 'GET' && ROLE_RANK[role] < ROLE_RANK.editor) {
+      return jsonError(403, 'View-only access');
+    }
 
     if (!variantId && method === 'POST') {
       const { name, plans, dayMeta } = body;
