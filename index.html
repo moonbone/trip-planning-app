@@ -1995,9 +1995,14 @@ function applyTrip(parsed){
 
 function updateKmlStatus(){
   const trip = activeTrip();
-  document.getElementById('kmlStatus').textContent = trip && PLACES.length
-    ? `${trip.filename} · ${PLACES.length} places · ${DAYS.length} days`
-    : 'No trip loaded yet — upload a Google My Maps KML export.';
+  let text = 'No trip loaded yet — upload a Google My Maps KML export.';
+  if(trip && PLACES.length){
+    text = `${trip.filename} · ${PLACES.length} places · ${DAYS.length} days`;
+    if(remoteMode && trip.role && trip.role !== 'owner'){
+      text += ` · shared with you (${trip.role})`;
+    }
+  }
+  document.getElementById('kmlStatus').textContent = text;
 }
 
 // Creates the trip's storage (src blob, empty Main variant, index entry).
@@ -2157,7 +2162,9 @@ function renderTripUi(){
   const tripRow = document.getElementById('tripRow');
   tripRow.style.display = tripIds.length ? '' : 'none';
   const tripSel = document.getElementById('tripSelect');
-  tripSel.style.display = tripIds.length > 1 ? '' : 'none';
+  // In remote mode always show the select — its label is what tells you a
+  // trip is shared and with which role.
+  tripSel.style.display = (tripIds.length > 1 || (remoteMode && tripIds.length > 0)) ? '' : 'none';
   tripSel.innerHTML = '';
   tripIds.forEach(id=>{
     const t = tripsIndex.trips[id];
