@@ -72,3 +72,10 @@ This doc is the single reference for the effort; update it as decisions change.
 - iam-policy.json needs DynamoDB (+ CloudFront if managed by deploy script) additions.
 - New secrets: `SESSION_SECRET`, `GOOGLE_CLIENT_ID`, `ADMIN_EMAILS` → Lambda env +
   GitHub Actions secrets.
+
+## Live infrastructure (2026-07-08)
+
+- Lambda Function URL: https://forby4mjatre7liboiacalno4e0gwlpl.lambda-url.us-east-1.on.aws/
+- CloudFront distribution: E8YZVUUFAOYFI -> https://d24lxtp1p8j23g.cloudfront.net
+  (this is the OAuth origin to register in Google Cloud Console)
+- DynamoDB tables: norway-app-users, norway-app-trips, norway-app-variants, norway-app-shares
