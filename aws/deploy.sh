@@ -33,7 +33,7 @@ fi
 # SESSION_SECRET (invalidates all sessions) and separately GOOGLE_CLIENT_ID
 # (breaks Google sign-in with no visible error until someone tries it).
 LAMBDA_ENV="ORS_API_KEY=$ORS_API_KEY"
-for var in SESSION_SECRET GOOGLE_CLIENT_ID ADMIN_EMAILS ADMIN_TOKEN USERS_TABLE; do
+for var in SESSION_SECRET GOOGLE_CLIENT_ID ADMIN_EMAILS ADMIN_TOKEN USERS_TABLE BEDROCK_MODEL_ID; do
   if [[ -n "${!var:-}" ]]; then
     LAMBDA_ENV="$LAMBDA_ENV,$var=${!var}"
   fi
@@ -49,6 +49,7 @@ cp aws/handler.mjs build/index.mjs
 cp aws/validate.mjs build/validate.mjs
 cp aws/auth.mjs build/auth.mjs
 cp aws/store.mjs build/store.mjs
+cp aws/ai.mjs build/ai.mjs
 cp index.html build/index.html
 (cd build && zip -qr ../function.zip .)
 rm -rf build
@@ -137,6 +138,27 @@ if ! aws iam put-role-policy --role-name "$ROLE_NAME" \
       }]
     }' >/dev/null 2>&1; then
   echo "    WARNING: could not attach DynamoDB policy to $ROLE_NAME (missing iam:PutRolePolicy?)" >&2
+fi
+
+echo "==> Ensuring Bedrock invoke access (AI features)..."
+# Scoped to Claude Haiku; covers both the plain foundation-model ARN and the
+# cross-region inference-profile ARN some Bedrock regions require for
+# on-demand invoke. Model access for Claude must still be enabled once per
+# account in the Bedrock console (Model access page) - IAM alone won't grant it.
+if ! aws iam put-role-policy --role-name "$ROLE_NAME" \
+    --policy-name trip-planner-app-bedrock \
+    --policy-document '{
+      "Version": "2012-10-17",
+      "Statement": [{
+        "Effect": "Allow",
+        "Action": ["bedrock:InvokeModel", "bedrock:InvokeModelWithResponseStream"],
+        "Resource": [
+          "arn:aws:bedrock:*::foundation-model/anthropic.claude-haiku-4-5*",
+          "arn:aws:bedrock:*:*:inference-profile/*anthropic.claude-haiku-4-5*"
+        ]
+      }]
+    }' >/dev/null 2>&1; then
+  echo "    WARNING: could not attach Bedrock policy to $ROLE_NAME (missing iam:PutRolePolicy?)" >&2
 fi
 
 echo "==> Ensuring public Function URL exists..."

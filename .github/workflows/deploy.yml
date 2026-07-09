@@ -32,6 +32,7 @@ jobs:
           GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
           ADMIN_EMAILS: ${{ secrets.ADMIN_EMAILS }}
           ADMIN_TOKEN: ${{ secrets.ADMIN_TOKEN }}
+          BEDROCK_MODEL_ID: ${{ secrets.BEDROCK_MODEL_ID }}
         run: |
           chmod +x aws/deploy.sh
           ./aws/deploy.sh
