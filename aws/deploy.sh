@@ -161,22 +161,33 @@ if ! aws iam put-role-policy --role-name "$ROLE_NAME" \
 fi
 
 echo "==> Ensuring Bedrock invoke access (AI features)..."
-# Scoped to Claude Haiku; covers both the plain foundation-model ARN and the
-# cross-region inference-profile ARN some Bedrock regions require for
-# on-demand invoke. Model access for Claude must still be enabled once per
-# account in the Bedrock console (Model access page) - IAM alone won't grant it.
+# Invoke is scoped to Claude Haiku (both the plain foundation-model ARN and
+# the cross-region inference-profile ARN this model requires). The
+# aws-marketplace actions are what replaced the retired Bedrock console
+# "Model access" page: model subscription now happens automatically on the
+# first invoke, but only if the invoking role may Subscribe — without them,
+# invokes fail intermittently depending on which region of the inference
+# profile the request lands in. Marketplace actions only accept Resource "*";
+# the role is only assumable by this Lambda, which only invokes this model.
 if ! aws iam put-role-policy --role-name "$ROLE_NAME" \
     --policy-name trip-planner-app-bedrock \
     --policy-document '{
       "Version": "2012-10-17",
-      "Statement": [{
-        "Effect": "Allow",
-        "Action": ["bedrock:InvokeModel", "bedrock:InvokeModelWithResponseStream"],
-        "Resource": [
-          "arn:aws:bedrock:*::foundation-model/anthropic.claude-haiku-4-5*",
-          "arn:aws:bedrock:*:*:inference-profile/*anthropic.claude-haiku-4-5*"
-        ]
-      }]
+      "Statement": [
+        {
+          "Effect": "Allow",
+          "Action": ["bedrock:InvokeModel", "bedrock:InvokeModelWithResponseStream"],
+          "Resource": [
+            "arn:aws:bedrock:*::foundation-model/anthropic.claude-haiku-4-5*",
+            "arn:aws:bedrock:*:*:inference-profile/*anthropic.claude-haiku-4-5*"
+          ]
+        },
+        {
+          "Effect": "Allow",
+          "Action": ["aws-marketplace:Subscribe", "aws-marketplace:ViewSubscriptions"],
+          "Resource": "*"
+        }
+      ]
     }' >/dev/null 2>&1; then
   echo "    WARNING: could not attach Bedrock policy to $ROLE_NAME (missing iam:PutRolePolicy?)" >&2
 fi
