@@ -243,6 +243,7 @@ async function handleSummarizeDay(event) {
     const summary = await askClaude(
       'Summarize this day of a trip itinerary in 2-3 friendly sentences, '
       + 'highlighting the flow of the day and any standout stops. '
+      + 'Respond in Hebrew (the itinerary details may be in any language). '
       + `Do not invent details not present below.\n\n${text}`,
       { maxTokens: 300 },
     );
