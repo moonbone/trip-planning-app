@@ -162,6 +162,22 @@
     border-radius:3px;
     padding:1px 5px;
   }
+  .place-item .alloc-badge{
+    font-family:'IBM Plex Mono',monospace;
+    font-size:10px;
+    border-radius:3px;
+    padding:1px 5px;
+    flex-shrink:0;
+  }
+  .place-item .alloc-past{
+    background:var(--border);
+    color:var(--ink-soft);
+    text-decoration:line-through;
+  }
+  .place-item .alloc-future{
+    background:var(--accent-light);
+    color:var(--accent-dark);
+  }
   .add-btn{
     border:1px solid var(--accent);
     background:var(--panel);
@@ -1275,6 +1291,17 @@ function renderMasterList(){
     el.innerHTML = '<div class="empty-note">No trip loaded — upload your KML export above.</div>';
     return;
   }
+  // Ticket #10: which days (besides the active one) already use each place,
+  // so mix-and-matching shows what's covered — struck-through for days
+  // before the one being planned ("visited"), highlighted for later days.
+  const allocatedDays = {};
+  DAYS.forEach(d=>{
+    const w = wakeHotelId(d), s = sleepHotelId(d);
+    (plans[d] || []).forEach(id=>{
+      if(id === w || id === s) return; // hotels are pinned, not chosen
+      (allocatedDays[id] ||= []).push(d);
+    });
+  });
   DAYS.forEach(d=>{
     const heading = document.createElement('div');
     heading.className = 'day-group-heading';
@@ -1294,7 +1321,13 @@ function renderMasterList(){
       const isSelected = (plans[activeDay] || []).includes(p.id);
       const row = document.createElement('div');
       row.className = 'place-item' + (isSelected ? ' selected' : '');
-      row.innerHTML = `<span class="name">${escapeHtml(p.name)}</span><span class="day-badge">D${p.day}</span>`;
+      const others = (allocatedDays[p.id] || []).filter(d2=>d2 !== activeDay);
+      const past = others.filter(d2=>d2 < activeDay);
+      const future = others.filter(d2=>d2 > activeDay);
+      const allocBadges =
+        (past.length ? `<span class="alloc-badge alloc-past" title="Already planned on a previous day">✓ ${past.map(d2=>'D'+d2).join('·')}</span>` : '')
+        + (future.length ? `<span class="alloc-badge alloc-future" title="Planned on a later day">→ ${future.map(d2=>'D'+d2).join('·')}</span>` : '');
+      row.innerHTML = `<span class="name">${escapeHtml(p.name)}</span>${allocBadges}<span class="day-badge">D${p.day}</span>`;
       const btn = document.createElement('button');
       btn.className = 'add-btn' + (isSelected ? ' added' : '');
       btn.textContent = isSelected ? '✓' : '+';
