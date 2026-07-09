@@ -48,7 +48,13 @@ The user's own real trip currently loaded into the app is a Norway road trip, Au
   single column switched via a bottom tab bar (Places / Route / Summary); Leaflet needs
   `map.invalidateSize()` after its container is unhidden, which `setMobileSection` calls.
   A header toggle switches the whole page between this planner view and the feature-request
-  tickets view (`#ticketsView`).
+  tickets view (`#ticketsView`). Beyond KML places: **custom places** (user-added via map
+  click, variant-scoped, 'c'-prefixed string ids), **place info enrichment** (imported JSON
+  matched to places by title/proximity, shown in a modal — trip-scoped), and **comments**
+  per place/day/trip (trip-scoped; local key `tripplan-comments:<id>`, per-comment
+  POST/DELETE endpoints signed in). An AI "Summarize day" button (signed-in UI, server-gated
+  to one account) posts a text rendition of the day to `/api/ai/summarize-day`, which calls
+  Claude on Bedrock via `aws/ai.mjs` (SDK bundled in Lambda runtime only — locally it 502s).
 - `aws/handler.mjs` — Lambda handler. Serves `index.html` at `GET /`, proxies
   `POST /route` to OpenRouteService using `process.env.ORS_API_KEY`, and handles
   `GET /tickets` + `POST /tickets` for feature requests. One function, one Function URL,

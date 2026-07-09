@@ -19,6 +19,7 @@ import {
 import {
   upsertUser, getUser, listUsers, newStoreId, VersionConflictError,
   createTrip, getTrip, listTripsForOwner, deleteTrip, putTripEnrichment,
+  addTripComment, deleteTripComment,
   listVariants, getVariant, putVariant, deleteVariant,
   listSharesForTrip, listSharesForEmail, putShare, deleteShare,
   createTicket, listTickets, updateTicketStatus,
@@ -260,6 +261,8 @@ async function handleSummarizeDay(event) {
 const MAX_KML_BYTES = 1024 * 1024;
 const MAX_ENRICHMENT_BYTES = 300 * 1024;
 const MAX_NAME_LEN = 200;
+const MAX_COMMENT_LEN = 1000;
+const MAX_COMMENTS_PER_TRIP = 500;
 
 // Sharing roles (phase 4): viewer < editor < co-owner < owner. Editors
 // change plans/variants; co-owners also manage shares; only the owner
@@ -376,6 +379,45 @@ async function handleTripsApi(event, method, rawPath) {
       }
       if (parts[4] && method === 'DELETE') {
         await deleteShare(tripId, decodeURIComponent(parts[4]));
+        return ok({ ok: true });
+      }
+      return jsonError(405, 'Method not allowed');
+    }
+
+    // /api/trips/:id/comments[/:commentId] — free-form notes on the trip,
+    // a day, or a place. Any member (viewer+) may comment; deleting needs
+    // the comment's author or a co-owner and up.
+    if (parts[3] === 'comments') {
+      if (!parts[4] && method === 'POST') {
+        const text = typeof body.text === 'string'
+          ? body.text.replace(/[\x00-\x08\x0B-\x1F\x7F-\x9F]/g, '').trim() : '';
+        if (!text) return jsonError(400, 'Comment text is required');
+        if (text.length > MAX_COMMENT_LEN) return jsonError(400, `Comment too long (max ${MAX_COMMENT_LEN} chars)`);
+        if (!['trip', 'day', 'place'].includes(body.scope)) return jsonError(400, 'scope must be trip, day, or place');
+        if ((trip.comments || []).length >= MAX_COMMENTS_PER_TRIP) {
+          return jsonError(400, 'Comment limit reached for this trip');
+        }
+        const comment = {
+          id: newStoreId(),
+          scope: body.scope,
+          day: body.scope === 'day' ? Number(body.day) || 0 : undefined,
+          placeId: body.scope === 'place' ? String(body.placeId || '') : undefined,
+          text,
+          author_email: (session.email || '').toLowerCase(),
+          author_name: session.name || '',
+          created_at: new Date().toISOString(),
+        };
+        await addTripComment(tripId, comment);
+        return ok(comment, 201);
+      }
+      if (parts[4] && method === 'DELETE') {
+        const target = (trip.comments || []).find((c) => c.id === parts[4]);
+        if (!target) return jsonError(404, 'Comment not found');
+        const isAuthor = target.author_email === (session.email || '').toLowerCase();
+        if (!isAuthor && ROLE_RANK[role] < ROLE_RANK['co-owner']) {
+          return jsonError(403, 'Only the author or a co-owner can delete a comment');
+        }
+        await deleteTripComment(tripId, parts[4]);
         return ok({ ok: true });
       }
       return jsonError(405, 'Method not allowed');

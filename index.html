@@ -233,6 +233,53 @@
     color:var(--ink-soft);
     cursor:pointer;
   }
+  .comments-section{
+    border-top:1px solid var(--border);
+    margin-top:14px;
+    padding-top:10px;
+  }
+  .comments-section textarea{
+    width:100%;
+    border:1px solid var(--border-strong);
+    border-radius:6px;
+    padding:7px 9px;
+    font:inherit;
+    font-size:13px;
+    resize:vertical;
+    margin:6px 0;
+  }
+  .comment-item{
+    border:1px solid var(--border);
+    border-radius:6px;
+    padding:7px 9px;
+    margin-bottom:6px;
+    font-size:13px;
+    position:relative;
+  }
+  .comment-meta{
+    font-family:'IBM Plex Mono',monospace;
+    font-size:10.5px;
+    color:var(--ink-soft);
+    margin-top:4px;
+  }
+  .comment-item .remove-btn{
+    position:absolute;
+    top:6px;right:6px;
+  }
+  .cmt-badge{
+    font-size:10.5px;
+    color:var(--ink-soft);
+    flex-shrink:0;
+  }
+  .ai-summary{
+    border:1px solid var(--accent-light);
+    background:var(--panel);
+    border-radius:8px;
+    padding:10px 12px;
+    font-size:13px;
+    line-height:1.5;
+    margin-top:10px;
+  }
   #map.placing-mode .leaflet-container,
   #map.placing-mode{cursor:crosshair;}
   .add-btn{
@@ -749,6 +796,7 @@
       <p class="source-note" id="kmlStatus"></p>
       <div class="trip-row" id="tripRow">
         <select id="tripSelect"></select>
+        <button class="reset-btn" id="tripNotesBtn" title="Trip comments">💬</button>
         <button class="reset-btn" id="shareTripBtn" style="display:none;">Share</button>
         <button class="reset-btn" id="deleteTripBtn">Delete trip</button>
       </div>
@@ -779,6 +827,7 @@
           <button class="remove-btn" id="variantDeleteBtn" title="Delete variant">×</button>
         </span>
         <label class="start-label">Start <input type="time" id="dayStartInput"></label>
+        <button class="reset-btn" id="dayNotesBtn" title="Comments for this day">💬</button>
         <button class="reset-btn" id="resetDayBtn">Reset day</button>
       </div>
     </div>
@@ -794,6 +843,8 @@
   <div class="col col-right">
     <p class="section-label">Drive summary</p>
     <div id="statsPanel"><div class="empty-note">Select 2+ stops and calculate to see times.</div></div>
+    <button class="calc-btn suggest-nav-btn" id="aiSummaryBtn" style="display:none;">✨ Summarize day</button>
+    <div id="aiSummaryOut" class="ai-summary" style="display:none;" dir="auto"></div>
     <p class="source-note">Routing via a private proxy (your OpenRouteService key stays server-side, never shipped to the browser); falls back to free OSRM demo servers if the proxy isn't reachable. Estimates only — always double check ferries, road closures and seasonal conditions before you go.</p>
   </div>
 </main>
@@ -851,6 +902,13 @@
     <img id="infoImage" alt="" style="display:none;">
     <p class="info-text" id="infoText" dir="auto"></p>
     <a id="infoLink" target="_blank" rel="noopener" style="display:none;">Open website ↗</a>
+    <div class="comments-section">
+      <p class="section-label">Comments</p>
+      <div id="commentList"></div>
+      <textarea id="commentInput" rows="2" maxlength="1000" placeholder="Add a comment…"></textarea>
+      <button class="reset-btn" id="commentAddBtn">Add comment</button>
+      <div class="error-note" id="commentError"></div>
+    </div>
   </div>
 </div>
 
@@ -1102,6 +1160,7 @@ async function loadRemoteIndex(){
     const detail = await api('/api/trips/' + t.trip_id);
     remoteSources[t.trip_id] = detail.trip.kml_source;
     remoteEnrichment[t.trip_id] = detail.trip.enrichment || [];
+    remoteComments[t.trip_id] = detail.trip.comments || [];
     const variants = {};
     detail.variants.forEach(v=>{
       variants[v.variant_id] = v.name;
@@ -1248,7 +1307,7 @@ async function enterRemoteMode(email){
   showSync('Loading trips…');
   try{
     await importLocalTrips(email);
-    remoteVersions = {}; remoteSources = {}; remoteVariantState = {}; remoteEnrichment = {};
+    remoteVersions = {}; remoteSources = {}; remoteVariantState = {}; remoteEnrichment = {}; remoteComments = {};
     await loadRemoteIndex();
     remoteMode = true;
     activateCurrentTrip();
@@ -1258,7 +1317,7 @@ async function enterRemoteMode(email){
 }
 function exitRemoteMode(){
   remoteMode = false;
-  remoteVersions = {}; remoteSources = {}; remoteVariantState = {}; remoteEnrichment = {};
+  remoteVersions = {}; remoteSources = {}; remoteVariantState = {}; remoteEnrichment = {}; remoteComments = {};
   clearTimeout(syncTimer);
   // account-scoped prefs don't belong in a signed-out browser
   localStorage.removeItem('tripplan-remote-prefs');
@@ -1288,9 +1347,12 @@ function activateCurrentTrip(){
   }
   if(remoteMode){
     enrichment = remoteEnrichment[tripsIndex.activeTripId] || [];
+    tripComments = remoteComments[tripsIndex.activeTripId] || [];
   }else{
     try{ enrichment = JSON.parse(localStorage.getItem(`tripplan-enrich:${tripsIndex.activeTripId}`)) || []; }
     catch(e){ enrichment = []; }
+    try{ tripComments = JSON.parse(localStorage.getItem(`tripplan-comments:${tripsIndex.activeTripId}`)) || []; }
+    catch(e){ tripComments = []; }
   }
   loadVariant();
   activeDay = initialDay();
@@ -1423,7 +1485,7 @@ function onMapClickPlace(e){
   renderAll();
 }
 
-// ---- Place info modal (enrichment) ----
+// ---- Place info modal (enrichment) + comments ----
 // Imported text may carry HTML from its source: reduce it to plain text,
 // escape it, then re-linkify bare URLs — nothing else renders as markup.
 function infoTextHtml(raw){
@@ -1435,23 +1497,125 @@ function infoTextHtml(raw){
 function safeHttpUrl(u){
   return typeof u === 'string' && /^https?:\/\//i.test(u.trim()) ? u.trim() : null;
 }
-function showPlaceInfo(placeId){
-  const p = byId[placeId], info = placeInfo[placeId];
-  if(!p || !info) return;
-  document.getElementById('infoTitle').textContent = p.name;
+
+// Comments live on the trip (all variants see them): tripplan-comments:<id>
+// locally, per-comment POST/DELETE endpoints signed in (so two people
+// commenting at once can't overwrite each other).
+let tripComments = [];
+let remoteComments = {};
+let modalScope = null; // {scope:'place'|'day'|'trip', placeId?, day?}
+
+function commentsFor(scope){
+  return tripComments.filter(c=>{
+    if(c.scope !== scope.scope) return false;
+    if(scope.scope === 'day') return c.day === scope.day;
+    if(scope.scope === 'place') return String(c.placeId) === String(scope.placeId);
+    return true;
+  });
+}
+function commentCount(placeId){
+  return tripComments.filter(c=>c.scope==='place' && String(c.placeId)===String(placeId)).length;
+}
+function saveLocalComments(){
+  try{
+    localStorage.setItem(`tripplan-comments:${tripsIndex.activeTripId}`, JSON.stringify(tripComments));
+  }catch(e){ console.error('save failed', e); }
+}
+function renderComments(){
+  const el = document.getElementById('commentList');
+  const list = commentsFor(modalScope);
+  el.innerHTML = list.length ? '' : '<div class="empty-note">No comments yet.</div>';
+  list.forEach(c=>{
+    const item = document.createElement('div');
+    item.className = 'comment-item';
+    const when = (c.created_at || '').slice(0, 16).replace('T', ' ');
+    const who = c.author_name || c.author_email || 'you';
+    item.innerHTML = `<div dir="auto">${infoTextHtml(c.text)}</div>
+      <div class="comment-meta">${escapeHtml(who)} · ${escapeHtml(when)}</div>`;
+    const mine = !remoteMode || (currentUser && c.author_email === (currentUser.user.email || '').toLowerCase());
+    if(mine){
+      const del = document.createElement('button');
+      del.className = 'remove-btn';
+      del.textContent = '×';
+      del.title = 'Delete comment';
+      del.onclick = async ()=>{
+        try{
+          if(remoteMode){
+            await api(`/api/trips/${tripsIndex.activeTripId}/comments/${c.id}`, {method:'DELETE'});
+          }
+          tripComments = tripComments.filter(x=>x.id !== c.id);
+          if(remoteMode) remoteComments[tripsIndex.activeTripId] = tripComments;
+          else saveLocalComments();
+          renderComments();
+          renderAll();
+        }catch(e){ document.getElementById('commentError').textContent = 'Delete failed: ' + e.message; }
+      };
+      item.appendChild(del);
+    }
+    el.appendChild(item);
+  });
+}
+async function addComment(){
+  const input = document.getElementById('commentInput');
+  const errEl = document.getElementById('commentError');
+  errEl.textContent = '';
+  const text = input.value.trim();
+  if(!text || !modalScope) return;
+  const btn = document.getElementById('commentAddBtn');
+  btn.disabled = true;
+  try{
+    if(remoteMode){
+      const body = {scope: modalScope.scope, text};
+      if(modalScope.scope === 'day') body.day = modalScope.day;
+      if(modalScope.scope === 'place') body.placeId = modalScope.placeId;
+      const c = await api(`/api/trips/${tripsIndex.activeTripId}/comments`, {method:'POST', body: JSON.stringify(body)});
+      tripComments.push(c);
+      remoteComments[tripsIndex.activeTripId] = tripComments;
+    }else{
+      tripComments.push({
+        id: 'l' + newId(), scope: modalScope.scope,
+        day: modalScope.scope === 'day' ? modalScope.day : undefined,
+        placeId: modalScope.scope === 'place' ? modalScope.placeId : undefined,
+        text, author_email: '', author_name: '', created_at: new Date().toISOString(),
+      });
+      saveLocalComments();
+    }
+    input.value = '';
+    renderComments();
+    renderAll();
+  }catch(e){
+    errEl.textContent = 'Could not add comment: ' + e.message;
+  }finally{
+    btn.disabled = false;
+  }
+}
+
+function openModal(scope, title){
+  modalScope = scope;
+  document.getElementById('infoTitle').textContent = title;
+  const info = scope.scope === 'place' ? placeInfo[scope.placeId] : null;
   const img = document.getElementById('infoImage');
-  const imgUrl = safeHttpUrl(info.image);
+  const imgUrl = info && safeHttpUrl(info.image);
   if(imgUrl){ img.src = imgUrl; img.style.display = ''; }
   else{ img.removeAttribute('src'); img.style.display = 'none'; }
-  document.getElementById('infoText').innerHTML = infoTextHtml(info.text);
+  const textEl = document.getElementById('infoText');
+  textEl.innerHTML = info ? infoTextHtml(info.text) : '';
+  textEl.style.display = info && info.text ? '' : 'none';
   const link = document.getElementById('infoLink');
-  const linkUrl = safeHttpUrl(info.link);
+  const linkUrl = info && safeHttpUrl(info.link);
   if(linkUrl){ link.href = linkUrl; link.style.display = ''; }
   else{ link.style.display = 'none'; }
+  document.getElementById('commentError').textContent = '';
+  renderComments();
   document.getElementById('infoModal').style.display = '';
+}
+function showPlaceInfo(placeId){
+  if(!byId[placeId]) return;
+  openModal({scope:'place', placeId}, byId[placeId].name);
 }
 function hidePlaceInfo(){
   document.getElementById('infoModal').style.display = 'none';
+  modalScope = null;
 }
 
 function isValidGeoFix(lat, lon){
@@ -1679,13 +1843,26 @@ function hotelRow(hotelId, label, fromId){
   return row;
 }
 
-// Makes a row's name clickable when imported place info exists for it.
+// Every place name opens the place modal (info when imported, comments
+// always). The dotted underline marks places with imported info; a 💬
+// count marks places with comments.
 function wireInfoClick(row, placeId){
-  if(!placeInfo[placeId]) return;
   const nameEl = row.querySelector('.name');
   if(!nameEl) return;
-  nameEl.classList.add('has-info');
-  nameEl.title = 'Show place info';
+  if(placeInfo[placeId]){
+    nameEl.classList.add('has-info');
+    nameEl.title = 'Show place info & comments';
+  }else{
+    nameEl.style.cursor = 'pointer';
+    nameEl.title = 'Show comments';
+  }
+  const n = commentCount(placeId);
+  if(n){
+    const badge = document.createElement('span');
+    badge.className = 'cmt-badge';
+    badge.textContent = `💬${n}`;
+    nameEl.after(badge);
+  }
   nameEl.addEventListener('click', (e)=>{ e.stopPropagation(); showPlaceInfo(placeId); });
 }
 
@@ -1797,7 +1974,7 @@ function renderMapMarkers(){
         iconSize:[20,20], iconAnchor:[10,10]
       })
     }).addTo(markersLayer).bindTooltip(tooltip,{permanent:false});
-    if(placeInfo[p.id]) marker.on('click', ()=>showPlaceInfo(p.id));
+    marker.on('click', ()=>showPlaceInfo(p.id));
   };
   const hotelIds = wake === sleep ? [wake] : [wake, sleep];
   hotelIds.filter(Boolean).forEach(id=>{
@@ -1870,6 +2047,8 @@ function renderAll(){
   updateKmlStatus();
   saveLastVisit();
   document.getElementById('errorNote').textContent = '';
+  // a plan change makes any AI summary stale — hide until re-requested
+  document.getElementById('aiSummaryOut').style.display = 'none';
 }
 
 async function fetchFromProxy(ids){
@@ -2316,6 +2495,69 @@ document.getElementById('infoModalClose').addEventListener('click', hidePlaceInf
 document.getElementById('infoModal').addEventListener('click', (e)=>{
   if(e.target === e.currentTarget) hidePlaceInfo();
 });
+document.getElementById('commentAddBtn').addEventListener('click', addComment);
+document.getElementById('dayNotesBtn').addEventListener('click', ()=>{
+  if(!activeTrip()) return;
+  openModal({scope:'day', day: activeDay}, `Day ${activeDay} — notes`);
+});
+document.getElementById('tripNotesBtn').addEventListener('click', ()=>{
+  const trip = activeTrip();
+  if(!trip) return;
+  openModal({scope:'trip'}, `${trip.name} — trip notes`);
+});
+
+// ---- AI day summary (Bedrock, currently owner-only server-side) ----
+function dayDescriptionText(){
+  const ids = getRouteIds(activeDay);
+  const lines = [`Day ${activeDay}` + (DAY_DATES[activeDay] ? ` (${DAY_DATES[activeDay]})` : '') + ':'];
+  const legMatch = lastRoute && lastRoute.day === activeDay
+    && lastRoute.ids.join() === ids.join();
+  ids.forEach((id, i)=>{
+    const p = byId[id];
+    if(!p) return;
+    if(i > 0 && legMatch){
+      const leg = lastRoute.route.legs[i-1];
+      lines.push(`  (drive ${Math.round(leg.duration/60)} min, ${(leg.distance/1000).toFixed(0)} km)`);
+    }
+    const stay = stayMinutes(activeDay, id);
+    const info = placeInfo[id];
+    let line = `- ${p.name}` + (p.overnight ? ' [overnight hotel]' : '') + (stay ? ` — ${stay} min stop` : '');
+    if(info && info.text){
+      const plain = new DOMParser().parseFromString(String(info.text), 'text/html').body.textContent || '';
+      line += ` — ${plain.slice(0, 200)}`;
+    }
+    lines.push(line);
+  });
+  commentsFor({scope:'day', day: activeDay}).forEach(c=>lines.push(`Note: ${c.text}`));
+  return lines.join('\n');
+}
+document.getElementById('aiSummaryBtn').addEventListener('click', async ()=>{
+  const btn = document.getElementById('aiSummaryBtn');
+  const out = document.getElementById('aiSummaryOut');
+  if(getRouteIds(activeDay).length < 2){
+    out.style.display = '';
+    out.textContent = 'Add some stops to this day first.';
+    return;
+  }
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span>Summarizing…';
+  try{
+    const res = await api('/api/ai/summarize-day', {
+      method:'POST',
+      body: JSON.stringify({text: dayDescriptionText()}),
+    });
+    out.style.display = '';
+    out.textContent = res.summary;
+  }catch(e){
+    out.style.display = '';
+    out.textContent = e.status === 403
+      ? 'AI summaries are not enabled for your account yet.'
+      : 'Summary failed: ' + e.message;
+  }finally{
+    btn.disabled = false;
+    btn.textContent = '✨ Summarize day';
+  }
+});
 document.getElementById('importInfoBtn').addEventListener('click', ()=>{
   if(!activeTrip()){
     document.getElementById('kmlError').textContent = 'Load a trip first — place info attaches to a trip.';
@@ -2404,8 +2646,11 @@ function renderAuthUi(){
     googleBtn.style.display = 'none';
     signOut.style.display = '';
     document.getElementById('backofficeBtn').style.display = currentUser.isAdmin ? '' : 'none';
+    document.getElementById('aiSummaryBtn').style.display = '';
   }else{
     document.getElementById('backofficeBtn').style.display = 'none';
+    document.getElementById('aiSummaryBtn').style.display = 'none';
+    document.getElementById('aiSummaryOut').style.display = 'none';
     badge.style.display = 'none';
     signOut.style.display = 'none';
     if(authConfig && authConfig.googleClientId){
@@ -2657,6 +2902,8 @@ function clearActiveTrip(){
   plans = {};
   dayMeta = {};
   customPlaces = [];
+  tripComments = [];
+  enrichment = [];
   rebuildById();
   lastRoute = null;
 }
@@ -2679,6 +2926,7 @@ async function deleteTrip(tripId){
     }
     delete remoteSources[tripId];
     delete remoteEnrichment[tripId];
+    delete remoteComments[tripId];
   }
   delete tripsIndex.trips[tripId];
   const next = Object.keys(tripsIndex.trips)[0] || null;
@@ -2688,6 +2936,7 @@ async function deleteTrip(tripId){
     // index is committed; now sweep blobs (prefix sweep self-heals orphans)
     localStorage.removeItem(`tripplan-trip-src:${tripId}`);
     localStorage.removeItem(`tripplan-enrich:${tripId}`);
+    localStorage.removeItem(`tripplan-comments:${tripId}`);
     Object.keys(localStorage)
       .filter(k=>k.startsWith(`tripplan-variant:${tripId}:`))
       .forEach(k=>localStorage.removeItem(k));

@@ -104,6 +104,20 @@ const fileTripsDriver = {
     tripsWrite(db);
     return db.trips[tripId];
   },
+  async addTripComment(tripId, comment) {
+    const db = tripsRead();
+    if (!db.trips[tripId]) return null;
+    db.trips[tripId].comments = [...(db.trips[tripId].comments || []), comment];
+    tripsWrite(db);
+    return comment;
+  },
+  async deleteTripComment(tripId, commentId) {
+    const db = tripsRead();
+    if (!db.trips[tripId]) return null;
+    db.trips[tripId].comments = (db.trips[tripId].comments || []).filter((c) => c.id !== commentId);
+    tripsWrite(db);
+    return true;
+  },
   async listTripsForOwner(sub) {
     return Object.values(tripsRead().trips).filter((t) => t.owner_sub === sub);
   },
@@ -311,6 +325,9 @@ const dynamoTripsDriver = {
     if (i.enrichment?.S) {
       try { trip.enrichment = JSON.parse(i.enrichment.S); } catch { /* ignore corrupt blob */ }
     }
+    if (i.comments?.S) {
+      try { trip.comments = JSON.parse(i.comments.S); } catch { /* ignore corrupt blob */ }
+    }
     return trip;
   },
   async putTripEnrichment(tripId, enrichment) {
@@ -323,6 +340,36 @@ const dynamoTripsDriver = {
       ExpressionAttributeValues: { ':e': { S: JSON.stringify(enrichment) } },
     }));
     return this.getTrip(tripId);
+  },
+  // Comments are read-modify-write on a JSON attribute — fine at personal
+  // scale; move to their own table if concurrent commenting ever matters.
+  async addTripComment(tripId, comment) {
+    const trip = await this.getTrip(tripId);
+    if (!trip) return null;
+    const comments = [...(trip.comments || []), comment];
+    const d = await dynamo();
+    await d.client.send(new d.UpdateItemCommand({
+      TableName: TRIPS_TABLE,
+      Key: { trip_id: { S: tripId } },
+      UpdateExpression: 'SET comments = :c',
+      ConditionExpression: 'attribute_exists(trip_id)',
+      ExpressionAttributeValues: { ':c': { S: JSON.stringify(comments) } },
+    }));
+    return comment;
+  },
+  async deleteTripComment(tripId, commentId) {
+    const trip = await this.getTrip(tripId);
+    if (!trip) return null;
+    const comments = (trip.comments || []).filter((c) => c.id !== commentId);
+    const d = await dynamo();
+    await d.client.send(new d.UpdateItemCommand({
+      TableName: TRIPS_TABLE,
+      Key: { trip_id: { S: tripId } },
+      UpdateExpression: 'SET comments = :c',
+      ConditionExpression: 'attribute_exists(trip_id)',
+      ExpressionAttributeValues: { ':c': { S: JSON.stringify(comments) } },
+    }));
+    return true;
   },
   async listTripsForOwner(sub) {
     const d = await dynamo();
@@ -545,6 +592,8 @@ export const listUsers = driver.listUsers.bind(driver);
 export const createTrip = tripsDriver.createTrip.bind(tripsDriver);
 export const getTrip = tripsDriver.getTrip.bind(tripsDriver);
 export const putTripEnrichment = tripsDriver.putTripEnrichment.bind(tripsDriver);
+export const addTripComment = tripsDriver.addTripComment.bind(tripsDriver);
+export const deleteTripComment = tripsDriver.deleteTripComment.bind(tripsDriver);
 export const listTripsForOwner = tripsDriver.listTripsForOwner.bind(tripsDriver);
 export const deleteTrip = tripsDriver.deleteTrip.bind(tripsDriver);
 export const listVariants = tripsDriver.listVariants.bind(tripsDriver);
