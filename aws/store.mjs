@@ -354,7 +354,7 @@ const dynamoTripsDriver = {
         trip_id: { S: tripId },
         variant_id: { S: variant.variant_id },
         name: { S: variant.name },
-        state: { S: JSON.stringify({ plans: variant.plans, dayMeta: variant.dayMeta }) },
+        state: { S: JSON.stringify({ plans: variant.plans, dayMeta: variant.dayMeta, customPlaces: variant.customPlaces || [] }) },
         version: { N: String(newVersion) },
       },
     };
@@ -505,6 +505,7 @@ function variantFromItem(i) {
     name: i.name?.S || '',
     plans: state.plans || {},
     dayMeta: state.dayMeta || {},
+    customPlaces: state.customPlaces || [],
     version: Number(i.version?.N || 1),
   };
 }

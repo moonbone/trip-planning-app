@@ -349,6 +349,7 @@ async function handleTripsApi(event, method, rawPath) {
       const variant = await putVariant(tripId, {
         variant_id: newStoreId(), name: name.trim(),
         plans: plans ?? null, dayMeta: dayMeta ?? {},
+        customPlaces: Array.isArray(body.customPlaces) ? body.customPlaces : [],
       }, null);
       return ok(variant, 201);
     }
@@ -363,6 +364,7 @@ async function handleTripsApi(event, method, rawPath) {
         variant_id: variantId, name,
         plans: body.plans ?? existing.plans,
         dayMeta: body.dayMeta ?? existing.dayMeta,
+        customPlaces: Array.isArray(body.customPlaces) ? body.customPlaces : (existing.customPlaces ?? []),
       }, body.version);
       return ok(variant);
     }

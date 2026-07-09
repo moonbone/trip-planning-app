@@ -178,6 +178,14 @@
     background:var(--accent-light);
     color:var(--accent-dark);
   }
+  .places-header{
+    display:flex;
+    align-items:baseline;
+    justify-content:space-between;
+    gap:8px;
+  }
+  #map.placing-mode .leaflet-container,
+  #map.placing-mode{cursor:crosshair;}
   .add-btn{
     border:1px solid var(--accent);
     background:var(--panel);
@@ -698,7 +706,11 @@
       <input type="file" id="kmlFileInput" accept=".kml,.xml">
       <div class="error-note" id="kmlError"></div>
     </div>
-    <p class="section-label">All places</p>
+    <div class="places-header">
+      <p class="section-label">All places</p>
+      <button class="reset-btn" id="addPlaceBtn" title="Add your own place (e.g. a laundromat) by clicking the map">＋ Add place</button>
+    </div>
+    <p class="source-note" id="addPlaceHint" style="display:none;">Click the map where the new place should go (Esc to cancel).</p>
     <div id="masterList"></div>
   </div>
 
@@ -787,6 +799,14 @@
 // (days, plans, hotels, dates) is derived from it at load time.
 let PLACES = [];
 let byId = {};
+// User-added places (ticket #9) — variant-scoped like plans/dayMeta, so
+// they sync/share the same way. Ids are 'c'-prefixed strings so they can
+// never collide with the numeric KML-derived place ids.
+let customPlaces = [];
+
+function rebuildById(){
+  byId = Object.fromEntries([...PLACES, ...customPlaces].map(p=>[p.id, p]));
+}
 
 // ---- Deployment config ----
 // Path (or full URL) of the routing proxy. Left relative because the AWS Lambda
@@ -901,10 +921,12 @@ function loadVariant(){
   const trip = activeTrip();
   plans = null;
   dayMeta = {};
+  customPlaces = [];
   if(trip && remoteMode){
     const state = remoteVariantState[`${tripsIndex.activeTripId}:${trip.activeVariantId}`];
     if(state && state.plans) plans = JSON.parse(JSON.stringify(state.plans));
     if(state && state.dayMeta) dayMeta = JSON.parse(JSON.stringify(state.dayMeta));
+    if(state && state.customPlaces) customPlaces = JSON.parse(JSON.stringify(state.customPlaces));
   }else if(trip){
     try{
       const raw = localStorage.getItem(variantKey(tripsIndex.activeTripId, trip.activeVariantId));
@@ -912,9 +934,11 @@ function loadVariant(){
         const v = JSON.parse(raw);
         if(v && v.plans) plans = v.plans;
         if(v && v.dayMeta) dayMeta = v.dayMeta;
+        if(v && v.customPlaces) customPlaces = v.customPlaces;
       }
     }catch(e){ console.error('variant unreadable, reseeding', e); }
   }
+  rebuildById();
   if(!plans){
     plans = JSON.parse(JSON.stringify(DEFAULT_PLANS));
     if(trip) saveVariant();
@@ -927,7 +951,7 @@ function saveVariant(){
   try{
     localStorage.setItem(
       variantKey(tripsIndex.activeTripId, trip.activeVariantId),
-      JSON.stringify({plans, dayMeta})
+      JSON.stringify({plans, dayMeta, customPlaces})
     );
   }catch(e){ console.error('save failed', e); }
 }
@@ -974,7 +998,7 @@ async function loadRemoteIndex(){
     detail.variants.forEach(v=>{
       variants[v.variant_id] = v.name;
       remoteVersions[`${t.trip_id}:${v.variant_id}`] = v.version;
-      remoteVariantState[`${t.trip_id}:${v.variant_id}`] = {plans: v.plans, dayMeta: v.dayMeta};
+      remoteVariantState[`${t.trip_id}:${v.variant_id}`] = {plans: v.plans, dayMeta: v.dayMeta, customPlaces: v.customPlaces || []};
     });
     const p = prefs.trips?.[t.trip_id] || {};
     idx.trips[t.trip_id] = {
@@ -1018,10 +1042,10 @@ async function pushVariant(){
   try{
     const v = await api(`/api/trips/${tripId}/variants/${variantId}`, {
       method:'PUT',
-      body: JSON.stringify({version: remoteVersions[key] || 1, plans, dayMeta}),
+      body: JSON.stringify({version: remoteVersions[key] || 1, plans, dayMeta, customPlaces}),
     });
     remoteVersions[key] = v.version;
-    remoteVariantState[key] = {plans: v.plans, dayMeta: v.dayMeta};
+    remoteVariantState[key] = {plans: v.plans, dayMeta: v.dayMeta, customPlaces: v.customPlaces || []};
   }catch(e){
     if(e.status === 409){
       try{
@@ -1029,9 +1053,11 @@ async function pushVariant(){
         const v = detail.variants.find(v=>v.variant_id===variantId);
         if(v){
           remoteVersions[key] = v.version;
-          remoteVariantState[key] = {plans: v.plans, dayMeta: v.dayMeta};
+          remoteVariantState[key] = {plans: v.plans, dayMeta: v.dayMeta, customPlaces: v.customPlaces || []};
           plans = JSON.parse(JSON.stringify(v.plans || {}));
           dayMeta = JSON.parse(JSON.stringify(v.dayMeta || {}));
+          customPlaces = JSON.parse(JSON.stringify(v.customPlaces || []));
+          rebuildById();
           lastRoute = null;
           renderAll();
         }
@@ -1074,13 +1100,13 @@ async function importLocalTrips(email){
         if(first){
           await api(`/api/trips/${tripId}/variants/${created.variant.variant_id}`, {
             method:'PUT',
-            body: JSON.stringify({version: created.variant.version, name: vname, plans: state.plans, dayMeta: state.dayMeta}),
+            body: JSON.stringify({version: created.variant.version, name: vname, plans: state.plans, dayMeta: state.dayMeta, customPlaces: state.customPlaces || []}),
           });
           first = false;
         }else{
           await api(`/api/trips/${tripId}/variants`, {
             method:'POST',
-            body: JSON.stringify({name: vname, plans: state.plans, dayMeta: state.dayMeta}),
+            body: JSON.stringify({name: vname, plans: state.plans, dayMeta: state.dayMeta, customPlaces: state.customPlaces || []}),
           });
         }
       }
@@ -1248,6 +1274,39 @@ function initMap(){
   routeLayer = L.layerGroup().addTo(map);
   markersLayer = L.layerGroup().addTo(map);
   locationLayer = L.layerGroup().addTo(map);
+  map.on('click', onMapClickPlace);
+}
+
+// ---- Custom places (ticket #9) ----
+// "＋ Add place" asks for a name, then the next map click drops the place
+// there, adds it to the current day's plan, and persists it with the variant.
+let placingName = null;
+function startPlacing(){
+  if(!activeTrip()){
+    document.getElementById('kmlError').textContent = 'Load a trip first — custom places are stored with the trip.';
+    return;
+  }
+  const name = prompt('Name for the new place (e.g. "Laundromat Bergen"):');
+  if(!name || !name.trim()) return;
+  placingName = name.trim();
+  document.getElementById('addPlaceHint').style.display = '';
+  document.getElementById('map').classList.add('placing-mode');
+}
+function cancelPlacing(){
+  placingName = null;
+  document.getElementById('addPlaceHint').style.display = 'none';
+  document.getElementById('map').classList.remove('placing-mode');
+}
+function onMapClickPlace(e){
+  if(!placingName) return;
+  const p = {id: 'c' + newId(), name: placingName, lat: e.latlng.lat, lon: e.latlng.lng, custom: true};
+  cancelPlacing();
+  customPlaces.push(p);
+  rebuildById();
+  if(!plans[activeDay]) plans[activeDay] = [];
+  plans[activeDay].push(p.id); // adding a place here usually means planning it now
+  saveVariant();
+  renderAll();
 }
 
 function isValidGeoFix(lat, lon){
@@ -1347,6 +1406,54 @@ function renderMasterList(){
       el.appendChild(row);
     });
   });
+  if(customPlaces.length){
+    const heading = document.createElement('div');
+    heading.className = 'day-group-heading';
+    heading.textContent = 'Custom places';
+    el.appendChild(heading);
+    customPlaces.forEach(p=>{
+      const isSelected = (plans[activeDay] || []).includes(p.id);
+      const row = document.createElement('div');
+      row.className = 'place-item' + (isSelected ? ' selected' : '');
+      const others = (allocatedDays[p.id] || []).filter(d2=>d2 !== activeDay);
+      const past = others.filter(d2=>d2 < activeDay);
+      const future = others.filter(d2=>d2 > activeDay);
+      const allocBadges =
+        (past.length ? `<span class="alloc-badge alloc-past" title="Already planned on a previous day">✓ ${past.map(d2=>'D'+d2).join('·')}</span>` : '')
+        + (future.length ? `<span class="alloc-badge alloc-future" title="Planned on a later day">→ ${future.map(d2=>'D'+d2).join('·')}</span>` : '');
+      row.innerHTML = `<span class="name">${escapeHtml(p.name)}</span>${allocBadges}<span class="day-badge">custom</span>`;
+      const btn = document.createElement('button');
+      btn.className = 'add-btn' + (isSelected ? ' added' : '');
+      btn.textContent = isSelected ? '✓' : '+';
+      btn.title = isSelected ? 'Remove from Day ' + activeDay : 'Add to Day ' + activeDay;
+      btn.onclick = ()=>{
+        if(!plans[activeDay]) plans[activeDay] = [];
+        if(isSelected){
+          const idx = plans[activeDay].indexOf(p.id);
+          if(idx !== -1) plans[activeDay].splice(idx,1);
+        }else{
+          plans[activeDay].push(p.id);
+        }
+        saveState();
+        renderAll();
+      };
+      row.appendChild(btn);
+      const del = document.createElement('button');
+      del.className = 'remove-btn';
+      del.textContent = '×';
+      del.title = 'Delete this custom place';
+      del.onclick = ()=>{
+        if(!confirm(`Delete "${p.name}" and remove it from all days?`)) return;
+        customPlaces = customPlaces.filter(cp=>cp.id !== p.id);
+        DAYS.forEach(d2=>{ if(plans[d2]) plans[d2] = plans[d2].filter(id=>id !== p.id); });
+        rebuildById();
+        saveVariant();
+        renderAll();
+      };
+      row.appendChild(del);
+      el.appendChild(row);
+    });
+  }
 }
 
 function resetDay(){
@@ -1378,8 +1485,9 @@ function flipMove(container, mutate){
 function commitDragOrder(){
   if(!dragRow) return;
   dragRow = null;
+  // KML-derived ids are numeric; custom-place ids are 'c…' strings.
   const order = [...document.querySelectorAll('#routeList .route-item[data-place-id]')]
-    .map(r=>Number(r.dataset.placeId));
+    .map(r=>/^\d+$/.test(r.dataset.placeId) ? Number(r.dataset.placeId) : r.dataset.placeId);
   if(order.join() === dayStops(activeDay).join()) return;
   plans[activeDay] = order;
   saveState();
@@ -2038,6 +2146,10 @@ document.getElementById('shareTripBtn').addEventListener('click', async ()=>{
   }
 });
 document.getElementById('deleteTripBtn').addEventListener('click', ()=>deleteTrip(tripsIndex.activeTripId));
+document.getElementById('addPlaceBtn').addEventListener('click', startPlacing);
+document.addEventListener('keydown', (e)=>{
+  if(e.key === 'Escape' && placingName) cancelPlacing();
+});
 document.getElementById('variantSelect').addEventListener('change', (e)=>switchVariant(e.target.value));
 document.getElementById('variantAddBtn').addEventListener('click', addVariant);
 document.getElementById('variantRenameBtn').addEventListener('click', renameVariant);
@@ -2334,6 +2446,8 @@ function clearActiveTrip(){
   applyTrip({places: [], plans: {}, dayDates: {}});
   plans = {};
   dayMeta = {};
+  customPlaces = [];
+  rebuildById();
   lastRoute = null;
 }
 
@@ -2380,11 +2494,11 @@ async function addVariant(){
     try{
       const v = await api(`/api/trips/${tripsIndex.activeTripId}/variants`, {
         method:'POST',
-        body: JSON.stringify({name: name.trim(), plans, dayMeta}),
+        body: JSON.stringify({name: name.trim(), plans, dayMeta, customPlaces}),
       });
       variantId = v.variant_id;
       remoteVersions[`${tripsIndex.activeTripId}:${variantId}`] = v.version;
-      remoteVariantState[`${tripsIndex.activeTripId}:${variantId}`] = {plans: v.plans, dayMeta: v.dayMeta};
+      remoteVariantState[`${tripsIndex.activeTripId}:${variantId}`] = {plans: v.plans, dayMeta: v.dayMeta, customPlaces: v.customPlaces || []};
     }catch(e){
       document.getElementById('errorNote').textContent = 'Could not create variant: ' + e.message;
       return;
@@ -2394,7 +2508,11 @@ async function addVariant(){
     try{
       localStorage.setItem(
         variantKey(tripsIndex.activeTripId, variantId),
-        JSON.stringify({plans: JSON.parse(JSON.stringify(plans)), dayMeta: JSON.parse(JSON.stringify(dayMeta))})
+        JSON.stringify({
+          plans: JSON.parse(JSON.stringify(plans)),
+          dayMeta: JSON.parse(JSON.stringify(dayMeta)),
+          customPlaces: JSON.parse(JSON.stringify(customPlaces)),
+        })
       );
     }catch(e){ console.error('save failed', e); return; }
   }
