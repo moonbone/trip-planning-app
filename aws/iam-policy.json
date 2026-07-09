@@ -54,6 +54,20 @@
       ]
     },
     {
+      "Sid": "LambdaLogsRead",
+      "Effect": "Allow",
+      "Action": [
+        "logs:DescribeLogGroups",
+        "logs:DescribeLogStreams",
+        "logs:GetLogEvents",
+        "logs:FilterLogEvents"
+      ],
+      "Resource": [
+        "arn:aws:logs:*:*:log-group:/aws/lambda/trip-planner-app*",
+        "arn:aws:logs:*:*:log-group:/aws/lambda/trip-planner-app*:log-stream:*"
+      ]
+    },
+    {
       "Sid": "IAMRoleForLambda",
       "Effect": "Allow",
       "Action": [
