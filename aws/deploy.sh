@@ -22,18 +22,38 @@ if [[ -z "${ORS_API_KEY:-}" ]]; then
   exit 1
 fi
 
-# Auth-related env vars (auth-and-sharing effort) are passed through when
-# present. AUTH_DEV_FAKE is deliberately never forwarded — dev-only escape
-# hatch that must not exist in production.
+# This script replaces the Lambda's entire environment on every run
+# (update-function-configuration is not additive), so a var that isn't
+# exported at deploy time gets silently WIPED from production. That bit
+# SESSION_SECRET (logged everyone out), GOOGLE_CLIENT_ID (broke sign-in),
+# and BEDROCK_MODEL_ID (broke AI) on separate occasions — so now a missing
+# required var fails the deploy instead. Locally: `set -a && source .env`.
+# CI: each var comes from a same-named GitHub Actions secret — add the
+# secret in the same change that introduces a new var.
 #
-# IMPORTANT: this script replaces the Lambda's entire environment on every
-# run (update-function-configuration is not additive). Every var in the loop
-# below must be exported the same way on every deploy (e.g. kept in a
-# gitignored .env) or it silently disappears from the next deploy — this bit
-# SESSION_SECRET (invalidates all sessions) and separately GOOGLE_CLIENT_ID
-# (breaks Google sign-in with no visible error until someone tries it).
+# ALLOW_MISSING_ENV=1 skips the check for intentional cases (e.g. standing
+# up a fresh stack that has no auth/AI configured yet).
+#
+# AUTH_DEV_FAKE is deliberately never forwarded — dev-only escape hatch
+# that must not exist in production.
+REQUIRED_ENV_VARS=(SESSION_SECRET GOOGLE_CLIENT_ID ADMIN_EMAILS ADMIN_TOKEN BEDROCK_MODEL_ID)
+OPTIONAL_ENV_VARS=(USERS_TABLE)
+
+missing=()
+for var in "${REQUIRED_ENV_VARS[@]}"; do
+  [[ -n "${!var:-}" ]] || missing+=("$var")
+done
+if [[ ${#missing[@]} -gt 0 && "${ALLOW_MISSING_ENV:-}" != "1" ]]; then
+  echo "ERROR: missing required env vars: ${missing[*]}" >&2
+  echo "       Deploying now would wipe them from the Lambda (its environment" >&2
+  echo "       is replaced whole on every deploy). Export them first (locally:" >&2
+  echo "       set -a && source .env; CI: add the GitHub Actions secret), or" >&2
+  echo "       set ALLOW_MISSING_ENV=1 to deploy without them on purpose." >&2
+  exit 1
+fi
+
 LAMBDA_ENV="ORS_API_KEY=$ORS_API_KEY"
-for var in SESSION_SECRET GOOGLE_CLIENT_ID ADMIN_EMAILS ADMIN_TOKEN USERS_TABLE BEDROCK_MODEL_ID; do
+for var in "${REQUIRED_ENV_VARS[@]}" "${OPTIONAL_ENV_VARS[@]}"; do
   if [[ -n "${!var:-}" ]]; then
     LAMBDA_ENV="$LAMBDA_ENV,$var=${!var}"
   fi
