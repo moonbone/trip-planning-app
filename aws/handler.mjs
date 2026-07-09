@@ -10,6 +10,7 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { validateTicket, validateStatus } from './validate.mjs';
+import { askClaude } from './ai.mjs';
 
 import {
   verifyGoogleCredential, createSessionToken, sessionFromEvent,
@@ -17,7 +18,7 @@ import {
 } from './auth.mjs';
 import {
   upsertUser, getUser, listUsers, newStoreId, VersionConflictError,
-  createTrip, getTrip, listTripsForOwner, deleteTrip,
+  createTrip, getTrip, listTripsForOwner, deleteTrip, putTripEnrichment,
   listVariants, getVariant, putVariant, deleteVariant,
   listSharesForTrip, listSharesForEmail, putShare, deleteShare,
   createTicket, listTickets, updateTicketStatus,
@@ -92,6 +93,10 @@ export const handler = async (event) => {
         isAdmin: isAdminEmail(session.email),
       }),
     };
+  }
+
+  if (method === 'POST' && rawPath === '/api/ai/summarize-day') {
+    return handleSummarizeDay(event);
   }
 
   if (rawPath.startsWith('/api/trips')) {
@@ -207,12 +212,53 @@ async function handleGoogleLogin(event) {
   };
 }
 
+// ---- AI features (Bedrock) ----
+// Early rollout: gated to a single account while cost/quality gets a real
+// trial, rather than an ADMIN_EMAILS-style list (that's a different axis —
+// admins manage tickets/users, not who gets access to a paid model).
+const AI_OWNER_EMAIL = 'moonbone@gmail.com';
+const MAX_AI_INPUT_BYTES = 20 * 1024;
+
+async function handleSummarizeDay(event) {
+  const session = sessionFromEvent(event, process.env.SESSION_SECRET);
+  if (!session) return jsonError(401, 'Sign in required');
+  if ((session.email || '').toLowerCase() !== AI_OWNER_EMAIL) {
+    return jsonError(403, 'This feature is not available for your account yet');
+  }
+
+  let body;
+  try {
+    body = JSON.parse(event.body || '{}');
+  } catch {
+    return jsonError(400, 'Invalid JSON body');
+  }
+  const text = typeof body.text === 'string' ? body.text.trim() : '';
+  if (!text) return jsonError(400, 'Missing day description text');
+  if (Buffer.byteLength(text, 'utf8') > MAX_AI_INPUT_BYTES) {
+    return jsonError(400, `Day description too large (max ${MAX_AI_INPUT_BYTES} bytes)`);
+  }
+
+  try {
+    const summary = await askClaude(
+      'Summarize this day of a trip itinerary in 2-3 friendly sentences, '
+      + 'highlighting the flow of the day and any standout stops. '
+      + `Do not invent details not present below.\n\n${text}`,
+      { maxTokens: 300 },
+    );
+    return ok({ summary });
+  } catch (e) {
+    console.error('bedrock summarize-day failed', e);
+    return jsonError(502, 'AI summary failed: ' + e.message);
+  }
+}
+
 // ---- Trips API (auth-and-sharing phase 3) ----
 // Owner-only for now; shares/roles arrive in phase 4. Writes to variants
 // use optimistic locking: the client sends the version it read, a stale
 // version gets a 409 with the current one.
 
 const MAX_KML_BYTES = 1024 * 1024;
+const MAX_ENRICHMENT_BYTES = 300 * 1024;
 const MAX_NAME_LEN = 200;
 
 // Sharing roles (phase 4): viewer < editor < co-owner < owner. Editors
@@ -333,6 +379,19 @@ async function handleTripsApi(event, method, rawPath) {
         return ok({ ok: true });
       }
       return jsonError(405, 'Method not allowed');
+    }
+
+    // /api/trips/:id/enrichment — per-place info (descriptions/photos/links)
+    // imported from an external source; editor and up.
+    if (parts[3] === 'enrichment') {
+      if (method !== 'PUT') return jsonError(405, 'Method not allowed');
+      if (ROLE_RANK[role] < ROLE_RANK.editor) return jsonError(403, 'View-only access');
+      if (!Array.isArray(body.enrichment)) return jsonError(400, 'enrichment must be an array');
+      if (Buffer.byteLength(JSON.stringify(body.enrichment), 'utf8') > MAX_ENRICHMENT_BYTES) {
+        return jsonError(400, 'Enrichment too large (max 300 KB)');
+      }
+      await putTripEnrichment(tripId, body.enrichment);
+      return ok({ ok: true });
     }
 
     // /api/trips/:id/variants[/:vid] — writes need editor and up

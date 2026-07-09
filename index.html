@@ -184,6 +184,55 @@
     justify-content:space-between;
     gap:8px;
   }
+  .place-item .name.has-info,
+  .route-item .name.has-info{
+    cursor:pointer;
+    text-decoration:underline dotted var(--accent);
+    text-underline-offset:3px;
+  }
+  .info-modal-overlay{
+    position:fixed;inset:0;
+    background:rgba(30,42,50,0.45);
+    display:flex;align-items:center;justify-content:center;
+    z-index:2000;
+    padding:20px;
+  }
+  .info-modal{
+    background:var(--panel);
+    border-radius:12px;
+    max-width:480px;
+    width:100%;
+    max-height:82vh;
+    overflow-y:auto;
+    padding:20px 22px;
+    position:relative;
+    box-shadow:0 12px 40px rgba(0,0,0,0.3);
+  }
+  .info-modal h2{
+    font-family:'Fraunces',serif;
+    font-size:20px;
+    margin:0 40px 10px 0;
+  }
+  .info-modal img{
+    width:100%;
+    border-radius:8px;
+    margin-bottom:12px;
+  }
+  .info-text{
+    font-size:13.5px;
+    line-height:1.55;
+    white-space:normal;
+    margin:0 0 12px;
+  }
+  .info-modal a{color:var(--accent-dark);}
+  .info-close{
+    position:absolute;
+    top:10px;right:12px;
+    border:none;background:none;
+    font-size:22px;
+    color:var(--ink-soft);
+    cursor:pointer;
+  }
   #map.placing-mode .leaflet-container,
   #map.placing-mode{cursor:crosshair;}
   .add-btn{
@@ -704,6 +753,10 @@
         <button class="reset-btn" id="deleteTripBtn">Delete trip</button>
       </div>
       <input type="file" id="kmlFileInput" accept=".kml,.xml">
+      <div class="trip-row">
+        <button class="reset-btn" id="importInfoBtn" title="Import a JSON file with per-place descriptions, photos and links">Import place info</button>
+      </div>
+      <input type="file" id="infoFileInput" accept=".json,application/json" style="display:none;">
       <div class="error-note" id="kmlError"></div>
     </div>
     <div class="places-header">
@@ -791,6 +844,16 @@
   </div>
 </section>
 
+<div class="info-modal-overlay" id="infoModal" style="display:none;">
+  <div class="info-modal">
+    <button class="info-close" id="infoModalClose" title="Close">×</button>
+    <h2 id="infoTitle"></h2>
+    <img id="infoImage" alt="" style="display:none;">
+    <p class="info-text" id="infoText" dir="auto"></p>
+    <a id="infoLink" target="_blank" rel="noopener" style="display:none;">Open website ↗</a>
+  </div>
+</div>
+
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
 <script>
 // Place data (names/coordinates) never touches the server — it's personal
@@ -806,6 +869,50 @@ let customPlaces = [];
 
 function rebuildById(){
   byId = Object.fromEntries([...PLACES, ...customPlaces].map(p=>[p.id, p]));
+  matchEnrichment();
+}
+
+// Place info ("enrichment") imported from an external JSON — descriptions,
+// photos, links per location. Trip-scoped: local key tripplan-enrich:<id>,
+// or the trip record's enrichment field in signed-in mode. Entries are
+// matched to places by proximity (or exact title), never by hardcoded ids,
+// so any KML + any info source can pair up.
+let enrichment = [];    // raw imported entries
+let placeInfo = {};     // placeId -> matched entry
+let remoteEnrichment = {}; // tripId -> raw entries (signed-in cache)
+
+// Accepts either a flat [{title,text,image,lat,lon,link}] array or the
+// day-grouped export shape {date, accommodation, attractions:[...]}.
+function flattenEnrichment(raw){
+  const out = [];
+  (Array.isArray(raw) ? raw : []).forEach(e=>{
+    if(e && Array.isArray(e.attractions)){
+      e.attractions.forEach(a=>{ if(a && a.title) out.push(a); });
+      if(e.accommodation && e.accommodation.title) out.push(e.accommodation);
+    }else if(e && e.title){
+      out.push(e);
+    }
+  });
+  return out;
+}
+
+function matchEnrichment(){
+  placeInfo = {};
+  const entries = flattenEnrichment(enrichment)
+    .filter(e=>Number.isFinite(e.lat) && Number.isFinite(e.lon));
+  if(!entries.length) return;
+  [...PLACES, ...customPlaces].forEach(p=>{
+    // exact title match wins; otherwise nearest entry within 300 m
+    let best = entries.find(e=>(e.title||'').trim().toLowerCase() === p.name.trim().toLowerCase());
+    if(!best){
+      let bestD = 0.3;
+      entries.forEach(e=>{
+        const d = haversineKm({lat:p.lat, lon:p.lon}, {lat:e.lat, lon:e.lon});
+        if(d < bestD){ bestD = d; best = e; }
+      });
+    }
+    if(best) placeInfo[p.id] = best;
+  });
 }
 
 // ---- Deployment config ----
@@ -994,6 +1101,7 @@ async function loadRemoteIndex(){
   for(const t of trips){
     const detail = await api('/api/trips/' + t.trip_id);
     remoteSources[t.trip_id] = detail.trip.kml_source;
+    remoteEnrichment[t.trip_id] = detail.trip.enrichment || [];
     const variants = {};
     detail.variants.forEach(v=>{
       variants[v.variant_id] = v.name;
@@ -1140,7 +1248,7 @@ async function enterRemoteMode(email){
   showSync('Loading trips…');
   try{
     await importLocalTrips(email);
-    remoteVersions = {}; remoteSources = {}; remoteVariantState = {};
+    remoteVersions = {}; remoteSources = {}; remoteVariantState = {}; remoteEnrichment = {};
     await loadRemoteIndex();
     remoteMode = true;
     activateCurrentTrip();
@@ -1150,7 +1258,7 @@ async function enterRemoteMode(email){
 }
 function exitRemoteMode(){
   remoteMode = false;
-  remoteVersions = {}; remoteSources = {}; remoteVariantState = {};
+  remoteVersions = {}; remoteSources = {}; remoteVariantState = {}; remoteEnrichment = {};
   clearTimeout(syncTimer);
   // account-scoped prefs don't belong in a signed-out browser
   localStorage.removeItem('tripplan-remote-prefs');
@@ -1177,6 +1285,12 @@ function activateCurrentTrip(){
     renderAll();
     document.getElementById('errorNote').textContent = 'Could not load trip: ' + e.message;
     return;
+  }
+  if(remoteMode){
+    enrichment = remoteEnrichment[tripsIndex.activeTripId] || [];
+  }else{
+    try{ enrichment = JSON.parse(localStorage.getItem(`tripplan-enrich:${tripsIndex.activeTripId}`)) || []; }
+    catch(e){ enrichment = []; }
   }
   loadVariant();
   activeDay = initialDay();
@@ -1309,6 +1423,37 @@ function onMapClickPlace(e){
   renderAll();
 }
 
+// ---- Place info modal (enrichment) ----
+// Imported text may carry HTML from its source: reduce it to plain text,
+// escape it, then re-linkify bare URLs — nothing else renders as markup.
+function infoTextHtml(raw){
+  const plain = new DOMParser().parseFromString(String(raw||''), 'text/html').body.textContent || '';
+  let html = escapeHtml(plain);
+  html = html.replace(/(https?:\/\/[^\s<]+)/g, u=>`<a href="${u}" target="_blank" rel="noopener">link ↗</a>`);
+  return html.replace(/\n/g, '<br>');
+}
+function safeHttpUrl(u){
+  return typeof u === 'string' && /^https?:\/\//i.test(u.trim()) ? u.trim() : null;
+}
+function showPlaceInfo(placeId){
+  const p = byId[placeId], info = placeInfo[placeId];
+  if(!p || !info) return;
+  document.getElementById('infoTitle').textContent = p.name;
+  const img = document.getElementById('infoImage');
+  const imgUrl = safeHttpUrl(info.image);
+  if(imgUrl){ img.src = imgUrl; img.style.display = ''; }
+  else{ img.removeAttribute('src'); img.style.display = 'none'; }
+  document.getElementById('infoText').innerHTML = infoTextHtml(info.text);
+  const link = document.getElementById('infoLink');
+  const linkUrl = safeHttpUrl(info.link);
+  if(linkUrl){ link.href = linkUrl; link.style.display = ''; }
+  else{ link.style.display = 'none'; }
+  document.getElementById('infoModal').style.display = '';
+}
+function hidePlaceInfo(){
+  document.getElementById('infoModal').style.display = 'none';
+}
+
 function isValidGeoFix(lat, lon){
   return Number.isFinite(lat) && Number.isFinite(lon) && !(lat === 0 && lon === 0);
 }
@@ -1374,6 +1519,7 @@ function renderMasterList(){
         const row = document.createElement('div');
         row.className = 'place-item selected';
         row.innerHTML = `<span class="name">${escapeHtml(p.name)}</span><span class="day-badge">${badge}</span>`;
+        wireInfoClick(row, p.id);
         el.appendChild(row);
         return;
       }
@@ -1387,6 +1533,7 @@ function renderMasterList(){
         (past.length ? `<span class="alloc-badge alloc-past" title="Already planned on a previous day">✓ ${past.map(d2=>'D'+d2).join('·')}</span>` : '')
         + (future.length ? `<span class="alloc-badge alloc-future" title="Planned on a later day">→ ${future.map(d2=>'D'+d2).join('·')}</span>` : '');
       row.innerHTML = `<span class="name">${escapeHtml(p.name)}</span>${allocBadges}<span class="day-badge">D${p.day}</span>`;
+      wireInfoClick(row, p.id);
       const btn = document.createElement('button');
       btn.className = 'add-btn' + (isSelected ? ' added' : '');
       btn.textContent = isSelected ? '✓' : '+';
@@ -1422,6 +1569,7 @@ function renderMasterList(){
         (past.length ? `<span class="alloc-badge alloc-past" title="Already planned on a previous day">✓ ${past.map(d2=>'D'+d2).join('·')}</span>` : '')
         + (future.length ? `<span class="alloc-badge alloc-future" title="Planned on a later day">→ ${future.map(d2=>'D'+d2).join('·')}</span>` : '');
       row.innerHTML = `<span class="name">${escapeHtml(p.name)}</span>${allocBadges}<span class="day-badge">custom</span>`;
+      wireInfoClick(row, p.id);
       const btn = document.createElement('button');
       btn.className = 'add-btn' + (isSelected ? ' added' : '');
       btn.textContent = isSelected ? '✓' : '+';
@@ -1526,8 +1674,19 @@ function hotelRow(hotelId, label, fromId){
   const row = document.createElement('div');
   row.className = 'route-item hotel-stop';
   row.innerHTML = `<span class="idx hotel-idx">⌂</span><span class="name">${escapeHtml(byId[hotelId].name)}</span><span class="hotel-tag">${label}</span>`;
+  wireInfoClick(row, hotelId);
   if(fromId) row.appendChild(segmentNavLink(fromId, hotelId));
   return row;
+}
+
+// Makes a row's name clickable when imported place info exists for it.
+function wireInfoClick(row, placeId){
+  if(!placeInfo[placeId]) return;
+  const nameEl = row.querySelector('.name');
+  if(!nameEl) return;
+  nameEl.classList.add('has-info');
+  nameEl.title = 'Show place info';
+  nameEl.addEventListener('click', (e)=>{ e.stopPropagation(); showPlaceInfo(placeId); });
 }
 
 function renderRouteList(){
@@ -1566,6 +1725,7 @@ function renderRouteList(){
     row.draggable = true;
     row.dataset.placeId = id;
     row.innerHTML = `<span class="idx">${pos}</span><span class="name">${escapeHtml(p.name)}</span>`;
+    wireInfoClick(row, id);
     const stay = document.createElement('input');
     stay.type = 'number';
     stay.min = '0';
@@ -1630,13 +1790,14 @@ function renderMapMarkers(){
   const bounds = [];
   const addPin = (p, label, extraClass, tooltip)=>{
     bounds.push([p.lat,p.lon]);
-    L.marker([p.lat,p.lon],{
+    const marker = L.marker([p.lat,p.lon],{
       icon: L.divIcon({
         className:'',
         html:`<div class="map-pin${extraClass}">${label}</div>`,
         iconSize:[20,20], iconAnchor:[10,10]
       })
     }).addTo(markersLayer).bindTooltip(tooltip,{permanent:false});
+    if(placeInfo[p.id]) marker.on('click', ()=>showPlaceInfo(p.id));
   };
   const hotelIds = wake === sleep ? [wake] : [wake, sleep];
   hotelIds.filter(Boolean).forEach(id=>{
@@ -2149,6 +2310,55 @@ document.getElementById('deleteTripBtn').addEventListener('click', ()=>deleteTri
 document.getElementById('addPlaceBtn').addEventListener('click', startPlacing);
 document.addEventListener('keydown', (e)=>{
   if(e.key === 'Escape' && placingName) cancelPlacing();
+  if(e.key === 'Escape') hidePlaceInfo();
+});
+document.getElementById('infoModalClose').addEventListener('click', hidePlaceInfo);
+document.getElementById('infoModal').addEventListener('click', (e)=>{
+  if(e.target === e.currentTarget) hidePlaceInfo();
+});
+document.getElementById('importInfoBtn').addEventListener('click', ()=>{
+  if(!activeTrip()){
+    document.getElementById('kmlError').textContent = 'Load a trip first — place info attaches to a trip.';
+    return;
+  }
+  document.getElementById('infoFileInput').click();
+});
+document.getElementById('infoFileInput').addEventListener('change', async (e)=>{
+  const file = e.target.files[0];
+  const errEl = document.getElementById('kmlError');
+  errEl.textContent = '';
+  e.target.value = '';
+  if(!file || !activeTrip()) return;
+  let parsed;
+  try{
+    parsed = JSON.parse(await file.text());
+    if(!Array.isArray(parsed)) throw new Error('expected a JSON array');
+    if(!flattenEnrichment(parsed).length) throw new Error('no place entries found in the file');
+  }catch(err){
+    errEl.textContent = 'Place info import failed: ' + err.message;
+    return;
+  }
+  const tripId = tripsIndex.activeTripId;
+  if(remoteMode){
+    try{
+      await api(`/api/trips/${tripId}/enrichment`, {method:'PUT', body: JSON.stringify({enrichment: parsed})});
+      remoteEnrichment[tripId] = parsed;
+    }catch(err){
+      errEl.textContent = 'Could not save place info: ' + err.message;
+      return;
+    }
+  }else{
+    try{ localStorage.setItem(`tripplan-enrich:${tripId}`, JSON.stringify(parsed)); }
+    catch(err){
+      errEl.textContent = 'Could not store place info — browser storage may be full.';
+      return;
+    }
+  }
+  enrichment = parsed;
+  matchEnrichment();
+  renderAll();
+  const n = Object.keys(placeInfo).length;
+  document.getElementById('kmlStatus').textContent += ` · info matched to ${n} places`;
 });
 document.getElementById('variantSelect').addEventListener('change', (e)=>switchVariant(e.target.value));
 document.getElementById('variantAddBtn').addEventListener('click', addVariant);
@@ -2468,6 +2678,7 @@ async function deleteTrip(tripId){
       return;
     }
     delete remoteSources[tripId];
+    delete remoteEnrichment[tripId];
   }
   delete tripsIndex.trips[tripId];
   const next = Object.keys(tripsIndex.trips)[0] || null;
@@ -2476,6 +2687,7 @@ async function deleteTrip(tripId){
   if(!remoteMode){
     // index is committed; now sweep blobs (prefix sweep self-heals orphans)
     localStorage.removeItem(`tripplan-trip-src:${tripId}`);
+    localStorage.removeItem(`tripplan-enrich:${tripId}`);
     Object.keys(localStorage)
       .filter(k=>k.startsWith(`tripplan-variant:${tripId}:`))
       .forEach(k=>localStorage.removeItem(k));

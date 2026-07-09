@@ -97,6 +97,13 @@ const fileTripsDriver = {
   async getTrip(tripId) {
     return tripsRead().trips[tripId] || null;
   },
+  async putTripEnrichment(tripId, enrichment) {
+    const db = tripsRead();
+    if (!db.trips[tripId]) return null;
+    db.trips[tripId].enrichment = enrichment;
+    tripsWrite(db);
+    return db.trips[tripId];
+  },
   async listTripsForOwner(sub) {
     return Object.values(tripsRead().trips).filter((t) => t.owner_sub === sub);
   },
@@ -212,11 +219,13 @@ let dynamoClient = null;
 async function dynamo() {
   if (!dynamoClient) {
     const { DynamoDBClient, PutItemCommand, GetItemCommand, ScanCommand,
-            QueryCommand, DeleteItemCommand, ConditionalCheckFailedException } =
+            QueryCommand, DeleteItemCommand, UpdateItemCommand,
+            ConditionalCheckFailedException } =
       await import('@aws-sdk/client-dynamodb');
     const client = new DynamoDBClient({});
     dynamoClient = { client, PutItemCommand, GetItemCommand, ScanCommand,
-                     QueryCommand, DeleteItemCommand, ConditionalCheckFailedException };
+                     QueryCommand, DeleteItemCommand, UpdateItemCommand,
+                     ConditionalCheckFailedException };
   }
   return dynamoClient;
 }
@@ -295,10 +304,25 @@ const dynamoTripsDriver = {
     }));
     if (!res.Item) return null;
     const i = res.Item;
-    return {
+    const trip = {
       trip_id: i.trip_id.S, owner_sub: i.owner_sub.S, name: i.name.S,
       filename: i.filename.S, kml_source: i.kml_source.S, created_at: i.created_at?.S,
     };
+    if (i.enrichment?.S) {
+      try { trip.enrichment = JSON.parse(i.enrichment.S); } catch { /* ignore corrupt blob */ }
+    }
+    return trip;
+  },
+  async putTripEnrichment(tripId, enrichment) {
+    const d = await dynamo();
+    await d.client.send(new d.UpdateItemCommand({
+      TableName: TRIPS_TABLE,
+      Key: { trip_id: { S: tripId } },
+      UpdateExpression: 'SET enrichment = :e',
+      ConditionExpression: 'attribute_exists(trip_id)',
+      ExpressionAttributeValues: { ':e': { S: JSON.stringify(enrichment) } },
+    }));
+    return this.getTrip(tripId);
   },
   async listTripsForOwner(sub) {
     const d = await dynamo();
@@ -520,6 +544,7 @@ export const listUsers = driver.listUsers.bind(driver);
 
 export const createTrip = tripsDriver.createTrip.bind(tripsDriver);
 export const getTrip = tripsDriver.getTrip.bind(tripsDriver);
+export const putTripEnrichment = tripsDriver.putTripEnrichment.bind(tripsDriver);
 export const listTripsForOwner = tripsDriver.listTripsForOwner.bind(tripsDriver);
 export const deleteTrip = tripsDriver.deleteTrip.bind(tripsDriver);
 export const listVariants = tripsDriver.listVariants.bind(tripsDriver);
