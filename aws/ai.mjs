@@ -8,7 +8,15 @@ let bedrockClient = null;
 async function client() {
   if (!bedrockClient) {
     const { BedrockRuntimeClient, InvokeModelCommand } = await import('@aws-sdk/client-bedrock-runtime');
-    bedrockClient = { rt: new BedrockRuntimeClient({}), InvokeModelCommand };
+    // When BEDROCK_MODEL_ID is a full ARN, invoke in the ARN's own region —
+    // the runtime endpoint must match the resource's region, which may
+    // differ from the Lambda's (e.g. an us-east-2 inference profile ARN
+    // invoked from a us-east-1 Lambda).
+    const arnRegion = /^arn:aws:bedrock:([a-z0-9-]+):/.exec(process.env.BEDROCK_MODEL_ID || '')?.[1];
+    bedrockClient = {
+      rt: new BedrockRuntimeClient(arnRegion ? { region: arnRegion } : {}),
+      InvokeModelCommand,
+    };
   }
   return bedrockClient;
 }
