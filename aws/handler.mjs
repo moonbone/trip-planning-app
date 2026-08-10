@@ -77,6 +77,7 @@ export const handler = async (event) => {
         googleClientId: process.env.GOOGLE_CLIENT_ID || null,
         devAuth: process.env.AUTH_DEV_FAKE === '1',
         syncAvailable: isSyncAvailable(),
+        deployEnv: process.env.DEPLOY_ENV || null,
       }),
     };
   }
