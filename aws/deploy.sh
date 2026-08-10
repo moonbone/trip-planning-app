@@ -40,8 +40,9 @@ REQUIRED_ENV_VARS=(SESSION_SECRET GOOGLE_CLIENT_ID ADMIN_EMAILS ADMIN_TOKEN BEDR
 # TRIPS_TABLE etc. let a parallel stack (e.g. the beta deployment) point at
 # its own tables instead of colliding with the default trip-planner-app-*
 # names; SYNC_SOURCE_PREFIX is beta-only (see aws/store.mjs) — its presence
-# is what turns on the backoffice "sync from mainline" button.
-OPTIONAL_ENV_VARS=(USERS_TABLE TRIPS_TABLE VARIANTS_TABLE SHARES_TABLE TICKETS_TABLE SYNC_SOURCE_PREFIX)
+# is what turns on the backoffice "sync from mainline" button. DEPLOY_ENV
+# drives the "BETA" badge + accent-color swap in the UI (index.html).
+OPTIONAL_ENV_VARS=(USERS_TABLE TRIPS_TABLE VARIANTS_TABLE SHARES_TABLE TICKETS_TABLE SYNC_SOURCE_PREFIX DEPLOY_ENV)
 
 missing=()
 for var in "${REQUIRED_ENV_VARS[@]}"; do

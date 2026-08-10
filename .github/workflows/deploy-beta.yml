@@ -28,7 +28,7 @@ jobs:
       - name: Deploy
         # Same secrets as mainline (deploy.yml) — session/admin/AI config is
         # shared across both deployments on purpose (see CLAUDE.md). Only
-        # FUNCTION_NAME, the *_TABLE names, and SYNC_SOURCE_PREFIX differ.
+        # FUNCTION_NAME, the *_TABLE names, SYNC_SOURCE_PREFIX, and DEPLOY_ENV differ.
         env:
           FUNCTION_NAME: trip-planner-app-beta
           ORS_API_KEY: ${{ secrets.ORS_API_KEY }}
@@ -44,6 +44,7 @@ jobs:
           SHARES_TABLE: trip-planner-app-beta-shares
           TICKETS_TABLE: trip-planner-app-beta-tickets
           SYNC_SOURCE_PREFIX: trip-planner-app
+          DEPLOY_ENV: beta
         run: |
           chmod +x aws/deploy.sh
           ./aws/deploy.sh

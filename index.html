@@ -20,6 +20,27 @@
     --border:#DADFDA;
     --border-strong:#BFC7C2;
   }
+  /* Distinct hue + badge so the beta deployment is unmistakable at a glance
+     (toggled by JS via authConfig.deployEnv — see initAuth). */
+  body.beta-env{
+    --accent:#6B3FA0;
+    --accent-dark:#4D2C73;
+    --accent-light:#D2BFE8;
+    --bg:#EFEAF5;
+  }
+  .beta-badge{
+    display:inline-block;
+    margin-left:10px;
+    padding:2px 9px;
+    font-family:'Inter',sans-serif;
+    font-size:11px;
+    font-weight:700;
+    letter-spacing:0.06em;
+    color:#fff;
+    background:var(--accent);
+    border-radius:20px;
+    vertical-align:middle;
+  }
   *{box-sizing:border-box;}
   body{
     margin:0;
@@ -811,7 +832,7 @@
 
 <header>
   <div>
-    <h1>Trip Planner</h1>
+    <h1>Trip Planner<span class="beta-badge" id="betaBadge" style="display:none;">BETA</span></h1>
     <p>Pick places for each day, reorder them, get real driving times.</p>
   </div>
   <div class="header-actions">
@@ -3058,6 +3079,11 @@ async function initAuth(){
   try{
     authConfig = await fetch('/auth/config').then(r=>r.ok ? r.json() : null);
   }catch(e){ authConfig = null; }
+  if(authConfig && authConfig.deployEnv === 'beta'){
+    document.body.classList.add('beta-env');
+    document.getElementById('betaBadge').style.display = '';
+    document.title = 'Trip Planner (Beta)';
+  }
   try{
     const res = await fetch('/me');
     if(res.ok) currentUser = await res.json();
