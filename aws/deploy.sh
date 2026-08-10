@@ -37,7 +37,11 @@ fi
 # AUTH_DEV_FAKE is deliberately never forwarded — dev-only escape hatch
 # that must not exist in production.
 REQUIRED_ENV_VARS=(SESSION_SECRET GOOGLE_CLIENT_ID ADMIN_EMAILS ADMIN_TOKEN BEDROCK_MODEL_ID)
-OPTIONAL_ENV_VARS=(USERS_TABLE)
+# TRIPS_TABLE etc. let a parallel stack (e.g. the beta deployment) point at
+# its own tables instead of colliding with the default trip-planner-app-*
+# names; SYNC_SOURCE_PREFIX is beta-only (see aws/store.mjs) — its presence
+# is what turns on the backoffice "sync from mainline" button.
+OPTIONAL_ENV_VARS=(USERS_TABLE TRIPS_TABLE VARIANTS_TABLE SHARES_TABLE TICKETS_TABLE SYNC_SOURCE_PREFIX)
 
 missing=()
 for var in "${REQUIRED_ENV_VARS[@]}"; do
@@ -131,19 +135,19 @@ ensure_table() {
     fi
   fi
 }
-ensure_table trip-planner-app-users \
+ensure_table "${USERS_TABLE:-trip-planner-app-users}" \
   --attribute-definitions AttributeName=sub,AttributeType=S \
   --key-schema AttributeName=sub,KeyType=HASH
-ensure_table trip-planner-app-trips \
+ensure_table "${TRIPS_TABLE:-trip-planner-app-trips}" \
   --attribute-definitions AttributeName=trip_id,AttributeType=S \
   --key-schema AttributeName=trip_id,KeyType=HASH
-ensure_table trip-planner-app-variants \
+ensure_table "${VARIANTS_TABLE:-trip-planner-app-variants}" \
   --attribute-definitions AttributeName=trip_id,AttributeType=S AttributeName=variant_id,AttributeType=S \
   --key-schema AttributeName=trip_id,KeyType=HASH AttributeName=variant_id,KeyType=RANGE
-ensure_table trip-planner-app-shares \
+ensure_table "${SHARES_TABLE:-trip-planner-app-shares}" \
   --attribute-definitions AttributeName=trip_id,AttributeType=S AttributeName=email,AttributeType=S \
   --key-schema AttributeName=trip_id,KeyType=HASH AttributeName=email,KeyType=RANGE
-ensure_table trip-planner-app-tickets \
+ensure_table "${TICKETS_TABLE:-trip-planner-app-tickets}" \
   --attribute-definitions AttributeName=id,AttributeType=S \
   --key-schema AttributeName=id,KeyType=HASH
 
