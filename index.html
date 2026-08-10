@@ -929,6 +929,14 @@
     session ages out within 30 days. Admins are defined by the ADMIN_EMAILS server
     variable and cannot be disabled here. Ticket statuses are managed from the
     Feature requests view (admins see a status dropdown there).</p>
+    <div id="syncFromMainlineSection" style="display:none;">
+      <p class="section-label">Beta tools</p>
+      <button class="reset-btn" id="syncFromMainlineBtn">🔄 Sync from mainline</button>
+      <p class="source-note">Overwrites this beta deployment's data with a full copy of
+      production (mainline) — users, trips, variants, shares, tickets. One-way and
+      destructive to beta: anything beta-only that isn't in mainline gets deleted.</p>
+      <div class="error-note" id="syncFromMainlineStatus"></div>
+    </div>
   </div>
 </section>
 
@@ -2420,6 +2428,22 @@ async function loadAdminUsers(){
   });
 }
 
+document.getElementById('syncFromMainlineBtn').addEventListener('click', async ()=>{
+  const statusEl = document.getElementById('syncFromMainlineStatus');
+  const ok = await confirmDialog('Sync from mainline',
+    'Overwrite this beta deployment\'s data with a full copy of production? '
+    + 'Anything beta-only will be deleted.');
+  if(!ok) return;
+  statusEl.textContent = 'Syncing…';
+  try{
+    const {counts} = await api('/api/admin/sync-from-mainline', {method:'POST'});
+    statusEl.textContent = 'Synced: ' + Object.entries(counts).map(([k,n])=>`${k} ${n}`).join(', ');
+    if(currentView === 'admin') loadAdminUsers();
+  }catch(e){
+    statusEl.textContent = 'Sync failed: ' + e.message;
+  }
+});
+
 // Mirrors aws/validate.mjs for instant feedback — the server re-validates
 // with the same rules and is the actual gate, never trust this alone.
 // Any characters are allowed; the server strips control chars and every
@@ -2913,9 +2937,12 @@ function renderAuthUi(){
     googleBtn.style.display = 'none';
     signOut.style.display = '';
     document.getElementById('backofficeBtn').style.display = currentUser.isAdmin ? '' : 'none';
+    document.getElementById('syncFromMainlineSection').style.display =
+      (currentUser.isAdmin && authConfig && authConfig.syncAvailable) ? '' : 'none';
     document.getElementById('aiSummaryBtn').style.display = '';
   }else{
     document.getElementById('backofficeBtn').style.display = 'none';
+    document.getElementById('syncFromMainlineSection').style.display = 'none';
     document.getElementById('aiSummaryBtn').style.display = 'none';
     document.getElementById('aiSummaryOut').style.display = 'none';
     badge.style.display = 'none';

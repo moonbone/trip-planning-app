@@ -18,6 +18,7 @@
       ],
       "Resource": [
         "arn:aws:lambda:*:*:function:trip-planner-app",
+        "arn:aws:lambda:*:*:function:trip-planner-app-beta",
         "arn:aws:lambda:*:*:function:norway-route-app"
       ]
     },

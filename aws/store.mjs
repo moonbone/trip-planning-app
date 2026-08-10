@@ -581,6 +581,68 @@ function variantFromItem(i) {
   };
 }
 
+// ---- cross-environment sync (beta only) ----
+// Lets a beta deployment overwrite its own tables with a full copy of the
+// mainline tables' data, so beta can experiment against real data without
+// ever writing back to production. SYNC_SOURCE_PREFIX is only set in the
+// beta Lambda's environment (see aws/deploy.sh's OPTIONAL_ENV_VARS) — it's
+// absent everywhere else, so this capability doesn't even exist outside
+// beta. Items are copied as raw DynamoDB attribute maps (no decode/re-encode
+// through toItem/fromItem) since source and destination share the exact
+// same schema — that also means it stays correct if the schema changes,
+// with nothing here to keep in sync.
+const SYNC_SOURCE_PREFIX = process.env.SYNC_SOURCE_PREFIX || null;
+
+const SYNC_TABLES = [
+  { label: 'users', dest: USERS_TABLE, keyAttrs: ['sub'] },
+  { label: 'trips', dest: TRIPS_TABLE, keyAttrs: ['trip_id'] },
+  { label: 'variants', dest: VARIANTS_TABLE, keyAttrs: ['trip_id', 'variant_id'] },
+  { label: 'shares', dest: SHARES_TABLE, keyAttrs: ['trip_id', 'email'] },
+  { label: 'tickets', dest: TICKETS_TABLE, keyAttrs: ['id'] },
+];
+
+export function isSyncAvailable() {
+  return DRIVER === 'dynamo' && !!SYNC_SOURCE_PREFIX;
+}
+
+async function scanAllItems(client, ScanCommand, tableName) {
+  const items = [];
+  let ExclusiveStartKey;
+  do {
+    const res = await client.send(new ScanCommand({ TableName: tableName, ExclusiveStartKey }));
+    items.push(...(res.Items || []));
+    ExclusiveStartKey = res.LastEvaluatedKey;
+  } while (ExclusiveStartKey);
+  return items;
+}
+
+// Full mirror, not a merge: existing destination items not present in the
+// source are deleted first, so beta ends up an exact copy of mainline
+// rather than an accumulating union across repeated syncs.
+export async function syncAllFromMainline() {
+  if (!isSyncAvailable()) throw new Error('Sync is not available on this deployment');
+  const d = await dynamo();
+  const { client, ScanCommand, PutItemCommand, DeleteItemCommand } = d;
+  const counts = {};
+  for (const { label, dest, keyAttrs } of SYNC_TABLES) {
+    const source = `${SYNC_SOURCE_PREFIX}-${label}`;
+    if (source === dest) throw new Error(`Refusing to sync ${dest} into itself`);
+    const [sourceItems, destItems] = await Promise.all([
+      scanAllItems(client, ScanCommand, source),
+      scanAllItems(client, ScanCommand, dest),
+    ]);
+    for (const item of destItems) {
+      const key = Object.fromEntries(keyAttrs.map((a) => [a, item[a]]));
+      await client.send(new DeleteItemCommand({ TableName: dest, Key: key }));
+    }
+    for (const item of sourceItems) {
+      await client.send(new PutItemCommand({ TableName: dest, Item: item }));
+    }
+    counts[label] = sourceItems.length;
+  }
+  return counts;
+}
+
 const driver = DRIVER === 'dynamo' ? dynamoDriver : fileDriver;
 const tripsDriver = DRIVER === 'dynamo' ? dynamoTripsDriver : fileTripsDriver;
 const ticketsDriver = DRIVER === 'dynamo' ? dynamoTicketsDriver : fileTicketsDriver;

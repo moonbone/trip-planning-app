@@ -23,6 +23,7 @@ import {
   listVariants, getVariant, putVariant, deleteVariant,
   listSharesForTrip, listSharesForEmail, putShare, deleteShare,
   createTicket, listTickets, updateTicketStatus,
+  isSyncAvailable, syncAllFromMainline,
 } from './store.mjs';
 
 const TICKET_STATUSES = ['new', 'in_progress', 'processed', 'done'];
@@ -75,6 +76,7 @@ export const handler = async (event) => {
       body: JSON.stringify({
         googleClientId: process.env.GOOGLE_CLIENT_ID || null,
         devAuth: process.env.AUTH_DEV_FAKE === '1',
+        syncAvailable: isSyncAvailable(),
       }),
     };
   }
@@ -592,6 +594,16 @@ async function handleAdminApi(event, method, rawPath) {
       if (body.disabled && isAdminEmail(user.email)) return jsonError(400, 'Cannot disable an admin');
       user.disabled = !!body.disabled;
       return ok(await upsertUser(user));
+    }
+  }
+  if (parts[2] === 'sync-from-mainline' && method === 'POST') {
+    if (!isSyncAvailable()) return jsonError(404, 'Sync is not available on this deployment');
+    try {
+      const counts = await syncAllFromMainline();
+      return ok({ ok: true, counts });
+    } catch (e) {
+      console.error('sync-from-mainline failed', e);
+      return jsonError(500, 'Sync failed: ' + e.message);
     }
   }
   return jsonError(404, 'Not found');

@@ -1,0 +1,49 @@
+name: Deploy beta to AWS Lambda
+
+# Parallel deployment for experimenting without touching the mainline
+# (master) stack — own Lambda function, own Function URL, own DynamoDB
+# tables (trip-planner-app-beta-*), shared IAM role (the role's policies
+# are already wildcarded to trip-planner-app-*, so no separate role is
+# needed). See CLAUDE.md for the one-time manual setup (IAM policy +
+# CloudFront + Google OAuth origin) this depends on.
+
+on:
+  push:
+    branches: [beta]
+  workflow_dispatch: {}
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION }}
+
+      - name: Deploy
+        # Same secrets as mainline (deploy.yml) — session/admin/AI config is
+        # shared across both deployments on purpose (see CLAUDE.md). Only
+        # FUNCTION_NAME, the *_TABLE names, and SYNC_SOURCE_PREFIX differ.
+        env:
+          FUNCTION_NAME: trip-planner-app-beta
+          ORS_API_KEY: ${{ secrets.ORS_API_KEY }}
+          AWS_REGION: ${{ secrets.AWS_REGION }}
+          SESSION_SECRET: ${{ secrets.SESSION_SECRET }}
+          GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
+          ADMIN_EMAILS: ${{ secrets.ADMIN_EMAILS }}
+          ADMIN_TOKEN: ${{ secrets.ADMIN_TOKEN }}
+          BEDROCK_MODEL_ID: ${{ secrets.BEDROCK_MODEL_ID }}
+          USERS_TABLE: trip-planner-app-beta-users
+          TRIPS_TABLE: trip-planner-app-beta-trips
+          VARIANTS_TABLE: trip-planner-app-beta-variants
+          SHARES_TABLE: trip-planner-app-beta-shares
+          TICKETS_TABLE: trip-planner-app-beta-tickets
+          SYNC_SOURCE_PREFIX: trip-planner-app
+        run: |
+          chmod +x aws/deploy.sh
+          ./aws/deploy.sh

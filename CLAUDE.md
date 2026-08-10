@@ -90,13 +90,57 @@ The user's own real trip currently loaded into the app is a Norway road trip, Au
   file, since it reads them into memory once at startup.
 - `aws/deploy.sh` — idempotent: creates the IAM role + Lambda + Function URL on first
   run, updates code/config on subsequent runs. Requires `ORS_API_KEY` env var set before
-  running; never put the key in a file.
+  running; never put the key in a file. `FUNCTION_NAME`/`ROLE_NAME` and each DynamoDB
+  table name (`USERS_TABLE`, `TRIPS_TABLE`, `VARIANTS_TABLE`, `SHARES_TABLE`,
+  `TICKETS_TABLE`) are all env-overridable — that's what lets the beta stack (below)
+  reuse this same script against a different function + its own tables.
 - `aws/iam-policy.json` — scoped-down policy for whoever deploys (not admin creds).
-- `.github/workflows/deploy.yml` — same deploy, triggered on push to `main`, secrets
+  DynamoDB/CloudFront/Logs actions are wildcarded to the `trip-planner-app*` prefix, so
+  a new same-prefix stack (beta) is covered automatically; only Lambda actions are
+  scoped to exact function-name ARNs and need a new line added per Lambda function.
+- `.github/workflows/deploy.yml` — same deploy, triggered on push to `master`, secrets
   pulled from GitHub Actions repo secrets (`AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`,
-  `AWS_REGION`, `ORS_API_KEY`).
+  `AWS_REGION`, `ORS_API_KEY`, `SESSION_SECRET`, `GOOGLE_CLIENT_ID`, `ADMIN_EMAILS`,
+  `ADMIN_TOKEN`, `BEDROCK_MODEL_ID`).
+- `.github/workflows/deploy-beta.yml` — same idea, triggered on push to `beta`, deploys
+  a second, fully parallel stack: Lambda `trip-planner-app-beta`, its own Function URL,
+  its own DynamoDB tables (`trip-planner-app-beta-*`), sharing mainline's IAM role and
+  every other secret (session/admin/AI config is intentionally shared — only the
+  function name, table names, and `SYNC_SOURCE_PREFIX` differ). Exists so feature work
+  can be pushed to `beta` and deployed for real testing without ever touching the
+  master pipeline or production data — see "Beta deployment" below.
 - `worker/` — an earlier, parallel deploy path using Cloudflare Workers instead of
   Lambda. Kept for reference; not the primary path anymore. If both exist, AWS is current.
+
+## Beta deployment
+A second, fully parallel deployment for experimenting without risk to production.
+Workflow: branch off `master` onto `beta` (or rebase/merge `master` into an existing
+`beta`), push — `deploy-beta.yml` deploys it independently. Master's pipeline never
+touches beta's resources or vice versa; the only thing intentionally shared is
+config (secrets) and the IAM role, not data.
+- **Data isolation**: beta has its own DynamoDB tables, empty on first deploy. A
+  "🔄 Sync from mainline" button in the backoffice (only rendered when
+  `GET /auth/config` reports `syncAvailable: true`, i.e. only on beta — gated by the
+  `SYNC_SOURCE_PREFIX` env var deploy-beta.yml sets and mainline never does) calls
+  `POST /api/admin/sync-from-mainline` (admin-only, `aws/handler.mjs` →
+  `syncAllFromMainline` in `aws/store.mjs`). It's a one-way mirror: Scans every
+  mainline table and every beta table, deletes whatever's beta-only, and writes a raw
+  copy of every mainline item — so beta ends up an exact copy of production, not a
+  merge. Items are copied as raw DynamoDB attribute maps, bypassing the typed
+  encode/decode helpers, since source and destination share the same schema.
+- **One-time manual setup this depends on** (none of it is scriptable with the
+  deployer's current AWS permissions or from outside the AWS/Google consoles):
+  1. Re-apply the updated `aws/iam-policy.json` to the `norway-route-app-deployer`
+     IAM user (adds the `trip-planner-app-beta` Lambda ARN — DynamoDB/CloudFront/Logs
+     already cover it via existing wildcards). Whoever has IAM-admin access needs to
+     do this; the deployer can't grant itself permissions.
+  2. Create a CloudFront distribution in front of beta's Function URL, same as
+     mainline's (`docs/auth-design.md`) — this is manual for mainline too, deploy.sh
+     doesn't automate it.
+  3. Add that CloudFront domain to the Google Cloud OAuth client's authorized
+     JavaScript origins, alongside mainline's. Until this is done, Google Sign-In (and
+     therefore the backoffice, sync button, and sharing) won't work on beta — the
+     signed-out KML planner/routing/Maps-import features work regardless.
 
 ## Key decisions already made (don't relitigate without reason)
 - Routing key must never be client-side or in git — proxy pattern was chosen
@@ -107,12 +151,12 @@ The user's own real trip currently loaded into the app is a Norway road trip, Au
   has a workable free tier (2,000 req/day).
 
 ## Known open items
-- No AWS-hosted deployment yet — `aws/deploy.sh` has not actually been run. The user was
-  locked out of their AWS account when this came up; check current status before assuming
-  it's still blocked.
-- In the meantime, the app is being served directly from the user's laptop via
-  `dev-server.mjs` + router port forwarding (not Lambda). Don't assume AWS is the live
-  deployment target — ask which is current if it matters.
+- AWS-hosted deployment is live (Lambda + CloudFront, see `docs/auth-design.md` for the
+  URLs) — `master` deploys automatically via `.github/workflows/deploy.yml` on every
+  push/merge. Don't assume the laptop dev-server is still the live target; it isn't
+  unless told otherwise.
+- Beta deployment's one-time manual setup (IAM policy reapply, CloudFront, Google OAuth
+  origin) may or may not be done yet — check before assuming sign-in works on beta.
 - Day 11 (Loen → Ålesund → Bergen → TLV) is not booked yet, but see the candidate
   reference itinerary noted under "Trip facts worth knowing" above.
 - The KML has Eidfjord and DolceVidda at *nearly* identical (but distinct)
@@ -120,5 +164,9 @@ The user's own real trip currently loaded into the app is a Norway road trip, Au
   stop; not yet resolved.
 
 ## If asked to deploy
-Confirm `ORS_API_KEY` is set in the environment (don't ask the user to paste it into
-chat — have them `export` it locally), then run `./aws/deploy.sh`. It's safe to re-run.
+Production (master) and beta both deploy automatically via GitHub Actions on push —
+merging a PR to `master` or pushing to `beta` is the normal deploy path (confirm with
+the user before merging/pushing, same as any other shared-state action). Running
+`./aws/deploy.sh` by hand is only for local/manual use outside CI: confirm `ORS_API_KEY`
+is set in the environment first (don't ask the user to paste it into chat — have them
+`export` it locally). It's safe to re-run either way.
