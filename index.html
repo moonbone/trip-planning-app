@@ -227,6 +227,48 @@
     color:var(--ink-soft);
     cursor:pointer;
   }
+  .dialog-overlay{
+    position:fixed;inset:0;
+    background:rgba(30,42,50,0.45);
+    display:flex;align-items:center;justify-content:center;
+    z-index:2100;
+    padding:20px;
+  }
+  .dialog-box{
+    background:var(--panel);
+    border-radius:12px;
+    max-width:420px;
+    width:100%;
+    padding:20px 22px;
+    box-shadow:0 12px 40px rgba(0,0,0,0.3);
+  }
+  .dialog-box h2{
+    font-family:'Fraunces',serif;
+    font-size:18px;
+    margin:0 0 8px;
+  }
+  .dialog-message{
+    font-size:13.5px;
+    line-height:1.5;
+    color:var(--ink-soft);
+    margin:0 0 10px;
+    white-space:pre-line;
+  }
+  .dialog-input{
+    width:100%;
+    border:1px solid var(--border-strong);
+    border-radius:6px;
+    padding:8px 10px;
+    font:inherit;
+    font-size:14px;
+    margin-bottom:10px;
+    box-sizing:border-box;
+  }
+  .dialog-actions{
+    display:flex;
+    justify-content:flex-end;
+    gap:8px;
+  }
   .comments-section{
     border-top:1px solid var(--border);
     margin-top:14px;
@@ -819,6 +861,7 @@
         </span>
         <label class="start-label">Start <input type="time" id="dayStartInput"></label>
         <button class="reset-btn" id="addPlaceBtn" title="Add your own place (e.g. a laundromat) by clicking the map">＋ Place</button>
+        <button class="reset-btn" id="addPlaceFromMapsBtn" title="Import a place by pasting a Google Maps link or coordinates">📍 From Maps</button>
         <button class="reset-btn" id="dayNotesBtn" title="Comments for this day">💬</button>
         <button class="reset-btn" id="resetDayBtn">Reset day</button>
       </div>
@@ -904,6 +947,19 @@
   </div>
 </div>
 
+<div class="dialog-overlay" id="dialogModal" style="display:none;">
+  <div class="dialog-box">
+    <h2 id="dialogTitle"></h2>
+    <p class="dialog-message" id="dialogMessage"></p>
+    <input type="text" class="dialog-input" id="dialogInput">
+    <div class="error-note" id="dialogError"></div>
+    <div class="dialog-actions">
+      <button class="reset-btn" id="dialogCancelBtn">Cancel</button>
+      <button class="calc-btn" id="dialogOkBtn">OK</button>
+    </div>
+  </div>
+</div>
+
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
 <script>
 // Place data (names/coordinates) never touches the server — it's personal
@@ -972,6 +1028,7 @@ function matchEnrichment(){
 // change this to an absolute URL instead, e.g. "https://your-proxy.example.com/route".
 const PROXY_URL = "/route";
 const TICKETS_URL = "/tickets";
+const RESOLVE_LINK_URL = "/resolve-maps-link";
 // ----------------------------
 
 // All trip structure is derived from the uploaded KML at load time.
@@ -1445,16 +1502,66 @@ function initMap(){
   map.on('click', onMapClickPlace);
 }
 
+// ---- Dialog modal (replaces native prompt()/confirm() for a look that
+// matches the rest of the app) ----
+// One dialog at a time; resolves like the native calls it replaces: OK
+// resolves the input's raw value (promptDialog) or true (confirmDialog),
+// Cancel/Escape/overlay-click resolves null/false.
+let dialogResolve = null;
+function closeDialog(result){
+  document.getElementById('dialogModal').style.display = 'none';
+  const resolve = dialogResolve;
+  dialogResolve = null;
+  if(resolve) resolve(result);
+}
+function openDialog({title, message, defaultValue, showInput, okLabel}){
+  return new Promise(resolve=>{
+    dialogResolve = resolve;
+    document.getElementById('dialogTitle').textContent = title || '';
+    const msgEl = document.getElementById('dialogMessage');
+    msgEl.textContent = message || '';
+    msgEl.style.display = message ? '' : 'none';
+    const input = document.getElementById('dialogInput');
+    input.style.display = showInput ? '' : 'none';
+    input.value = defaultValue || '';
+    document.getElementById('dialogError').textContent = '';
+    document.getElementById('dialogOkBtn').textContent = okLabel || 'OK';
+    document.getElementById('dialogModal').style.display = '';
+    if(showInput){ input.focus(); input.select(); } else { document.getElementById('dialogOkBtn').focus(); }
+  });
+}
+function promptDialog(title, {message, defaultValue} = {}){
+  return openDialog({title, message, defaultValue, showInput:true})
+    .then(v => v === null ? null : document.getElementById('dialogInput').value);
+}
+function confirmDialog(title, message){
+  return openDialog({title, message, showInput:false, okLabel:'Confirm'}).then(v => v === true);
+}
+document.getElementById('dialogOkBtn').addEventListener('click', ()=>{
+  const showingInput = document.getElementById('dialogInput').style.display !== 'none';
+  closeDialog(showingInput ? document.getElementById('dialogInput').value : true);
+});
+document.getElementById('dialogCancelBtn').addEventListener('click', ()=>closeDialog(null));
+document.getElementById('dialogModal').addEventListener('click', (e)=>{
+  if(e.target === e.currentTarget) closeDialog(null);
+});
+document.getElementById('dialogInput').addEventListener('keydown', (e)=>{
+  if(e.key === 'Enter'){ e.preventDefault(); document.getElementById('dialogOkBtn').click(); }
+});
+document.addEventListener('keydown', (e)=>{
+  if(e.key === 'Escape' && dialogResolve) closeDialog(null);
+});
+
 // ---- Custom places (ticket #9) ----
 // "＋ Add place" asks for a name, then the next map click drops the place
 // there, adds it to the current day's plan, and persists it with the variant.
 let placingName = null;
-function startPlacing(){
+async function startPlacing(){
   if(!activeTrip()){
     document.getElementById('kmlError').textContent = 'Load a trip first — custom places are stored with the trip.';
     return;
   }
-  const name = prompt('Name for the new place (e.g. "Laundromat Bergen"):');
+  const name = await promptDialog('New place', {message: 'Name for the new place (e.g. "Laundromat Bergen")'});
   if(!name || !name.trim()) return;
   placingName = name.trim();
   document.getElementById('addPlaceHint').style.display = '';
@@ -1473,6 +1580,164 @@ function onMapClickPlace(e){
   rebuildById();
   if(!plans[activeDay]) plans[activeDay] = [];
   plans[activeDay].push(p.id); // adding a place here usually means planning it now
+  saveVariant();
+  renderAll();
+}
+
+// ---- Import a place from a Google Maps link ----
+// Long-form Maps URLs carry coordinates right in the URL: either the precise
+// pin (!3d<lat>!4d<lon>, present on /maps/place/... links) or the map's
+// view center (@<lat>,<lon>). Shortened share links (maps.app.goo.gl,
+// goo.gl, g.co — what phones produce from the "Share" button) carry no
+// coordinates at all; only the server-side redirect reveals them, since a
+// browser can't read the destination of a cross-origin redirect (CORS
+// blocks it) — that's what /resolve-maps-link is for.
+const MAPS_SHORTLINK_HOSTS = new Set(['maps.app.goo.gl', 'goo.gl', 'g.co']);
+
+function parseGoogleMapsCoords(input){
+  const text = String(input || '').trim();
+  if(!text) return null;
+
+  const rawPair = text.match(/^(-?\d{1,3}(?:\.\d+)?)[,\s]+(-?\d{1,3}(?:\.\d+)?)$/);
+  if(rawPair){
+    const lat = parseFloat(rawPair[1]), lon = parseFloat(rawPair[2]);
+    if(Math.abs(lat) <= 90 && Math.abs(lon) <= 180) return {lat, lon, name: null};
+  }
+
+  const urlMatch = text.match(/https?:\/\/\S+/);
+  if(!urlMatch) return null;
+  let url;
+  try{ url = new URL(urlMatch[0]); } catch { return null; }
+
+  if(MAPS_SHORTLINK_HOSTS.has(url.hostname)) return {shortLink: true, url: url.toString()};
+
+  let href;
+  try{ href = decodeURIComponent(url.toString()); } catch { href = url.toString(); }
+  const pin = href.match(/!3d(-?\d+\.\d+)!4d(-?\d+\.\d+)/);
+  const qParam = href.match(/[?&]q=(-?\d+\.\d+),(-?\d+\.\d+)/);
+  const llParam = href.match(/[?&]ll=(-?\d+\.\d+),(-?\d+\.\d+)/);
+  const center = href.match(/@(-?\d+\.\d+),(-?\d+\.\d+)/);
+  const hit = pin || qParam || llParam || center;
+
+  const nameMatch = href.match(/\/maps\/place\/([^/@]+)/);
+  const name = nameMatch ? nameMatch[1].replace(/\+/g, ' ') : null;
+
+  if(hit) return {lat: parseFloat(hit[1]), lon: parseFloat(hit[2]), name};
+  // Newer share links reference a place by an internal id instead
+  // (.../data=!4m2!3m1!1s0x...:0x...) — no coordinates anywhere in the URL,
+  // Google resolves those client-side via JS. The place's name/address is
+  // still in the URL path, so fall back to geocoding that text.
+  if(name) return {needsGeocode: true, query: name};
+  return null;
+}
+
+// Resolves redirects server-side and returns the place's Open Graph photo
+// and title alongside the final URL (see aws/handler.mjs for how — Google
+// only serves those to a link-preview-crawler request, not an ordinary one).
+async function fetchMapsLinkMeta(url){
+  const res = await fetch(RESOLVE_LINK_URL, {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({url})
+  });
+  if(!res.ok){
+    const body = await res.text().catch(()=>'');
+    throw new Error('HTTP ' + res.status + (body ? ': ' + body.slice(0,150) : ''));
+  }
+  return res.json(); // {finalUrl, image, title}
+}
+
+// OpenStreetMap's free Nominatim geocoder — same no-key, public-demo-server
+// spirit as the OSRM routing fallback below. Only used when a Maps link
+// names a place but carries no coordinates.
+async function nominatimSearch(q){
+  const res = await fetch(
+    'https://nominatim.openstreetmap.org/search?format=jsonv2&limit=1&q=' + encodeURIComponent(q)
+  );
+  if(!res.ok) throw new Error('geocoding HTTP ' + res.status);
+  return res.json();
+}
+async function geocodeAddress(query){
+  let results = await nominatimSearch(query);
+  // "Business Name, Street, City" as one blob often fails to match —
+  // the street/city address alone (after the first comma) geocodes far
+  // more reliably, so retry with that if the full string comes up empty.
+  if(!results.length && query.includes(',')){
+    results = await nominatimSearch(query.slice(query.indexOf(',') + 1).trim());
+  }
+  if(!results.length) throw new Error('no match found for "' + query + '"');
+  return {lat: parseFloat(results[0].lat), lon: parseFloat(results[0].lon), name: query};
+}
+
+async function resolveMapsInput(input){
+  const parsed = parseGoogleMapsCoords(input);
+  if(!parsed) return null;
+
+  if(parsed.shortLink){
+    // Short links need the server round trip anyway to find the destination
+    // (that's where coordinates live), so the OG photo/title come for free
+    // in the same call.
+    const meta = await fetchMapsLinkMeta(parsed.url);
+    const resolved = parseGoogleMapsCoords(meta.finalUrl)
+      || (meta.title ? {needsGeocode: true, query: meta.title} : null);
+    if(!resolved || resolved.shortLink) return null;
+    const coords = resolved.needsGeocode ? await geocodeAddress(resolved.query) : resolved;
+    if(coords){
+      if(!coords.name) coords.name = meta.title || null;
+      coords.image = meta.image || null;
+    }
+    return coords;
+  }
+
+  const coords = parsed.needsGeocode ? await geocodeAddress(parsed.query) : parsed;
+  if(!coords) return coords;
+  // Long-form URL pasted directly: coordinates are already in hand, but the
+  // page's photo is still worth a fetch — same server call, just skipping
+  // the redirect-resolution step. A nice-to-have, so don't fail the import
+  // over it (unreachable server, non-Maps host, etc).
+  const urlMatch = String(input).trim().match(/https?:\/\/\S+/);
+  if(urlMatch){
+    try{
+      const meta = await fetchMapsLinkMeta(urlMatch[0]);
+      if(!coords.name) coords.name = meta.title || null;
+      coords.image = meta.image || null;
+    }catch(e){ /* image/title are optional extras */ }
+  }
+  return coords;
+}
+
+async function importFromMapsLink(){
+  if(!activeTrip()){
+    document.getElementById('kmlError').textContent = 'Load a trip first — custom places are stored with the trip.';
+    return;
+  }
+  const input = await promptDialog('Import from Google Maps', {message: 'Paste a Google Maps link, or "lat, lon" coordinates:'});
+  if(!input || !input.trim()) return;
+  const errEl = document.getElementById('kmlError');
+  errEl.textContent = 'Looking up place…';
+  let coords;
+  try{
+    coords = await resolveMapsInput(input.trim());
+  }catch(e){
+    errEl.textContent = 'Could not import that place (' + e.message + '). Try opening it in Maps, tapping the pin, '
+      + 'and using "Copy coordinates" instead — or paste those numbers here directly.';
+    return;
+  }
+  if(!coords){
+    errEl.textContent =
+      'Couldn\'t find coordinates in that link. Tip: in Google Maps, tap the pin, then "..." → "Copy coordinates" '
+      + '(or long-press the map), and paste the numbers here instead — or use the ＋ Place button to drop a pin by hand.';
+    return;
+  }
+  errEl.textContent = '';
+  const name = (await promptDialog('Import from Google Maps', {message: 'Name for this place:', defaultValue: coords.name || ''}) || '').trim();
+  if(!name) return;
+  const p = {id: 'c' + newId(), name, lat: coords.lat, lon: coords.lon, custom: true};
+  if(coords.image) p.image = coords.image;
+  customPlaces.push(p);
+  rebuildById();
+  if(!plans[activeDay]) plans[activeDay] = [];
+  plans[activeDay].push(p.id);
   saveVariant();
   renderAll();
 }
@@ -1586,8 +1851,11 @@ function openModal(scope, title){
   modalScope = scope;
   document.getElementById('infoTitle').textContent = title;
   const info = scope.scope === 'place' ? placeInfo[scope.placeId] : null;
+  const place = scope.scope === 'place' ? byId[scope.placeId] : null;
   const img = document.getElementById('infoImage');
-  const imgUrl = info && safeHttpUrl(info.image);
+  // Enrichment (bulk-imported JSON) wins if present; otherwise fall back to
+  // a photo grabbed at import time for a custom place (see importFromMapsLink).
+  const imgUrl = (info && safeHttpUrl(info.image)) || (place && safeHttpUrl(place.image));
   if(imgUrl){ img.src = imgUrl; img.style.display = ''; }
   else{ img.removeAttribute('src'); img.style.display = 'none'; }
   const textEl = document.getElementById('infoText');
@@ -1746,8 +2014,9 @@ function renderMasterList(){
       del.className = 'remove-btn';
       del.textContent = '×';
       del.title = 'Delete this custom place';
-      del.onclick = ()=>{
-        if(!confirm(`Delete "${p.name}" and remove it from all days?`)) return;
+      del.onclick = async ()=>{
+        const ok = await confirmDialog('Delete place', `Delete "${p.name}" and remove it from all days?`);
+        if(!ok) return;
         customPlaces = customPlaces.filter(cp=>cp.id !== p.id);
         DAYS.forEach(d2=>{ if(plans[d2]) plans[d2] = plans[d2].filter(id=>id !== p.id); });
         rebuildById();
@@ -1841,7 +2110,10 @@ function hotelRow(hotelId, label, fromId){
 function wireInfoClick(row, placeId){
   const nameEl = row.querySelector('.name');
   if(!nameEl) return;
-  if(placeInfo[placeId]){
+  // "info" here also covers a photo grabbed straight onto a custom place at
+  // import time (importFromMapsLink) — not just enrichment matches — since
+  // both render in the same modal.
+  if(placeInfo[placeId] || (byId[placeId] && byId[placeId].image)){
     nameEl.classList.add('has-info');
     nameEl.title = 'Show place info & comments';
   }else{
@@ -2479,6 +2751,7 @@ document.getElementById('shareTripBtn').addEventListener('click', async ()=>{
 });
 document.getElementById('deleteTripBtn').addEventListener('click', ()=>deleteTrip(tripsIndex.activeTripId));
 document.getElementById('addPlaceBtn').addEventListener('click', startPlacing);
+document.getElementById('addPlaceFromMapsBtn').addEventListener('click', importFromMapsLink);
 document.addEventListener('keydown', (e)=>{
   if(e.key === 'Escape' && placingName) cancelPlacing();
   if(e.key === 'Escape') hidePlaceInfo();

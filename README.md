@@ -53,7 +53,18 @@ gitignored; only the generation script is committed.
 Requires the AWS CLI configured with credentials that can manage Lambda/IAM
 (`aws/iam-policy.json` is a scoped-down policy you can attach instead of using admin creds).
 
+Credentials live in a named CLI profile (`trip-planner-app`), not ambient shell
+env vars — that keeps them from silently overriding whichever AWS account
+another project/terminal is using. One-time setup:
+
 ```bash
+aws configure --profile trip-planner-app
+```
+
+Then deploy:
+
+```bash
+export AWS_PROFILE=trip-planner-app
 export ORS_API_KEY=your-openrouteservice-key    # never commit this
 export AWS_REGION=us-east-1                      # optional, defaults to us-east-1
 ./aws/deploy.sh

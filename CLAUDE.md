@@ -55,8 +55,22 @@ The user's own real trip currently loaded into the app is a Norway road trip, Au
   POST/DELETE endpoints signed in). An AI "Summarize day" button (signed-in UI, server-gated
   to one account) posts a text rendition of the day to `/api/ai/summarize-day`, which calls
   Claude on Bedrock via `aws/ai.mjs` (SDK bundled in Lambda runtime only — locally it 502s).
+  A "📍 From Maps" button lets you paste a Google Maps link (or raw `lat, lon`) to add a
+  custom place without clicking the map: `parseGoogleMapsCoords` pulls coordinates out of
+  long-form URLs client-side (`!3d/!4d` pin, `@lat,lon` view center, or `q=`/`ll=` params).
+  Newer share links reference a place by internal id instead (no coordinates anywhere in the
+  URL) — those fall back to geocoding the place name/address via OpenStreetMap's free
+  Nominatim API. Shortened links (`maps.app.goo.gl`, `goo.gl`, `g.co` — what phones produce
+  from the Share button) carry neither, so those go through `POST /resolve-maps-link` first
+  to follow the redirect server-side (a browser can't read a cross-origin redirect's
+  destination). That same server call also scrapes the place's Open Graph photo/title
+  (`aws/handler.mjs` fetches with a link-preview-crawler User-Agent — Google only serves
+  real per-place OG data, not a generic placeholder, to that) and stores the photo directly
+  on the custom place's `image` field, shown in the place-info modal alongside enrichment.
 - `aws/handler.mjs` — Lambda handler. Serves `index.html` at `GET /`, proxies
-  `POST /route` to OpenRouteService using `process.env.ORS_API_KEY`, and handles
+  `POST /route` to OpenRouteService using `process.env.ORS_API_KEY`, resolves shortened
+  Google Maps links via `POST /resolve-maps-link` (host-allowlisted to Google's own
+  shorteners, so it can only ever follow a Google-issued redirect), and handles
   `GET /tickets` + `POST /tickets` for feature requests. One function, one Function URL,
   no API Gateway.
 - `aws/validate.mjs` — sanitizing validation for ticket fields (subject/description):

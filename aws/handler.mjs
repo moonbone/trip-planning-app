@@ -59,6 +59,15 @@ export const handler = async (event) => {
     }
   }
 
+  if (rawPath === '/resolve-maps-link') {
+    if (method === 'OPTIONS') {
+      return { statusCode: 204, headers: corsHeaders() };
+    }
+    if (method === 'POST') {
+      return handleResolveMapsLink(event);
+    }
+  }
+
   if (method === 'GET' && rawPath === '/auth/config') {
     return {
       statusCode: 200,
@@ -170,6 +179,77 @@ async function handleRoute(event) {
     };
   } catch (e) {
     return jsonError(502, 'Upstream request failed: ' + e.message);
+  }
+}
+
+// Shortened Google Maps share links (what phones produce from the "Share"
+// button) carry no coordinates — only the destination of their HTTP redirect
+// does, and a browser can't read that cross-origin (CORS blocks it). This
+// endpoint follows the redirect server-side and hands back the final URL for
+// the client to parse, plus the place's Open Graph title/photo scraped from
+// the same fetch. The allowlist restricts it to Google's own domains, so it
+// can only ever resolve a Google-issued redirect, never act as an open
+// fetch-any-URL proxy.
+const MAPS_LINK_HOSTS = new Set([
+  'maps.app.goo.gl', 'goo.gl', 'g.co',
+  'www.google.com', 'google.com', 'maps.google.com',
+]);
+// Google's Maps page is a client-rendered SPA that serves a generic shell
+// (and a placeholder og:image with no relation to the requested place) to
+// an ordinary fetch. It only serves the real per-place Open Graph title and
+// photo to known link-preview crawlers — the same mechanism WhatsApp/Slack/
+// iMessage rely on to show a place card when you paste a Maps link into a
+// chat. facebookexternalhit is a standard, widely-documented crawler UA for
+// exactly this purpose.
+const OG_FETCH_UA = 'facebookexternalhit/1.1 (+http://www.facebook.com/externalhit_uatext.php)';
+
+function extractOgTag(html, property) {
+  const tag = html.match(new RegExp(`<meta[^>]*property=["']${property}["'][^>]*>`, 'i'));
+  if (!tag) return null;
+  const content = tag[0].match(/content=["']([^"']*)["']/i);
+  if (!content) return null;
+  const decoded = content[1]
+    .replace(/&amp;/g, '&').replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'").replace(/&lt;/g, '<').replace(/&gt;/g, '>');
+  return decoded || null;
+}
+
+async function handleResolveMapsLink(event) {
+  let body;
+  try {
+    body = JSON.parse(event.body || '{}');
+  } catch {
+    return jsonError(400, 'Invalid JSON body');
+  }
+  let url;
+  try {
+    url = new URL(String(body.url || ''));
+  } catch {
+    return jsonError(400, 'Invalid URL');
+  }
+  if (url.protocol !== 'https:' || !MAPS_LINK_HOSTS.has(url.hostname)) {
+    return jsonError(400, 'Only Google Maps links are supported');
+  }
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 8000);
+  try {
+    const res = await fetch(url.toString(), {
+      redirect: 'follow',
+      signal: controller.signal,
+      headers: { 'User-Agent': OG_FETCH_UA },
+    });
+    const html = await res.text();
+    const image = extractOgTag(html, 'og:image');
+    return ok({
+      finalUrl: res.url,
+      image: image && /^https:\/\//i.test(image) ? image : null,
+      title: extractOgTag(html, 'og:title'),
+    });
+  } catch (e) {
+    return jsonError(502, 'Could not resolve link: ' + e.message);
+  } finally {
+    clearTimeout(timeout);
   }
 }
 
