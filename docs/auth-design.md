@@ -82,3 +82,22 @@ This doc is the single reference for the effort; update it as decisions change.
   trip-planner-app-shares
 - Old norway-route-app Lambda, norway-route-app-role IAM role, and norway-app-* tables were
   deleted as part of the rebrand (no data migration — user opted for a clean cutover)
+
+## Beta deployment infrastructure (2026-08-10)
+
+Parallel stack for feature work on the `beta` branch — see CLAUDE.md "Beta deployment"
+for the full picture (sync-from-mainline button, deploy-beta.yml, etc.).
+
+- Lambda Function URL: https://udtkxph6ofnpmcec6oel4cijbe0vkgqp.lambda-url.us-east-1.on.aws/
+- CloudFront distribution: E2JB6BFPGB9OGW -> https://d1n2bvr8147szt.cloudfront.net
+  (register this as an additional OAuth origin in Google Cloud Console, alongside
+  mainline's, for sign-in to work on beta)
+- DynamoDB tables: trip-planner-app-beta-users, trip-planner-app-beta-trips,
+  trip-planner-app-beta-variants, trip-planner-app-beta-shares, trip-planner-app-beta-tickets
+- IAM: shares mainline's role (trip-planner-app-role) and deployer policy
+  (norway-route-app-deploy-policy, a customer-managed policy attached to the
+  norway-route-app-deployer user — the repo's aws/iam-policy.json mirrors its intended
+  content, but the actual applied policy lives in AWS as this managed policy, not as an
+  inline user policy; keep both in sync by hand when one changes). A stale inline policy
+  named norway-app-deploy also exists on that user, fully superseded by the managed
+  policy above — harmless but could be cleaned up.
