@@ -86,7 +86,10 @@ The user's own real trip currently loaded into the app is a Norway road trip, Au
   sequentially (one day at a time, to stay well under OpenRouteService's free-tier rate
   limits). The printable page is a fully standalone HTML document (own inline
   `<style>`, print media query, a "Print / Save as PDF" button) — not styled via the
-  main app's CSS.
+  main app's CSS. A "Trip overview" panel (col-right, above the per-day "Drive summary")
+  shows whole-trip stats derived purely from already-loaded state (`renderTripOverview`,
+  no routing calls) — day count, total places, overnight-stop count, and how many days
+  still need at least one stop before a route can be calculated.
 - `aws/handler.mjs` — Lambda handler. Serves `index.html` at `GET /`, proxies
   `POST /route` to OpenRouteService using `process.env.ORS_API_KEY`, resolves shortened
   Google Maps links via `POST /resolve-maps-link` (host-allowlisted to Google's own

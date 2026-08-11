@@ -918,6 +918,8 @@
   </div>
 
   <div class="col col-right">
+    <p class="section-label">Trip overview</p>
+    <div id="tripOverview"></div>
     <p class="section-label">Drive summary</p>
     <div id="statsPanel"><div class="empty-note">Select 2+ stops and calculate to see times.</div></div>
     <button class="calc-btn suggest-nav-btn" id="copyDayBtn" title="Copy this day's plan as plain text — handy for sharing offline">📋 Copy day plan</button>
@@ -2333,6 +2335,21 @@ function setMobileSection(section){
 // Day timeline: departure at the chosen start time, each stop's arrival
 // clock time from the driving legs, plus the minutes spent per stop.
 // Hidden when the plan no longer matches what was last calculated.
+function renderTripOverview(){
+  const el = document.getElementById('tripOverview');
+  if(!PLACES.length){
+    el.innerHTML = '<div class="empty-note">Upload a trip to see an overview.</div>';
+    return;
+  }
+  const totalPlaces = PLACES.length + customPlaces.length;
+  const hotelIds = new Set(Object.values(DAY_HOTELS).filter(Boolean));
+  const incompleteDays = DAYS.filter(d=>getRouteIds(d).length < 2).length;
+  el.innerHTML = `
+    <p class="stats-total">${DAYS.length} day${DAYS.length===1?'':'s'}${TRIP_START ? ` · starts ${TRIP_START}` : ''}</p>
+    <p class="stats-sub">${totalPlaces} place${totalPlaces===1?'':'s'} · ${hotelIds.size} overnight stop${hotelIds.size===1?'':'s'}${incompleteDays ? ` · ${incompleteDays} day${incompleteDays===1?'':'s'} need${incompleteDays===1?'s':''} at least one stop` : ''}</p>
+  `;
+}
+
 function renderStats(){
   const statsEl = document.getElementById('statsPanel');
   if(!lastRoute || lastRoute.day !== activeDay
@@ -2376,6 +2393,7 @@ function renderAll(){
   renderMapMarkers();
   document.getElementById('dayStartInput').value = getDayMeta(activeDay).start;
   renderStats();
+  renderTripOverview();
   renderTripUi();
   updateKmlStatus();
   saveLastVisit();
