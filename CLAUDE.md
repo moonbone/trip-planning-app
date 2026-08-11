@@ -42,7 +42,11 @@ The user's own real trip currently loaded into the app is a Norway road trip, Au
   migrated on first load. All trip structure is derived from the KML: one `<Folder>`
   per day; folder names carry the day number ("day N"/"יום N") and date; the folder's
   **last placemark** is that night's accommodation (marked `overnight`, pinned to
-  route start/end). Places are deduped by name+coords across folders.
+  route start/end). Places are deduped by name+coords across folders. A filter box
+  above the master list (`placeFilter`, `#placeSearchInput`) narrows it by name —
+  pinned start/end hotel rows for the active day stay visible regardless of the
+  filter since they're structural context, not search results; cleared on trip
+  switch.
   Calls `PROXY_URL` (currently `/route`, relative — assumes same-origin hosting) for
   routing, falls back to public OSRM demo servers if the proxy fails. Below 860px width, the 3-column layout collapses to a
   single column switched via a bottom tab bar (Places / Route / Summary); Leaflet needs
@@ -177,7 +181,10 @@ config (secrets) and the IAM role, not data.
   reference itinerary noted under "Trip facts worth knowing" above.
 - The KML has Eidfjord and DolceVidda at *nearly* identical (but distinct)
   coordinates, so the importer keeps them as two places — probably one real-world
-  stop; not yet resolved.
+  stop. Now surfaced (not auto-resolved — merging is a data-destructive decision the
+  app shouldn't make silently): `computeNearDuplicates` flags any two places within
+  ~50m of each other and the master list shows a ⚠️ badge with the other place's name
+  and distance on hover, so the user can decide whether to drop one manually.
 
 ## If asked to deploy
 Production (master) and beta both deploy automatically via GitHub Actions on push —

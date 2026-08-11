@@ -162,6 +162,18 @@
     color:var(--ink-soft);
     max-width:100%;
   }
+  .place-search{
+    width:100%;
+    border:1px solid var(--border);
+    border-radius:6px;
+    padding:7px 10px;
+    font-family:'Inter',sans-serif;
+    font-size:13px;
+    background:var(--panel);
+    color:var(--ink);
+    margin-bottom:8px;
+  }
+  .place-search:focus{outline:2px solid var(--accent-light); outline-offset:-1px;}
   .place-item{
     display:flex;
     align-items:center;
@@ -198,6 +210,11 @@
   .place-item .alloc-future{
     background:var(--accent-light);
     color:var(--accent-dark);
+  }
+  .dupe-badge{
+    cursor:help;
+    font-size:11px;
+    flex-shrink:0;
   }
   .place-item .name.has-info,
   .route-item .name.has-info{
@@ -868,6 +885,7 @@
       <div class="error-note" id="kmlError"></div>
     </div>
     <p class="section-label">All places</p>
+    <input type="text" class="place-search" id="placeSearchInput" placeholder="Filter places by name…" autocomplete="off">
     <div id="masterList"></div>
   </div>
 
@@ -1118,6 +1136,8 @@ let map, routeLayer, markersLayer, locationLayer;
 let lastPos = null; // latest geolocation fix {lat, lon}
 let mobileSection = 'route';
 let currentView = 'planner';
+let placeFilter = ''; // lowercased search text over the master places list
+let NEAR_DUPES = {}; // placeId -> [{id, name, km}] — places within a few meters but a different name/id
 
 // ---- Multi-trip storage ----
 // tripplan-trips is the index and the commit point: written last when adding,
@@ -1409,6 +1429,9 @@ function exitRemoteMode(){
 // (Re)applies the active trip of whichever index is current.
 function activateCurrentTrip(){
   lastRoute = null;
+  placeFilter = '';
+  const searchInput = document.getElementById('placeSearchInput');
+  if(searchInput) searchInput.value = '';
   const trip = activeTrip();
   if(!trip){
     clearActiveTrip();
@@ -1952,6 +1975,8 @@ function renderMasterList(){
     el.innerHTML = '<div class="empty-note">No trip loaded — upload your KML export above.</div>';
     return;
   }
+  const filter = placeFilter.trim().toLowerCase();
+  let shownCount = 0;
   // Ticket #10: which days (besides the active one) already use each place,
   // so mix-and-matching shows what's covered — struck-through for days
   // before the one being planned ("visited"), highlighted for later days.
@@ -1964,18 +1989,24 @@ function renderMasterList(){
     });
   });
   DAYS.forEach(d=>{
+    const wake = wakeHotelId(activeDay), sleep = sleepHotelId(activeDay);
+    // pinned start/end rows stay visible regardless of the filter — they're
+    // structural context for the active day, not search results
+    const dayPlaces = PLACES.filter(p=>p.day===d).filter(p=>
+      p.id === wake || p.id === sleep || !filter || p.name.toLowerCase().includes(filter));
+    if(!dayPlaces.length) return;
     const heading = document.createElement('div');
     heading.className = 'day-group-heading';
     heading.textContent = 'Originally day ' + d;
     el.appendChild(heading);
-    PLACES.filter(p=>p.day===d).forEach(p=>{
-      const wake = wakeHotelId(activeDay), sleep = sleepHotelId(activeDay);
+    dayPlaces.forEach(p=>{
+      shownCount++;
       if(p.id === wake || p.id === sleep){
         const badge = p.id === wake && p.id === sleep ? 'start + return'
           : p.id === wake ? 'start' : 'end';
         const row = document.createElement('div');
         row.className = 'place-item selected';
-        row.innerHTML = `<span class="name">${escapeHtml(p.name)}</span><span class="day-badge">${badge}</span>`;
+        row.innerHTML = `<span class="name">${escapeHtml(p.name)}</span>${dupeBadgeHtml(p.id)}<span class="day-badge">${badge}</span>`;
         wireInfoClick(row, p.id);
         el.appendChild(row);
         return;
@@ -1989,7 +2020,7 @@ function renderMasterList(){
       const allocBadges =
         (past.length ? `<span class="alloc-badge alloc-past" title="Already planned on a previous day">✓ ${past.map(d2=>'D'+d2).join('·')}</span>` : '')
         + (future.length ? `<span class="alloc-badge alloc-future" title="Planned on a later day">→ ${future.map(d2=>'D'+d2).join('·')}</span>` : '');
-      row.innerHTML = `<span class="name">${escapeHtml(p.name)}</span>${allocBadges}<span class="day-badge">D${p.day}</span>`;
+      row.innerHTML = `<span class="name">${escapeHtml(p.name)}</span>${dupeBadgeHtml(p.id)}${allocBadges}<span class="day-badge">D${p.day}</span>`;
       wireInfoClick(row, p.id);
       const btn = document.createElement('button');
       btn.className = 'add-btn' + (isSelected ? ' added' : '');
@@ -2010,12 +2041,14 @@ function renderMasterList(){
       el.appendChild(row);
     });
   });
-  if(customPlaces.length){
+  const filteredCustomPlaces = customPlaces.filter(p=>!filter || p.name.toLowerCase().includes(filter));
+  if(filteredCustomPlaces.length){
     const heading = document.createElement('div');
     heading.className = 'day-group-heading';
     heading.textContent = 'Custom places';
     el.appendChild(heading);
-    customPlaces.forEach(p=>{
+    filteredCustomPlaces.forEach(p=>{
+      shownCount++;
       const isSelected = (plans[activeDay] || []).includes(p.id);
       const row = document.createElement('div');
       row.className = 'place-item' + (isSelected ? ' selected' : '');
@@ -2059,6 +2092,9 @@ function renderMasterList(){
       row.appendChild(del);
       el.appendChild(row);
     });
+  }
+  if(filter && !shownCount){
+    el.innerHTML = `<div class="empty-note">No places match "${escapeHtml(placeFilter.trim())}".</div>`;
   }
 }
 
@@ -2948,6 +2984,10 @@ document.getElementById('shareTripBtn').addEventListener('click', async ()=>{
 });
 document.getElementById('deleteTripBtn').addEventListener('click', ()=>deleteTrip(tripsIndex.activeTripId));
 document.getElementById('printTripBtn').addEventListener('click', printTripItinerary);
+document.getElementById('placeSearchInput').addEventListener('input', (e)=>{
+  placeFilter = e.target.value;
+  renderMasterList();
+});
 document.getElementById('addPlaceBtn').addEventListener('click', startPlacing);
 document.getElementById('addPlaceFromMapsBtn').addEventListener('click', importFromMapsLink);
 document.addEventListener('keydown', (e)=>{
@@ -3355,6 +3395,36 @@ function applyTrip(parsed){
   DAY_DATES = parsed.dayDates;
   TRIP_START = DAY_DATES[DAYS[0]] || null;
   computeDayHotels();
+  computeNearDuplicates();
+}
+
+// Flags places that sit within a few meters of each other but weren't
+// deduped (deduping is exact name+coords match) — usually two KML
+// placemarks for the same real-world spot with slightly different
+// coordinates or a typo'd name. Purely informational: never merges or
+// drops anything, just surfaces it so the user can decide.
+function computeNearDuplicates(){
+  NEAR_DUPES = {};
+  const THRESHOLD_KM = 0.05; // ~50 meters
+  for(let i = 0; i < PLACES.length; i++){
+    for(let j = i + 1; j < PLACES.length; j++){
+      const a = PLACES[i], b = PLACES[j];
+      const km = haversineKm(a, b);
+      if(km < THRESHOLD_KM){
+        (NEAR_DUPES[a.id] ||= []).push({id: b.id, name: b.name, km});
+        (NEAR_DUPES[b.id] ||= []).push({id: a.id, name: a.name, km});
+      }
+    }
+  }
+}
+
+function dupeBadgeHtml(id){
+  const dupes = NEAR_DUPES[id];
+  if(!dupes || !dupes.length) return '';
+  const title = dupes.length === 1
+    ? `Very close to "${dupes[0].name}" (${Math.round(dupes[0].km*1000)} m away) — might be the same real-world stop`
+    : `Very close to ${dupes.length} other places — might be the same real-world stop`;
+  return `<span class="dupe-badge" title="${escapeHtml(title)}">⚠️</span>`;
 }
 
 function updateKmlStatus(){
