@@ -862,6 +862,7 @@
       <input type="file" id="kmlFileInput" accept=".kml,.xml">
       <div class="trip-row">
         <button class="reset-btn" id="importInfoBtn" title="Import a JSON file with per-place descriptions, photos and links">Import place info</button>
+        <button class="reset-btn" id="printTripBtn" title="Open a printable, offline-friendly day-by-day itinerary in a new tab">🖨️ Print itinerary</button>
       </div>
       <input type="file" id="infoFileInput" accept=".json,application/json" style="display:none;">
       <div class="error-note" id="kmlError"></div>
@@ -901,6 +902,7 @@
   <div class="col col-right">
     <p class="section-label">Drive summary</p>
     <div id="statsPanel"><div class="empty-note">Select 2+ stops and calculate to see times.</div></div>
+    <button class="calc-btn suggest-nav-btn" id="copyDayBtn" title="Copy this day's plan as plain text — handy for sharing offline">📋 Copy day plan</button>
     <button class="calc-btn suggest-nav-btn" id="aiSummaryBtn" style="display:none;">✨ Summarize day</button>
     <div id="aiSummaryOut" class="ai-summary" style="display:none;" dir="auto"></div>
     <p class="source-note">Routing via a private proxy (your OpenRouteService key stays server-side, never shipped to the browser); falls back to free OSRM demo servers if the proxy isn't reachable. Estimates only — always double check ferries, road closures and seasonal conditions before you go.</p>
@@ -2618,6 +2620,154 @@ async function calculateRoute(){
   }
 }
 
+// ---- Printable / offline itinerary export ----
+// Builds one day's stop list with clock times, fetching driving times from
+// the routing API independently of whatever day is currently active/cached
+// in lastRoute. Days that can't be routed (offline, API down, rate limit)
+// still return a stop list — just without arrival times or leg distances —
+// so the export degrades gracefully instead of failing outright.
+async function buildDayItinerary(day){
+  const ids = getRouteIds(day);
+  const meta = getDayMeta(day);
+  const result = {
+    day, date: DAY_DATES[day] || null, start: meta.start,
+    loop: isLoopDay(day), stops: [], notes: [], routed: false, needsRoute: ids.length >= 2,
+    distanceKm: null, driveMin: null, end: null,
+  };
+  let route = null;
+  if(ids.length >= 2){
+    try{ route = await fetchFromProxy(ids); }
+    catch(e){ try{ route = await fetchFromOSRM(ids); }catch(e2){ route = null; } }
+  }
+  let t = parseClock(meta.start);
+  ids.forEach((id, i)=>{
+    const p = byId[id];
+    if(!p) return;
+    let legMin = null, legKm = null;
+    if(i > 0 && route){
+      const leg = route.legs[i-1];
+      legMin = Math.round(leg.duration/60);
+      legKm = (leg.distance/1000).toFixed(0);
+      t += legMin;
+    }
+    const stay = stayMinutes(day, id);
+    result.stops.push({name: p.name, overnight: !!p.overnight, stay, arrival: route ? fmtClock(t) : null, legMin, legKm});
+    t += stay;
+  });
+  if(route){
+    result.routed = true;
+    result.distanceKm = (route.distance/1000).toFixed(0);
+    result.driveMin = Math.round(route.duration/60);
+    result.end = fmtClock(t);
+  }
+  result.notes = commentsFor({scope:'day', day}).map(c=>c.text);
+  return result;
+}
+
+function renderPrintableItinerary(trip, days){
+  const routedDays = days.filter(d=>d.routed);
+  const totalKm = routedDays.reduce((s,d)=> s + Number(d.distanceKm), 0);
+  const totalMin = routedDays.reduce((s,d)=> s + d.driveMin, 0);
+  const unrouted = days.filter(d=>!d.routed && d.needsRoute).length;
+  const hrs = Math.floor(totalMin/60), mins = totalMin%60;
+  const dayHtml = days.filter(d=>d.stops.length).map(d=>{
+    const rows = d.stops.map((s,i)=>{
+      const stopRow = `<tr>
+        <td class="t-time">${s.arrival || ''}</td>
+        <td>${s.overnight ? '🏨 ' : ''}${escapeHtml(s.name)}${s.stay ? ` <span class="t-stay">(${s.stay} min stop)</span>` : ''}</td>
+      </tr>`;
+      // the leg between stop i and i+1 is recorded as the *arrival* leg on
+      // stop i+1 (it's the drive that got you there), not on stop i.
+      const next = d.stops[i+1];
+      const legRow = next
+        ? `<tr class="t-leg"><td></td><td>${next.legMin != null ? `↓ drive ${next.legMin} min · ${next.legKm} km` : '↓ drive (time unavailable)'}</td></tr>`
+        : '';
+      return stopRow + legRow;
+    }).join('');
+    const notesHtml = d.notes.length
+      ? `<div class="t-notes"><b>Notes:</b> ${d.notes.map(n=>escapeHtml(n)).join(' · ')}</div>` : '';
+    const totalsHtml = d.routed
+      ? `<p class="t-total">${d.start} → ${d.end} · ${Math.floor(d.driveMin/60)}h ${d.driveMin%60}m driving · ${d.distanceKm} km${d.loop ? ' · loops back to hotel' : ''}</p>`
+      : d.needsRoute
+        ? '<p class="t-total t-warn">Driving times unavailable for this day — showing stop order only.</p>'
+        : '<p class="t-total">No driving this day.</p>';
+    return `<div class="day-block">
+      <h2>Day ${d.day}${d.date ? ` — ${d.date}` : ''}</h2>
+      <table>${rows}</table>
+      ${totalsHtml}
+      ${notesHtml}
+    </div>`;
+  }).join('');
+  return `<!doctype html>
+<html><head><meta charset="utf-8">
+<title>${escapeHtml(trip.name)} — itinerary</title>
+<style>
+  body{font-family:-apple-system,Segoe UI,Helvetica,Arial,sans-serif;max-width:800px;margin:2rem auto;padding:0 1.5rem;color:#222;line-height:1.4;}
+  h1{margin-bottom:0.2rem;}
+  .t-sub{color:#666;margin-top:0;}
+  .t-summary{background:#f4f2ee;border-radius:8px;padding:0.8rem 1rem;margin:1rem 0 1.5rem;}
+  .day-block{page-break-inside:avoid;margin-bottom:1.6rem;border-top:1px solid #ddd;padding-top:0.8rem;}
+  .day-block h2{margin:0 0 0.5rem;font-size:1.1rem;}
+  table{width:100%;border-collapse:collapse;font-size:0.95rem;}
+  td{padding:2px 0;vertical-align:top;}
+  .t-time{width:4.5em;color:#555;font-variant-numeric:tabular-nums;}
+  .t-stay{color:#777;font-size:0.85em;}
+  tr.t-leg td{color:#888;font-size:0.85em;padding-left:4.5em;}
+  .t-total{color:#555;font-size:0.9rem;margin:0.4rem 0 0;}
+  .t-warn{color:#a05a00;}
+  .t-notes{font-size:0.9rem;color:#555;margin-top:0.3rem;}
+  .print-btn{position:fixed;top:1rem;right:1rem;padding:0.5rem 1rem;border-radius:6px;border:none;background:#C0552E;color:#fff;cursor:pointer;font-size:0.95rem;}
+  @media print{ .no-print{display:none;} body{margin:0;max-width:none;} }
+</style></head>
+<body>
+  <button class="print-btn no-print" onclick="window.print()">Print / Save as PDF</button>
+  <h1>${escapeHtml(trip.name)}</h1>
+  <p class="t-sub">${days.length} days${trip.tripStart ? ` · starting ${trip.tripStart}` : ''}</p>
+  <div class="t-summary">
+    ${totalKm ? `<b>${totalKm} km</b> total driving · <b>${hrs}h ${mins}m</b> total driving time` : 'Driving totals unavailable'}
+    ${unrouted ? ` · ${unrouted} day${unrouted>1?'s':''} without routing data` : ''}
+  </div>
+  ${dayHtml}
+</body></html>`;
+}
+
+// Opens a new tab synchronously (before any await) so browsers don't treat
+// it as a blocked popup, then fills it in once all days are fetched —
+// routing each day independently means this can take a few seconds.
+async function printTripItinerary(){
+  const trip = activeTrip();
+  if(!trip || !DAYS.length){
+    document.getElementById('errorNote').textContent = 'Load a trip first.';
+    return;
+  }
+  const win = window.open('', '_blank');
+  if(!win){
+    document.getElementById('errorNote').textContent = 'Could not open a new tab — check your popup blocker.';
+    return;
+  }
+  win.document.write('<!doctype html><title>Building itinerary…</title><body style="font-family:sans-serif;padding:2rem;color:#555"><p id="loadingMsg">Fetching driving times…</p></body>');
+  const btn = document.getElementById('printTripBtn');
+  const prevLabel = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = 'Building…';
+  try{
+    const days = [];
+    for(const day of DAYS){
+      const msgEl = win.document.getElementById('loadingMsg');
+      if(msgEl) msgEl.textContent = `Fetching driving times… (day ${day} of ${DAYS.length})`;
+      days.push(await buildDayItinerary(day));
+    }
+    win.document.open();
+    win.document.write(renderPrintableItinerary({...trip, tripStart: TRIP_START}, days));
+    win.document.close();
+  }catch(e){
+    win.document.body.innerHTML = '<p style="font-family:sans-serif;color:#900;padding:2rem;">Could not build itinerary: ' + escapeHtml(e.message) + '</p>';
+  }finally{
+    btn.disabled = false;
+    btn.textContent = prevLabel;
+  }
+}
+
 function haversineKm(a, b){
   const rad = x => x * Math.PI / 180;
   const dLat = rad(b.lat - a.lat), dLon = rad(b.lon - a.lon);
@@ -2797,6 +2947,7 @@ document.getElementById('shareTripBtn').addEventListener('click', async ()=>{
   }
 });
 document.getElementById('deleteTripBtn').addEventListener('click', ()=>deleteTrip(tripsIndex.activeTripId));
+document.getElementById('printTripBtn').addEventListener('click', printTripItinerary);
 document.getElementById('addPlaceBtn').addEventListener('click', startPlacing);
 document.getElementById('addPlaceFromMapsBtn').addEventListener('click', importFromMapsLink);
 document.addEventListener('keydown', (e)=>{
@@ -2843,6 +2994,26 @@ function dayDescriptionText(){
   commentsFor({scope:'day', day: activeDay}).forEach(c=>lines.push(`Note: ${c.text}`));
   return lines.join('\n');
 }
+document.getElementById('copyDayBtn').addEventListener('click', async ()=>{
+  const btn = document.getElementById('copyDayBtn');
+  if(getRouteIds(activeDay).length < 1){
+    btn.textContent = 'Nothing to copy yet';
+    setTimeout(()=>{ btn.textContent = '📋 Copy day plan'; }, 1500);
+    return;
+  }
+  const text = dayDescriptionText();
+  try{
+    await navigator.clipboard.writeText(text);
+    btn.textContent = '✓ Copied';
+  }catch(e){
+    // clipboard API can be blocked (permissions, non-HTTPS) — fall back to a
+    // manual-copy prompt so the text is still reachable.
+    window.prompt('Copy this day\'s plan:', text);
+    btn.textContent = '📋 Copy day plan';
+    return;
+  }
+  setTimeout(()=>{ btn.textContent = '📋 Copy day plan'; }, 1500);
+});
 document.getElementById('aiSummaryBtn').addEventListener('click', async ()=>{
   const btn = document.getElementById('aiSummaryBtn');
   const out = document.getElementById('aiSummaryOut');

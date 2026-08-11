@@ -67,6 +67,22 @@ The user's own real trip currently loaded into the app is a Norway road trip, Au
   (`aws/handler.mjs` fetches with a link-preview-crawler User-Agent — Google only serves
   real per-place OG data, not a generic placeholder, to that) and stores the photo directly
   on the custom place's `image` field, shown in the place-info modal alongside enrichment.
+  A "📋 Copy day plan" button (col-right, always visible, no sign-in needed) copies the
+  same plain-text day rendition used for the AI summary (`dayDescriptionText`) to the
+  clipboard, falling back to a `prompt()` box if `navigator.clipboard` is blocked —
+  handy for texting a day's stops to travel companions without a signal. A
+  "🖨️ Print itinerary" button (col-left, trip-file panel) opens a new tab and builds a
+  full, offline-printable day-by-day itinerary for every day in the trip: it fetches
+  driving times per day independently of whatever's cached in `lastRoute` (via
+  `buildDayItinerary`, reusing `fetchFromProxy`/`fetchFromOSRM`), and degrades
+  gracefully per day if routing fails — still listing stops and stay durations, just
+  without clock times, rather than failing the whole export. The tab is opened
+  synchronously before the first `await` so popup blockers don't catch it; a "Building…"
+  placeholder is shown and updated with per-day progress while routes are fetched
+  sequentially (one day at a time, to stay well under OpenRouteService's free-tier rate
+  limits). The printable page is a fully standalone HTML document (own inline
+  `<style>`, print media query, a "Print / Save as PDF" button) — not styled via the
+  main app's CSS.
 - `aws/handler.mjs` — Lambda handler. Serves `index.html` at `GET /`, proxies
   `POST /route` to OpenRouteService using `process.env.ORS_API_KEY`, resolves shortened
   Google Maps links via `POST /resolve-maps-link` (host-allowlisted to Google's own
