@@ -946,6 +946,7 @@
       <div class="trip-row">
         <button class="reset-btn" id="importInfoBtn" title="Import a JSON file with per-place descriptions, photos and links">Import place info</button>
         <button class="reset-btn" id="printTripBtn" title="Open a printable, offline-friendly day-by-day itinerary in a new tab">🖨️ Print itinerary</button>
+        <button class="reset-btn" id="exportGpxBtn" title="Download every stop and driving route as a GPX file, for GPS devices/apps like Garmin or OsmAnd">🗺️ Export GPX</button>
       </div>
       <input type="file" id="infoFileInput" accept=".json,application/json" style="display:none;">
       <div class="error-note" id="kmlError"></div>
@@ -3024,6 +3025,75 @@ async function printTripItinerary(){
   }
 }
 
+// ---- GPX export ----
+// One file for the whole trip: every stop as a <wpt> (deduped across days,
+// like PLACES already is), plus a <trk> per day when that day's route can
+// be fetched — same sequential per-day fetch-with-fallback as the printable
+// itinerary, so a day that can't be routed just loses its track line
+// instead of failing the whole export. For loading into a GPS device/app
+// (Garmin, OsmAnd, Google Earth…) rather than turn-by-turn nav in-app.
+async function buildTripGpx(trip){
+  const seen = new Set();
+  const wpts = [];
+  for(const day of DAYS){
+    getRouteIds(day).forEach(id=>{
+      if(seen.has(id)) return;
+      seen.add(id);
+      const p = byId[id];
+      if(!p) return;
+      wpts.push(`  <wpt lat="${p.lat}" lon="${p.lon}"><name>${escapeHtml(p.name)}</name>${p.overnight ? '<sym>Lodging</sym>' : ''}</wpt>`);
+    });
+  }
+  const tracks = [];
+  for(const day of DAYS){
+    const ids = getRouteIds(day);
+    if(ids.length < 2) continue;
+    let route = null;
+    try{ route = await fetchFromProxy(ids); }
+    catch(e){ try{ route = await fetchFromOSRM(ids); }catch(e2){ route = null; } }
+    const coords = route?.geometry?.coordinates;
+    if(!coords || !coords.length) continue;
+    const pts = coords.map(([lon,lat])=>`      <trkpt lat="${lat}" lon="${lon}"></trkpt>`).join('\n');
+    tracks.push(`  <trk><name>Day ${day}</name><trkseg>\n${pts}\n  </trkseg></trk>`);
+  }
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<gpx version="1.1" creator="Trip Planner" xmlns="http://www.topografix.com/GPX/1/1">
+  <metadata><name>${escapeHtml(trip.name)}</name></metadata>
+${wpts.join('\n')}
+${tracks.join('\n')}
+</gpx>
+`;
+}
+
+async function exportTripGpx(){
+  const trip = activeTrip();
+  if(!trip || !DAYS.length){
+    document.getElementById('errorNote').textContent = 'Load a trip first.';
+    return;
+  }
+  const btn = document.getElementById('exportGpxBtn');
+  const prevLabel = btn.textContent;
+  btn.disabled = true;
+  try{
+    btn.textContent = 'Building…';
+    const gpx = await buildTripGpx(trip);
+    const blob = new Blob([gpx], {type: 'application/gpx+xml'});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${(trip.name || 'trip').replace(/[^\w\- ]+/g, '').trim() || 'trip'}.gpx`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  }catch(e){
+    document.getElementById('errorNote').textContent = 'Could not export GPX: ' + e.message;
+  }finally{
+    btn.disabled = false;
+    btn.textContent = prevLabel;
+  }
+}
+
 function haversineKm(a, b){
   const rad = x => x * Math.PI / 180;
   const dLat = rad(b.lat - a.lat), dLon = rad(b.lon - a.lon);
@@ -3204,6 +3274,7 @@ document.getElementById('shareTripBtn').addEventListener('click', async ()=>{
 });
 document.getElementById('deleteTripBtn').addEventListener('click', ()=>deleteTrip(tripsIndex.activeTripId));
 document.getElementById('printTripBtn').addEventListener('click', printTripItinerary);
+document.getElementById('exportGpxBtn').addEventListener('click', exportTripGpx);
 document.getElementById('placeSearchInput').addEventListener('input', (e)=>{
   placeFilter = e.target.value;
   renderMasterList();

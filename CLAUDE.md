@@ -90,6 +90,13 @@ The user's own real trip currently loaded into the app is a Norway road trip, Au
   — and appends "≈ N <currency> fuel" to the active day's drive stats and to both the
   per-day and whole-trip totals in the printable itinerary (`fuelCostText`, reused by both
   call sites). Omitted entirely whenever consumption or price is unset/zero.
+  A "🗺️ Export GPX" button (col-left, next to Print itinerary) downloads the whole trip
+  as a single `.gpx` file for GPS devices/apps (Garmin, OsmAnd, Google Earth…):
+  `buildTripGpx` emits a `<wpt>` per unique stop across every day (deduped like `PLACES`
+  already is, overnight stops tagged `<sym>Lodging</sym>`) plus a `<trk>` per day when
+  that day's route can be fetched — same sequential per-day fetch-with-fallback as the
+  printable itinerary, so a day that can't be routed just loses its track line rather
+  than failing the whole export.
   A "📋 Copy day plan" button (col-right, always visible, no sign-in needed) copies the
   same plain-text day rendition used for the AI summary (`dayDescriptionText`) to the
   clipboard, falling back to a `prompt()` box if `navigator.clipboard` is blocked —
