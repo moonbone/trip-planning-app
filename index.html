@@ -340,6 +340,47 @@
     position:absolute;
     top:6px;right:6px;
   }
+  .packing-progress{
+    font-size:12px;
+    color:var(--ink-soft);
+    margin:0 0 10px;
+  }
+  .packing-item{
+    display:flex;
+    align-items:center;
+    gap:8px;
+    padding:5px 2px;
+    border-bottom:1px solid var(--border);
+  }
+  .packing-item input[type=checkbox]{
+    flex-shrink:0;
+    width:16px;height:16px;
+  }
+  .packing-item span{
+    flex:1;
+    font-size:13.5px;
+    word-break:break-word;
+  }
+  .packing-item.checked span{
+    text-decoration:line-through;
+    color:var(--ink-soft);
+  }
+  .packing-item .remove-btn{
+    flex-shrink:0;
+  }
+  .packing-add-row{
+    display:flex;
+    gap:6px;
+    margin-top:10px;
+  }
+  .packing-add-row input{
+    flex:1;
+    border:1px solid var(--border-strong);
+    border-radius:6px;
+    padding:7px 9px;
+    font:inherit;
+    font-size:13px;
+  }
   .cmt-badge{
     font-size:10.5px;
     color:var(--ink-soft);
@@ -873,6 +914,7 @@
       <div class="trip-row" id="tripRow">
         <select id="tripSelect"></select>
         <button class="reset-btn" id="tripNotesBtn" title="Trip comments">💬</button>
+        <button class="reset-btn" id="packingBtn" title="Packing checklist">🎒</button>
         <button class="reset-btn" id="shareTripBtn" style="display:none;">Share</button>
         <button class="reset-btn" id="deleteTripBtn">Delete trip</button>
       </div>
@@ -997,6 +1039,20 @@
       <button class="reset-btn" id="commentAddBtn">Add comment</button>
       <div class="error-note" id="commentError"></div>
     </div>
+  </div>
+</div>
+
+<div class="info-modal-overlay" id="packingModal" style="display:none;">
+  <div class="info-modal">
+    <button class="info-close" id="packingModalClose" title="Close">×</button>
+    <h2>🎒 Packing checklist</h2>
+    <p class="packing-progress" id="packingProgress"></p>
+    <div id="packingListEl"></div>
+    <div class="packing-add-row">
+      <input type="text" id="packingInput" maxlength="200" placeholder="Add an item…">
+      <button class="reset-btn" id="packingAddBtn">Add</button>
+    </div>
+    <div class="error-note" id="packingError"></div>
   </div>
 </div>
 
@@ -1265,6 +1321,7 @@ async function loadRemoteIndex(){
     remoteSources[t.trip_id] = detail.trip.kml_source;
     remoteEnrichment[t.trip_id] = detail.trip.enrichment || [];
     remoteComments[t.trip_id] = detail.trip.comments || [];
+    remotePacking[t.trip_id] = detail.trip.packingList || [];
     const variants = {};
     detail.variants.forEach(v=>{
       variants[v.variant_id] = v.name;
@@ -1411,7 +1468,7 @@ async function enterRemoteMode(email){
   showSync('Loading trips…');
   try{
     await importLocalTrips(email);
-    remoteVersions = {}; remoteSources = {}; remoteVariantState = {}; remoteEnrichment = {}; remoteComments = {};
+    remoteVersions = {}; remoteSources = {}; remoteVariantState = {}; remoteEnrichment = {}; remoteComments = {}; remotePacking = {};
     await loadRemoteIndex();
     remoteMode = true;
     activateCurrentTrip();
@@ -1421,7 +1478,7 @@ async function enterRemoteMode(email){
 }
 function exitRemoteMode(){
   remoteMode = false;
-  remoteVersions = {}; remoteSources = {}; remoteVariantState = {}; remoteEnrichment = {}; remoteComments = {};
+  remoteVersions = {}; remoteSources = {}; remoteVariantState = {}; remoteEnrichment = {}; remoteComments = {}; remotePacking = {};
   clearTimeout(syncTimer);
   // account-scoped prefs don't belong in a signed-out browser
   localStorage.removeItem('tripplan-remote-prefs');
@@ -1455,12 +1512,20 @@ function activateCurrentTrip(){
   if(remoteMode){
     enrichment = remoteEnrichment[tripsIndex.activeTripId] || [];
     tripComments = remoteComments[tripsIndex.activeTripId] || [];
+    packingList = remotePacking[tripsIndex.activeTripId] || [];
   }else{
     try{ enrichment = JSON.parse(localStorage.getItem(`tripplan-enrich:${tripsIndex.activeTripId}`)) || []; }
     catch(e){ enrichment = []; }
     try{ tripComments = JSON.parse(localStorage.getItem(`tripplan-comments:${tripsIndex.activeTripId}`)) || []; }
     catch(e){ tripComments = []; }
+    try{ packingList = JSON.parse(localStorage.getItem(packingLocalKey())) || []; }
+    catch(e){ packingList = []; }
   }
+  // applyTrip() above already ran matchEnrichment() against the *previous*
+  // trip's enrichment (or none, on first load) via rebuildById() — redo it
+  // now that the right trip's enrichment is loaded, or imported photos/
+  // descriptions stay wrong until something else happens to rebuild ids.
+  matchEnrichment();
   loadVariant();
   activeDay = initialDay();
   renderAll();
@@ -1819,6 +1884,78 @@ function safeHttpUrl(u){
 let tripComments = [];
 let remoteComments = {};
 let modalScope = null; // {scope:'place'|'day'|'trip', placeId?, day?}
+
+// Packing checklist: one flat list per trip (not per variant — what to pack
+// doesn't change between route plans). Whole-array PUT on every edit, same
+// shallow pattern as enrichment: tripplan-packing:<id> locally, one PUT
+// endpoint signed in.
+let packingList = [];
+let remotePacking = {};
+function packingLocalKey(){ return `tripplan-packing:${tripsIndex.activeTripId}`; }
+async function commitPackingList(newList){
+  const errEl = document.getElementById('packingError');
+  errEl.textContent = '';
+  if(remoteMode){
+    try{
+      await api(`/api/trips/${tripsIndex.activeTripId}/packing`, {method:'PUT', body: JSON.stringify({packingList:newList})});
+      remotePacking[tripsIndex.activeTripId] = newList;
+    }catch(e){
+      errEl.textContent = 'Could not save: ' + e.message;
+      return false;
+    }
+  }else{
+    try{ localStorage.setItem(packingLocalKey(), JSON.stringify(newList)); }
+    catch(e){ errEl.textContent = 'Could not store — browser storage may be full.'; return false; }
+  }
+  packingList = newList;
+  renderPackingList();
+  return true;
+}
+function renderPackingList(){
+  const listEl = document.getElementById('packingListEl');
+  const progressEl = document.getElementById('packingProgress');
+  const checked = packingList.filter(it=>it.checked).length;
+  progressEl.textContent = packingList.length ? `${checked} / ${packingList.length} packed` : '';
+  listEl.innerHTML = packingList.length ? '' : '<div class="empty-note">No items yet — add what you need to pack.</div>';
+  packingList.forEach(item=>{
+    const row = document.createElement('div');
+    row.className = 'packing-item' + (item.checked ? ' checked' : '');
+    const cb = document.createElement('input');
+    cb.type = 'checkbox';
+    cb.checked = item.checked;
+    cb.onchange = ()=>commitPackingList(packingList.map(it=>it.id===item.id ? {...it, checked: cb.checked} : it));
+    const span = document.createElement('span');
+    span.textContent = item.text;
+    const del = document.createElement('button');
+    del.className = 'remove-btn';
+    del.textContent = '×';
+    del.title = 'Remove item';
+    del.onclick = ()=>commitPackingList(packingList.filter(it=>it.id !== item.id));
+    row.appendChild(cb);
+    row.appendChild(span);
+    row.appendChild(del);
+    listEl.appendChild(row);
+  });
+}
+function addPackingItem(){
+  const input = document.getElementById('packingInput');
+  const text = input.value.trim();
+  if(!text) return;
+  input.value = '';
+  commitPackingList([...packingList, {id: 'p' + newId(), text, checked:false}]);
+}
+function openPackingModal(){
+  if(!activeTrip()){
+    document.getElementById('kmlError').textContent = 'Load a trip first — the packing list attaches to a trip.';
+    return;
+  }
+  document.getElementById('packingError').textContent = '';
+  renderPackingList();
+  document.getElementById('packingModal').style.display = '';
+}
+function closePackingModal(){
+  document.getElementById('packingModal').style.display = 'none';
+}
 
 function commentsFor(scope){
   return tripComments.filter(c=>{
@@ -3017,6 +3154,15 @@ document.getElementById('infoModal').addEventListener('click', (e)=>{
   if(e.target === e.currentTarget) hidePlaceInfo();
 });
 document.getElementById('commentAddBtn').addEventListener('click', addComment);
+document.getElementById('packingBtn').addEventListener('click', openPackingModal);
+document.getElementById('packingModalClose').addEventListener('click', closePackingModal);
+document.getElementById('packingModal').addEventListener('click', (e)=>{
+  if(e.target === e.currentTarget) closePackingModal();
+});
+document.getElementById('packingAddBtn').addEventListener('click', addPackingItem);
+document.getElementById('packingInput').addEventListener('keydown', (e)=>{
+  if(e.key === 'Enter') addPackingItem();
+});
 document.getElementById('dayNotesBtn').addEventListener('click', ()=>{
   if(!activeTrip()) return;
   openModal({scope:'day', day: activeDay}, `Day ${activeDay} — notes`);
@@ -3483,6 +3629,7 @@ function clearActiveTrip(){
   customPlaces = [];
   tripComments = [];
   enrichment = [];
+  packingList = [];
   rebuildById();
   lastRoute = null;
 }
@@ -3506,6 +3653,7 @@ async function deleteTrip(tripId){
     delete remoteSources[tripId];
     delete remoteEnrichment[tripId];
     delete remoteComments[tripId];
+    delete remotePacking[tripId];
   }
   delete tripsIndex.trips[tripId];
   const next = Object.keys(tripsIndex.trips)[0] || null;
@@ -3516,6 +3664,7 @@ async function deleteTrip(tripId){
     localStorage.removeItem(`tripplan-trip-src:${tripId}`);
     localStorage.removeItem(`tripplan-enrich:${tripId}`);
     localStorage.removeItem(`tripplan-comments:${tripId}`);
+    localStorage.removeItem(`tripplan-packing:${tripId}`);
     Object.keys(localStorage)
       .filter(k=>k.startsWith(`tripplan-variant:${tripId}:`))
       .forEach(k=>localStorage.removeItem(k));
@@ -3666,21 +3815,11 @@ function renderTripUi(){
   loadTripsIndex();
   initMap();
   watchLocation();
-  let loadError = '';
-  if(activeTrip()){
-    try{
-      const source = localStorage.getItem(`tripplan-trip-src:${tripsIndex.activeTripId}`);
-      if(source === null) throw new Error('trip data is missing from storage');
-      applyTrip(parseKmlTrip(source));
-      loadVariant();
-      activeDay = initialDay();
-    }catch(e){
-      clearActiveTrip();
-      loadError = 'Could not load stored trip: ' + e.message;
-    }
-  }
-  renderAll();
-  if(loadError) document.getElementById('errorNote').textContent = loadError;
+  // Same trip-loading logic as switching trips (parse KML, load enrichment/
+  // comments/packing/variant, render) — used to be duplicated here with
+  // enrichment/comments/packing left out, so a plain page reload silently
+  // dropped them until the next trip switch.
+  activateCurrentTrip();
   setMobileSection(mobileSection);
   initAuth();
 })();

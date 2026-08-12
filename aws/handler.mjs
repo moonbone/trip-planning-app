@@ -18,7 +18,7 @@ import {
 } from './auth.mjs';
 import {
   upsertUser, getUser, listUsers, newStoreId, VersionConflictError,
-  createTrip, getTrip, listTripsForOwner, deleteTrip, putTripEnrichment,
+  createTrip, getTrip, listTripsForOwner, deleteTrip, putTripEnrichment, putTripPacking,
   addTripComment, deleteTripComment,
   listVariants, getVariant, putVariant, deleteVariant,
   listSharesForTrip, listSharesForEmail, putShare, deleteShare,
@@ -347,6 +347,8 @@ const MAX_ENRICHMENT_BYTES = 300 * 1024;
 const MAX_NAME_LEN = 200;
 const MAX_COMMENT_LEN = 1000;
 const MAX_COMMENTS_PER_TRIP = 500;
+const MAX_PACKING_ITEMS = 300;
+const MAX_PACKING_TEXT_LEN = 200;
 
 // Sharing roles (phase 4): viewer < editor < co-owner < owner. Editors
 // change plans/variants; co-owners also manage shares; only the owner
@@ -518,6 +520,26 @@ async function handleTripsApi(event, method, rawPath) {
       }
       await putTripEnrichment(tripId, body.enrichment);
       return ok({ ok: true });
+    }
+
+    // /api/trips/:id/packing — a simple trip-wide checklist (not
+    // variant-scoped — what to pack doesn't change between route plans).
+    // Whole list replaced on each PUT, same shallow read-modify-write as
+    // enrichment; editor and up.
+    if (parts[3] === 'packing') {
+      if (method !== 'PUT') return jsonError(405, 'Method not allowed');
+      if (ROLE_RANK[role] < ROLE_RANK.editor) return jsonError(403, 'View-only access');
+      if (!Array.isArray(body.packingList)) return jsonError(400, 'packingList must be an array');
+      if (body.packingList.length > MAX_PACKING_ITEMS) {
+        return jsonError(400, `Too many items (max ${MAX_PACKING_ITEMS})`);
+      }
+      const cleaned = body.packingList.map((it) => ({
+        id: String(it.id || newStoreId()),
+        text: String(it.text || '').replace(/[\x00-\x08\x0B-\x1F\x7F-\x9F]/g, '').trim().slice(0, MAX_PACKING_TEXT_LEN),
+        checked: !!it.checked,
+      })).filter((it) => it.text);
+      await putTripPacking(tripId, cleaned);
+      return ok({ packingList: cleaned });
     }
 
     // /api/trips/:id/variants[/:vid] — writes need editor and up

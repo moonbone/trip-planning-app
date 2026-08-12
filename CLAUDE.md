@@ -46,7 +46,13 @@ The user's own real trip currently loaded into the app is a Norway road trip, Au
   above the master list (`placeFilter`, `#placeSearchInput`) narrows it by name —
   pinned start/end hotel rows for the active day stay visible regardless of the
   filter since they're structural context, not search results; cleared on trip
-  switch.
+  switch. `activateCurrentTrip()` is the single trip-load path — parses the active
+  trip's KML, loads its enrichment/comments/packing/variant, re-matches enrichment
+  against the newly-loaded data, and renders. Both the page's initial startup and
+  every trip switch call it (startup used to duplicate this logic inline and skip
+  the enrichment/comments/packing load entirely, so a plain page reload silently
+  dropped them until you switched trips away and back — fixed by making startup
+  call the same function).
   Calls `PROXY_URL` (currently `/route`, relative — assumes same-origin hosting) for
   routing, falls back to public OSRM demo servers if the proxy fails. Below 860px width, the 3-column layout collapses to a
   single column switched via a bottom tab bar (Places / Route / Summary); Leaflet needs
@@ -54,9 +60,16 @@ The user's own real trip currently loaded into the app is a Norway road trip, Au
   A header toggle switches the whole page between this planner view and the feature-request
   tickets view (`#ticketsView`). Beyond KML places: **custom places** (user-added via map
   click, variant-scoped, 'c'-prefixed string ids), **place info enrichment** (imported JSON
-  matched to places by title/proximity, shown in a modal — trip-scoped), and **comments**
+  matched to places by title/proximity, shown in a modal — trip-scoped), **comments**
   per place/day/trip (trip-scoped; local key `tripplan-comments:<id>`, per-comment
-  POST/DELETE endpoints signed in). An AI "Summarize day" button (signed-in UI, server-gated
+  POST/DELETE endpoints signed in), and a **packing checklist** (🎒 button next to trip
+  comments, its own modal): one flat `{id, text, checked}` list per trip, not per variant
+  (what to pack doesn't depend on the route plan) — local key `tripplan-packing:<id>`,
+  or a `packingList` field on the trip record signed in via `PUT /api/trips/:id/packing`
+  (editor+; whole-array replace on every add/check/delete, same shallow read-modify-write
+  pattern as `enrichment`, not per-item CRUD like comments — simpler since packing items
+  don't need per-author tracking; server sanitizes/truncates each item's text and caps the
+  list at 300 items). An AI "Summarize day" button (signed-in UI, server-gated
   to one account) posts a text rendition of the day to `/api/ai/summarize-day`, which calls
   Claude on Bedrock via `aws/ai.mjs` (SDK bundled in Lambda runtime only — locally it 502s).
   A "📍 From Maps" button lets you paste a Google Maps link (or raw `lat, lon`) to add a

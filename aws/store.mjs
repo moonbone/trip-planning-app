@@ -104,6 +104,13 @@ const fileTripsDriver = {
     tripsWrite(db);
     return db.trips[tripId];
   },
+  async putTripPacking(tripId, packingList) {
+    const db = tripsRead();
+    if (!db.trips[tripId]) return null;
+    db.trips[tripId].packingList = packingList;
+    tripsWrite(db);
+    return db.trips[tripId];
+  },
   async addTripComment(tripId, comment) {
     const db = tripsRead();
     if (!db.trips[tripId]) return null;
@@ -328,6 +335,9 @@ const dynamoTripsDriver = {
     if (i.comments?.S) {
       try { trip.comments = JSON.parse(i.comments.S); } catch { /* ignore corrupt blob */ }
     }
+    if (i.packingList?.S) {
+      try { trip.packingList = JSON.parse(i.packingList.S); } catch { /* ignore corrupt blob */ }
+    }
     return trip;
   },
   async putTripEnrichment(tripId, enrichment) {
@@ -338,6 +348,17 @@ const dynamoTripsDriver = {
       UpdateExpression: 'SET enrichment = :e',
       ConditionExpression: 'attribute_exists(trip_id)',
       ExpressionAttributeValues: { ':e': { S: JSON.stringify(enrichment) } },
+    }));
+    return this.getTrip(tripId);
+  },
+  async putTripPacking(tripId, packingList) {
+    const d = await dynamo();
+    await d.client.send(new d.UpdateItemCommand({
+      TableName: TRIPS_TABLE,
+      Key: { trip_id: { S: tripId } },
+      UpdateExpression: 'SET packingList = :p',
+      ConditionExpression: 'attribute_exists(trip_id)',
+      ExpressionAttributeValues: { ':p': { S: JSON.stringify(packingList) } },
     }));
     return this.getTrip(tripId);
   },
@@ -654,6 +675,7 @@ export const listUsers = driver.listUsers.bind(driver);
 export const createTrip = tripsDriver.createTrip.bind(tripsDriver);
 export const getTrip = tripsDriver.getTrip.bind(tripsDriver);
 export const putTripEnrichment = tripsDriver.putTripEnrichment.bind(tripsDriver);
+export const putTripPacking = tripsDriver.putTripPacking.bind(tripsDriver);
 export const addTripComment = tripsDriver.addTripComment.bind(tripsDriver);
 export const deleteTripComment = tripsDriver.deleteTripComment.bind(tripsDriver);
 export const listTripsForOwner = tripsDriver.listTripsForOwner.bind(tripsDriver);
