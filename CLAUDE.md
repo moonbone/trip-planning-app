@@ -58,7 +58,35 @@ The user's own real trip currently loaded into the app is a Norway road trip, Au
   single column switched via a bottom tab bar (Places / Route / Summary); Leaflet needs
   `map.invalidateSize()` after its container is unhidden, which `setMobileSection` calls.
   A header toggle switches the whole page between this planner view and the feature-request
-  tickets view (`#ticketsView`). Beyond KML places: **custom places** (user-added via map
+  tickets view (`#ticketsView`).
+  **Dark mode**: a 🌙/☀️ toggle button in the header. Three-state like the rest of the CSS
+  custom-property setup — system preference by default (`@media (prefers-color-scheme:
+  dark)`), an explicit choice (`localStorage['tripplan-theme']`, applied as `data-theme` on
+  `<html>`) overrides it in either direction. The `data-theme` attribute is set by a tiny
+  inline `<script>` at the very top of `<head>`, before the real `<style>` block, so there's
+  no flash of the wrong theme on load; the main script only syncs the toggle button's icon
+  and reacts to system-preference *changes* when no explicit choice is stored. Almost every
+  color already routed through the existing `--bg`/`--panel`/`--ink`/`--accent*`/`--border*`
+  custom properties (the `body.beta-env` purple override already proved that pattern), so
+  the dark palette is mostly just new values for those under `:root[data-theme="dark"]` /
+  the media query — including its own beta-purple variant, since beta always has
+  `body.beta-env` set. Two roles needed care because a naive var-swap breaks them: (1)
+  `--accent-light` flips from "pale wash" to "dark wash" so the `--accent-dark` text drawn
+  on top of it (place-item.selected, status-processed, alloc-future) stays legible either
+  way; (2) `.calc-btn`'s background was `--accent-dark` (a role that's a *bright* text color
+  in dark mode, not a fillable button surface) — split out to always use `--accent` instead,
+  which was deliberately kept close to its light-mode value since it doubles as a filled
+  badge/button background (route-item .idx, status-done, beta-badge) *and* a border color in
+  both themes. A couple of inputs/textareas (`.dialog-input`, `.comments-section textarea`,
+  `.packing-add-row input`, `.fuel-settings input`) had no explicit `background`/`color` at
+  all — invisible in light mode since the browser default (white-on-black) happened to match,
+  but a stark white box in dark mode; now themed like every other input. Two more spots
+  (`.tab .num`, `.route-item .idx`) used `var(--panel)` as an always-white badge text color,
+  which would have gone dark-on-dark once `--panel` itself went dark — switched to a literal
+  `#fff`, matching how every other filled badge/button already gets its white text. The
+  printable itinerary's own popup-window `<style>` is untouched and stays light always — it's
+  meant for printing/PDF, not for reading on screen in-theme.
+  Beyond KML places: **custom places** (user-added via map
   click, variant-scoped, 'c'-prefixed string ids), **place info enrichment** (imported JSON
   matched to places by title/proximity, shown in a modal — trip-scoped), **comments**
   per place/day/trip (trip-scoped; local key `tripplan-comments:<id>`, per-comment

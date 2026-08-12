@@ -4,6 +4,17 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Trip Planner</title>
+<script>
+// Applied before <style> so there's no flash of the wrong theme on load —
+// the rest of the theme logic (toggle button, icon, system-preference
+// listener) lives in the main script further down.
+(function(){
+  try{
+    var t = localStorage.getItem('tripplan-theme');
+    if(t === 'light' || t === 'dark') document.documentElement.setAttribute('data-theme', t);
+  }catch(e){}
+})();
+</script>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css" />
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600;9..144,700&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
@@ -27,6 +38,73 @@
     --accent-dark:#4D2C73;
     --accent-light:#D2BFE8;
     --bg:#EFEAF5;
+  }
+  /* Dark theme: system preference by default (unless the user picked
+     "light" explicitly), or the explicit toggle at any time. --accent-light
+     flips role here — a pale wash in light mode, a dark wash in dark mode —
+     so the --accent-dark text sitting on top of it (place-item.selected,
+     status-processed, alloc-future) stays readable either way. --accent
+     itself is deliberately left close to its light-mode value: it's used
+     as a filled badge/button background with white text (route-item .idx,
+     add-btn.added, status-done, beta-badge) as well as a border, and both
+     roles want a color that reads clearly against white *and* against a
+     dark panel — the same shade already does both jobs. */
+  @media (prefers-color-scheme: dark){
+    :root:not([data-theme="light"]){
+      --bg:#15191C;
+      --panel:#232A30;
+      --ink:#E7E9E6;
+      --ink-soft:#8FA0A6;
+      --accent:#3E8A9E;
+      --accent-dark:#7FCBDF;
+      --accent-light:#1F4854;
+      --rust:#E08858;
+      --border:#2A3237;
+      --border-strong:#3A444A;
+    }
+    :root:not([data-theme="light"]) body.beta-env{
+      --accent:#8B5FC7;
+      --accent-dark:#C9A8ED;
+      --accent-light:#3A2A55;
+      --bg:#1A1622;
+    }
+  }
+  :root[data-theme="dark"]{
+    --bg:#15191C;
+    --panel:#232A30;
+    --ink:#E7E9E6;
+    --ink-soft:#8FA0A6;
+    --accent:#3E8A9E;
+    --accent-dark:#7FCBDF;
+    --accent-light:#1F4854;
+    --rust:#E08858;
+    --border:#2A3237;
+    --border-strong:#3A444A;
+  }
+  :root[data-theme="dark"] body.beta-env{
+    --accent:#8B5FC7;
+    --accent-dark:#C9A8ED;
+    --accent-light:#3A2A55;
+    --bg:#1A1622;
+  }
+  :root[data-theme="dark"] .info-modal,
+  :root[data-theme="dark"] .dialog-box{
+    border:1px solid var(--border-strong);
+  }
+  /* .calc-btn's light-mode background (--accent-dark, a near-black teal)
+     would be pale in dark mode since --accent-dark's role flips to "bright
+     text" there — so the main CTA button switches to --accent instead
+     (already dark/saturated enough to hold white text in both themes) with
+     a brightness-filter hover rather than swapping to a named color. */
+  :root[data-theme="dark"] .calc-btn{background:var(--accent);}
+  :root[data-theme="dark"] .calc-btn:hover{background:var(--accent);filter:brightness(1.15);}
+  @media (prefers-color-scheme: dark){
+    :root:not([data-theme="light"]) .info-modal,
+    :root:not([data-theme="light"]) .dialog-box{
+      border:1px solid var(--border-strong);
+    }
+    :root:not([data-theme="light"]) .calc-btn{background:var(--accent);}
+    :root:not([data-theme="light"]) .calc-btn:hover{background:var(--accent);filter:brightness(1.15);}
   }
   .beta-badge{
     display:inline-block;
@@ -100,7 +178,7 @@
     text-align:center;
     border-radius:50%;
     background:var(--border-strong);
-    color:var(--panel);
+    color:#fff;
     font-size:11px;
     margin-right:6px;
   }
@@ -301,6 +379,8 @@
     font-size:14px;
     margin-bottom:10px;
     box-sizing:border-box;
+    background:var(--panel);
+    color:var(--ink);
   }
   .dialog-actions{
     display:flex;
@@ -321,6 +401,8 @@
     font-size:13px;
     resize:vertical;
     margin:6px 0;
+    background:var(--panel);
+    color:var(--ink);
   }
   .comment-item{
     border:1px solid var(--border);
@@ -380,6 +462,8 @@
     padding:7px 9px;
     font:inherit;
     font-size:13px;
+    background:var(--panel);
+    color:var(--ink);
   }
   .fuel-settings{
     display:flex;
@@ -404,6 +488,8 @@
     padding:3px 5px;
     font:inherit;
     font-size:12px;
+    background:var(--panel);
+    color:var(--ink);
   }
   .cmt-badge{
     font-size:10.5px;
@@ -665,7 +751,7 @@
   .route-item .idx{
     font-family:'IBM Plex Mono',monospace;
     font-size:11px;
-    color:var(--panel);
+    color:#fff;
     background:var(--accent);
     width:20px;height:20px;
     border-radius:50%;
@@ -787,6 +873,7 @@
     white-space:nowrap;
   }
   .view-toggle-btn:hover{background:var(--accent-light);}
+  .theme-toggle-btn{padding:8px 11px;font-size:15px;line-height:1;}
   .header-actions{
     display:flex;
     align-items:center;
@@ -918,6 +1005,7 @@
     <p>Pick places for each day, reorder them, get real driving times.</p>
   </div>
   <div class="header-actions">
+    <button class="view-toggle-btn theme-toggle-btn" id="themeToggleBtn" title="Toggle dark mode">🌙</button>
     <span class="sync-status" id="syncStatus" style="display:none;"><span class="spinner"></span><span id="syncStatusText"></span></span>
     <span class="user-badge" id="userBadge" style="display:none;"></span>
     <button class="view-toggle-btn" id="backofficeBtn" style="display:none;">Backoffice</button>
@@ -1675,6 +1763,28 @@ function fuelCostText(distanceKm, settings){
   const cost = distanceKm * (s.consumption/100) * s.price;
   const rounded = cost >= 100 ? Math.round(cost) : Math.round(cost*10)/10;
   return ` · ≈ ${rounded}${s.currency ? ' ' + escapeHtml(s.currency) : ''} fuel`;
+}
+
+// Dark mode: an explicit tripplan-theme ('light'|'dark') in localStorage
+// wins; otherwise the CSS itself follows prefers-color-scheme (see the
+// @media block), so "system" needs no stored value at all. The head's
+// early inline script already applied any stored choice before first
+// paint — this just keeps the toggle button's icon and click handler in
+// sync with it.
+function currentTheme(){
+  const stored = localStorage.getItem('tripplan-theme');
+  if(stored === 'light' || stored === 'dark') return stored;
+  return (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) ? 'dark' : 'light';
+}
+function applyTheme(theme){
+  if(theme) document.documentElement.setAttribute('data-theme', theme);
+  else document.documentElement.removeAttribute('data-theme');
+  document.getElementById('themeToggleBtn').textContent = currentTheme() === 'dark' ? '☀️' : '🌙';
+}
+function toggleTheme(){
+  const next = currentTheme() === 'dark' ? 'light' : 'dark';
+  try{ localStorage.setItem('tripplan-theme', next); }catch(e){}
+  applyTheme(next);
 }
 
 function initMap(){
@@ -3445,6 +3555,13 @@ document.getElementById('dayStartInput').addEventListener('change', (e)=>{
   });
 });
 
+document.getElementById('themeToggleBtn').addEventListener('click', toggleTheme);
+if(window.matchMedia){
+  window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', ()=>{
+    if(!localStorage.getItem('tripplan-theme')) applyTheme(null);
+  });
+}
+
 document.querySelectorAll('.mobile-tab-btn').forEach(btn=>{
   btn.addEventListener('click', ()=> setMobileSection(btn.dataset.section));
 });
@@ -3959,6 +4076,7 @@ function renderTripUi(){
   initMap();
   watchLocation();
   applyFuelSettingsToInputs(loadFuelSettings());
+  applyTheme(localStorage.getItem('tripplan-theme'));
   // Same trip-loading logic as switching trips (parse KML, load enrichment/
   // comments/packing/variant, render) — used to be duplicated here with
   // enrichment/comments/packing left out, so a plain page reload silently
