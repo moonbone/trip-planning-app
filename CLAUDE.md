@@ -84,6 +84,12 @@ The user's own real trip currently loaded into the app is a Norway road trip, Au
   (`aws/handler.mjs` fetches with a link-preview-crawler User-Agent — Google only serves
   real per-place OG data, not a generic placeholder, to that) and stores the photo directly
   on the custom place's `image` field, shown in the place-info modal alongside enrichment.
+  A fuel cost estimate (⛽ row above "Drive summary") takes a consumption (L/100km),
+  price/liter, and currency label the user types in — one plain `tripplan-fuel-settings`
+  localStorage key, deliberately *not* trip-scoped or synced (it's the car, not the trip)
+  — and appends "≈ N <currency> fuel" to the active day's drive stats and to both the
+  per-day and whole-trip totals in the printable itinerary (`fuelCostText`, reused by both
+  call sites). Omitted entirely whenever consumption or price is unset/zero.
   A "📋 Copy day plan" button (col-right, always visible, no sign-in needed) copies the
   same plain-text day rendition used for the AI summary (`dayDescriptionText`) to the
   clipboard, falling back to a `prompt()` box if `navigator.clipboard` is blocked —

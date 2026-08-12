@@ -381,6 +381,30 @@
     font:inherit;
     font-size:13px;
   }
+  .fuel-settings{
+    display:flex;
+    align-items:center;
+    gap:4px;
+    font-size:12px;
+    color:var(--ink-soft);
+    margin-bottom:8px;
+  }
+  .fuel-icon{
+    flex-shrink:0;
+  }
+  .fuel-settings input[type=number]{
+    width:4.2em;
+  }
+  .fuel-settings input[type=text]{
+    width:3.4em;
+  }
+  .fuel-settings input{
+    border:1px solid var(--border-strong);
+    border-radius:5px;
+    padding:3px 5px;
+    font:inherit;
+    font-size:12px;
+  }
   .cmt-badge{
     font-size:10.5px;
     color:var(--ink-soft);
@@ -963,6 +987,13 @@
     <p class="section-label">Trip overview</p>
     <div id="tripOverview"></div>
     <p class="section-label">Drive summary</p>
+    <div class="fuel-settings" id="fuelSettings" title="Set your car's fuel consumption and price to see an estimated cost — saved in this browser, applies to every trip">
+      <span class="fuel-icon">⛽</span>
+      <input type="number" id="fuelConsumption" min="0" step="0.1" placeholder="L/100km">
+      <span>×</span>
+      <input type="number" id="fuelPrice" min="0" step="0.01" placeholder="price/L">
+      <input type="text" id="fuelCurrency" maxlength="6" placeholder="kr">
+    </div>
     <div id="statsPanel"><div class="empty-note">Select 2+ stops and calculate to see times.</div></div>
     <button class="calc-btn suggest-nav-btn" id="copyDayBtn" title="Copy this day's plan as plain text — handy for sharing offline">📋 Copy day plan</button>
     <button class="calc-btn suggest-nav-btn" id="aiSummaryBtn" style="display:none;">✨ Summarize day</button>
@@ -1610,6 +1641,39 @@ function parseClock(s){
 function fmtClock(mins){
   mins = Math.round(mins) % 1440;
   return String(Math.floor(mins/60)).padStart(2,'0') + ':' + String(mins%60).padStart(2,'0');
+}
+
+// Fuel cost estimate: a personal car setting, not trip data, so it's one
+// plain localStorage key shared across every trip rather than anything
+// synced or trip-scoped.
+function loadFuelSettings(){
+  try{ return JSON.parse(localStorage.getItem('tripplan-fuel-settings')) || {}; }
+  catch(e){ return {}; }
+}
+function saveFuelSettings(s){
+  try{ localStorage.setItem('tripplan-fuel-settings', JSON.stringify(s)); }
+  catch(e){ console.error('save failed', e); }
+}
+function fuelSettingsFromInputs(){
+  return {
+    consumption: parseFloat(document.getElementById('fuelConsumption').value) || 0,
+    price: parseFloat(document.getElementById('fuelPrice').value) || 0,
+    currency: document.getElementById('fuelCurrency').value.trim(),
+  };
+}
+function applyFuelSettingsToInputs(s){
+  document.getElementById('fuelConsumption').value = s.consumption || '';
+  document.getElementById('fuelPrice').value = s.price || '';
+  document.getElementById('fuelCurrency').value = s.currency || '';
+}
+// Returns '' when consumption/price aren't both set — callers append this
+// directly, so an empty string just omits the cost cleanly.
+function fuelCostText(distanceKm, settings){
+  const s = settings || loadFuelSettings();
+  if(!s.consumption || !s.price) return '';
+  const cost = distanceKm * (s.consumption/100) * s.price;
+  const rounded = cost >= 100 ? Math.round(cost) : Math.round(cost*10)/10;
+  return ` · ≈ ${rounded}${s.currency ? ' ' + escapeHtml(s.currency) : ''} fuel`;
 }
 
 function initMap(){
@@ -2518,7 +2582,7 @@ function renderStats(){
   const sh = Math.floor(stayTotal/60), sm = stayTotal%60;
   statsEl.innerHTML = `
     <p class="stats-total">${meta.start} → ${fmtClock(t)}</p>
-    <p class="stats-sub">${hrs}h ${mins}m driving · ${sh}h ${sm}m at stops · ${totalKm} km${isLoopDay(activeDay) ? ' · loops back to hotel' : ''}</p>
+    <p class="stats-sub">${hrs}h ${mins}m driving · ${sh}h ${sm}m at stops · ${totalKm} km${isLoopDay(activeDay) ? ' · loops back to hotel' : ''}${fuelCostText(Number(totalKm))}</p>
     ${rows}
   `;
 }
@@ -2861,6 +2925,7 @@ function renderPrintableItinerary(trip, days){
   const totalMin = routedDays.reduce((s,d)=> s + d.driveMin, 0);
   const unrouted = days.filter(d=>!d.routed && d.needsRoute).length;
   const hrs = Math.floor(totalMin/60), mins = totalMin%60;
+  const fuel = loadFuelSettings();
   const dayHtml = days.filter(d=>d.stops.length).map(d=>{
     const rows = d.stops.map((s,i)=>{
       const stopRow = `<tr>
@@ -2878,7 +2943,7 @@ function renderPrintableItinerary(trip, days){
     const notesHtml = d.notes.length
       ? `<div class="t-notes"><b>Notes:</b> ${d.notes.map(n=>escapeHtml(n)).join(' · ')}</div>` : '';
     const totalsHtml = d.routed
-      ? `<p class="t-total">${d.start} → ${d.end} · ${Math.floor(d.driveMin/60)}h ${d.driveMin%60}m driving · ${d.distanceKm} km${d.loop ? ' · loops back to hotel' : ''}</p>`
+      ? `<p class="t-total">${d.start} → ${d.end} · ${Math.floor(d.driveMin/60)}h ${d.driveMin%60}m driving · ${d.distanceKm} km${d.loop ? ' · loops back to hotel' : ''}${fuelCostText(Number(d.distanceKm), fuel)}</p>`
       : d.needsRoute
         ? '<p class="t-total t-warn">Driving times unavailable for this day — showing stop order only.</p>'
         : '<p class="t-total">No driving this day.</p>';
@@ -2915,7 +2980,7 @@ function renderPrintableItinerary(trip, days){
   <h1>${escapeHtml(trip.name)}</h1>
   <p class="t-sub">${days.length} days${trip.tripStart ? ` · starting ${trip.tripStart}` : ''}</p>
   <div class="t-summary">
-    ${totalKm ? `<b>${totalKm} km</b> total driving · <b>${hrs}h ${mins}m</b> total driving time` : 'Driving totals unavailable'}
+    ${totalKm ? `<b>${totalKm} km</b> total driving · <b>${hrs}h ${mins}m</b> total driving time${fuelCostText(totalKm, fuel)}` : 'Driving totals unavailable'}
     ${unrouted ? ` · ${unrouted} day${unrouted>1?'s':''} without routing data` : ''}
   </div>
   ${dayHtml}
@@ -3300,6 +3365,13 @@ document.getElementById('dayStartInput').addEventListener('change', (e)=>{
   getDayMeta(activeDay).start = e.target.value || '09:00';
   saveMeta();
   renderStats();
+});
+
+['fuelConsumption', 'fuelPrice', 'fuelCurrency'].forEach(id=>{
+  document.getElementById(id).addEventListener('input', ()=>{
+    saveFuelSettings(fuelSettingsFromInputs());
+    renderStats();
+  });
 });
 
 document.querySelectorAll('.mobile-tab-btn').forEach(btn=>{
@@ -3815,6 +3887,7 @@ function renderTripUi(){
   loadTripsIndex();
   initMap();
   watchLocation();
+  applyFuelSettingsToInputs(loadFuelSettings());
   // Same trip-loading logic as switching trips (parse KML, load enrichment/
   // comments/packing/variant, render) — used to be duplicated here with
   // enrichment/comments/packing left out, so a plain page reload silently
