@@ -143,7 +143,15 @@ The user's own real trip currently loaded into the app is a Norway road trip, Au
   main app's CSS. A "Trip overview" panel (col-right, above the per-day "Drive summary")
   shows whole-trip stats derived purely from already-loaded state (`renderTripOverview`,
   no routing calls) — day count, total places, overnight-stop count, and how many days
-  still need at least one stop before a route can be calculated.
+  still need at least one stop before a route can be calculated. A long-driving-day
+  warning (⚠️ badge on the day tab, a line in the active day's drive summary, a count in
+  the trip overview, and a note in the printable itinerary) fires at 270+ minutes of
+  driving (`LONG_DRIVE_WARN_MIN`) — the common "keep it under ~4.5h" road-trip guidance,
+  not anything Norway-specific. `dayDriveEstimate` uses the exact figure when a day
+  matches the last-calculated `lastRoute`, otherwise a straight-line/50kmh fallback
+  (`ESTIMATE_AVG_SPEED_KMH`) so every day tab can be flagged without routing all of them
+  up front — deliberately a rough overestimate for winding/mountain roads, so it favors
+  flagging over missing a genuinely long day.
 - `aws/handler.mjs` — Lambda handler. Serves `index.html` at `GET /`, proxies
   `POST /route` to OpenRouteService using `process.env.ORS_API_KEY`, resolves shortened
   Google Maps links via `POST /resolve-maps-link` (host-allowlisted to Google's own

@@ -798,6 +798,11 @@
     color:var(--ink-soft);
     margin:0 0 14px;
   }
+  .stats-warn{
+    font-size:12px;
+    color:var(--rust);
+    margin:-8px 0 14px;
+  }
   .leg{
     display:flex;
     justify-content:space-between;
@@ -1302,6 +1307,38 @@ function getRouteIds(day){
   if(wake) ids.unshift(wake);
   if(sleep) ids.push(sleep);
   return ids;
+}
+
+// 4.5h — common trip-planning guidance for a comfortable driving day.
+const LONG_DRIVE_WARN_MIN = 270;
+// Straight-line fallback speed for days that haven't been routed yet —
+// generous enough for winding rural/mountain roads and ferry waits, so the
+// estimate errs toward flagging rather than missing a genuinely long day.
+const ESTIMATE_AVG_SPEED_KMH = 50;
+
+// Exact drive time when it matches the last calculated route for this day;
+// otherwise a rough straight-line estimate so long days can be flagged
+// across all day tabs without routing every day up front.
+function dayDriveEstimate(day){
+  const ids = getRouteIds(day);
+  if(ids.length < 2) return null;
+  if(lastRoute && lastRoute.day === day && lastRoute.ids.join() === ids.join()){
+    return {min: Math.round(lastRoute.route.duration/60), exact:true};
+  }
+  let km = 0;
+  for(let i=1;i<ids.length;i++){
+    const a = byId[ids[i-1]], b = byId[ids[i]];
+    if(a && b) km += haversineKm(a,b);
+  }
+  return {min: Math.round(km/ESTIMATE_AVG_SPEED_KMH*60), exact:false};
+}
+
+function longDriveBadgeHtml(day){
+  const est = dayDriveEstimate(day);
+  if(!est || est.min < LONG_DRIVE_WARN_MIN) return '';
+  const hrs = Math.floor(est.min/60), mins = est.min%60;
+  const title = `Long driving day — ${est.exact ? '' : 'approx. '}${hrs}h ${mins}m of driving. Consider splitting stops across another day.`;
+  return `<span class="dupe-badge" title="${escapeHtml(title)}">⚠️</span>`;
 }
 
 let plans = {};
@@ -2276,7 +2313,7 @@ function renderTabs(){
   DAYS.forEach(d=>{
     const t = document.createElement('div');
     t.className = 'tab' + (d===activeDay ? ' active':'');
-    t.innerHTML = `<span class="num">${d}</span>Day ${d}`;
+    t.innerHTML = `<span class="num">${d}</span>Day ${d}${longDriveBadgeHtml(d)}`;
     t.onclick = ()=>{ activeDay=d; renderAll(); };
     el.appendChild(t);
   });
@@ -2656,9 +2693,13 @@ function renderTripOverview(){
   const totalPlaces = PLACES.length + customPlaces.length;
   const hotelIds = new Set(Object.values(DAY_HOTELS).filter(Boolean));
   const incompleteDays = DAYS.filter(d=>getRouteIds(d).length < 2).length;
+  const longDays = DAYS.filter(d=>{
+    const est = dayDriveEstimate(d);
+    return est && est.min >= LONG_DRIVE_WARN_MIN;
+  }).length;
   el.innerHTML = `
     <p class="stats-total">${DAYS.length} day${DAYS.length===1?'':'s'}${TRIP_START ? ` · starts ${TRIP_START}` : ''}</p>
-    <p class="stats-sub">${totalPlaces} place${totalPlaces===1?'':'s'} · ${hotelIds.size} overnight stop${hotelIds.size===1?'':'s'}${incompleteDays ? ` · ${incompleteDays} day${incompleteDays===1?'':'s'} need${incompleteDays===1?'s':''} at least one stop` : ''}</p>
+    <p class="stats-sub">${totalPlaces} place${totalPlaces===1?'':'s'} · ${hotelIds.size} overnight stop${hotelIds.size===1?'':'s'}${incompleteDays ? ` · ${incompleteDays} day${incompleteDays===1?'':'s'} need${incompleteDays===1?'s':''} at least one stop` : ''}${longDays ? ` · ⚠️ ${longDays} long driving day${longDays===1?'':'s'}` : ''}</p>
   `;
 }
 
@@ -2691,9 +2732,12 @@ function renderStats(){
   const driveMin = Math.round(route.duration/60);
   const hrs = Math.floor(driveMin/60), mins = driveMin%60;
   const sh = Math.floor(stayTotal/60), sm = stayTotal%60;
+  const longWarn = driveMin >= LONG_DRIVE_WARN_MIN
+    ? '<p class="stats-warn">⚠️ Long driving day — consider splitting stops across another day.</p>' : '';
   statsEl.innerHTML = `
     <p class="stats-total">${meta.start} → ${fmtClock(t)}</p>
     <p class="stats-sub">${hrs}h ${mins}m driving · ${sh}h ${sm}m at stops · ${totalKm} km${isLoopDay(activeDay) ? ' · loops back to hotel' : ''}${fuelCostText(Number(totalKm))}</p>
+    ${longWarn}
     ${rows}
   `;
 }
@@ -3054,7 +3098,7 @@ function renderPrintableItinerary(trip, days){
     const notesHtml = d.notes.length
       ? `<div class="t-notes"><b>Notes:</b> ${d.notes.map(n=>escapeHtml(n)).join(' · ')}</div>` : '';
     const totalsHtml = d.routed
-      ? `<p class="t-total">${d.start} → ${d.end} · ${Math.floor(d.driveMin/60)}h ${d.driveMin%60}m driving · ${d.distanceKm} km${d.loop ? ' · loops back to hotel' : ''}${fuelCostText(Number(d.distanceKm), fuel)}</p>`
+      ? `<p class="t-total">${d.start} → ${d.end} · ${Math.floor(d.driveMin/60)}h ${d.driveMin%60}m driving · ${d.distanceKm} km${d.loop ? ' · loops back to hotel' : ''}${fuelCostText(Number(d.distanceKm), fuel)}</p>${d.driveMin >= LONG_DRIVE_WARN_MIN ? '<p class="t-total t-warn">⚠️ Long driving day</p>' : ''}`
       : d.needsRoute
         ? '<p class="t-total t-warn">Driving times unavailable for this day — showing stop order only.</p>'
         : '<p class="t-total">No driving this day.</p>';
