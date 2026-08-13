@@ -132,6 +132,20 @@ The user's own real trip currently loaded into the app is a Norway road trip, Au
   that day's route can be fetched — same sequential per-day fetch-with-fallback as the
   printable itinerary, so a day that can't be routed just loses its track line rather
   than failing the whole export.
+  A "💾 Backup trip" / "📥 Restore backup" pair (col-left, next to Export GPX) round-trips
+  everything about a trip through one JSON file: the KML source plus every plan variant
+  (not just the active one), enrichment, comments, packing, and budget — the only way to
+  get those back if local storage is cleared or an account is lost, since the KML file
+  alone only regenerates the place list. `buildTripBackup` reads every variant's state
+  (from live `plans`/`dayMeta`/`customPlaces` for the active one, `remoteVariantState` or
+  the `tripplan-variant:` local key for the rest). `restoreTripBackup` always creates a
+  **new** trip (never overwrites) by pushing the backup through the same endpoints the UI
+  itself uses — `POST /api/trips`, a `PUT` on the auto-created first variant, `POST` per
+  extra variant, `PUT` enrichment/packing/budget, one `POST` per comment (a single bad
+  comment is skipped, not fatal to the rest) — then reloads from `loadRemoteIndex()` as
+  the source of truth rather than hand-building the new trip's index entry; the local-mode
+  path writes the same `tripplan-*` keys `addTrip`/`addVariant` already use. A malformed
+  or non-JSON file fails with an inline message instead of throwing.
   A "📋 Copy day plan" button (col-right, always visible, no sign-in needed) copies the
   same plain-text day rendition used for the AI summary (`dayDescriptionText`) to the
   clipboard, falling back to a `prompt()` box if `navigator.clipboard` is blocked —

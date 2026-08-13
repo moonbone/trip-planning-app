@@ -1106,7 +1106,12 @@
         <button class="reset-btn" id="printTripBtn" title="Open a printable, offline-friendly day-by-day itinerary in a new tab">🖨️ Print itinerary</button>
         <button class="reset-btn" id="exportGpxBtn" title="Download every stop and driving route as a GPX file, for GPS devices/apps like Garmin or OsmAnd">🗺️ Export GPX</button>
       </div>
+      <div class="trip-row">
+        <button class="reset-btn" id="backupTripBtn" title="Download everything about this trip — plan variants, custom places, place info, comments, packing list, budget — as one JSON file you can restore later">💾 Backup trip</button>
+        <button class="reset-btn" id="restoreBackupBtn" title="Restore a trip from a backup JSON file, as a new trip">📥 Restore backup</button>
+      </div>
       <input type="file" id="infoFileInput" accept=".json,application/json" style="display:none;">
+      <input type="file" id="backupFileInput" accept=".json,application/json" style="display:none;">
       <div class="error-note" id="kmlError"></div>
     </div>
     <p class="section-label">All places</p>
@@ -3423,6 +3428,157 @@ async function exportTripGpx(){
   }
 }
 
+// Trip backup: everything needed to fully recreate a trip elsewhere —
+// the KML source (plans reference place ids deterministically derived from
+// it, per parseKmlTrip's contract) plus every variant's plan/dayMeta/
+// customPlaces, enrichment, comments, packing, and budget. The KML file
+// alone can be re-uploaded from wherever it came from, but variants,
+// enrichment, comments, packing, and budget exist only inside this app —
+// this is the only way to get them back if local storage is cleared or an
+// account is lost.
+function buildTripBackup(){
+  const trip = activeTrip();
+  if(!trip) return null;
+  const tripId = tripsIndex.activeTripId;
+  const source = remoteMode ? remoteSources[tripId] : localStorage.getItem(`tripplan-trip-src:${tripId}`);
+  const variants = Object.entries(trip.variants).map(([variantId, name])=>{
+    let state;
+    if(variantId === trip.activeVariantId){
+      state = {plans, dayMeta, customPlaces};
+    }else if(remoteMode){
+      state = remoteVariantState[`${tripId}:${variantId}`] || {};
+    }else{
+      try{ state = JSON.parse(localStorage.getItem(variantKey(tripId, variantId))) || {}; }
+      catch(e){ state = {}; }
+    }
+    return {name, plans: state.plans || {}, dayMeta: state.dayMeta || {}, customPlaces: state.customPlaces || []};
+  });
+  return {
+    kind: 'trip-planner-backup', version: 1, exportedAt: new Date().toISOString(),
+    name: trip.name, filename: trip.filename, kml_source: source,
+    variants, enrichment, comments: tripComments, packingList, budgetItems,
+  };
+}
+
+function exportTripBackup(){
+  const backup = buildTripBackup();
+  if(!backup || backup.kml_source == null){
+    document.getElementById('errorNote').textContent = 'Load a trip first.';
+    return;
+  }
+  const blob = new Blob([JSON.stringify(backup, null, 2)], {type: 'application/json'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `${(backup.name || 'trip').replace(/[^\w\- ]+/g, '').trim() || 'trip'}-backup.json`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
+// Restores a backup as a brand-new trip (never overwrites an existing one).
+// Pushes data through the same endpoints the UI itself uses (create trip,
+// create/rename variants, PUT enrichment/packing/budget, POST each comment)
+// rather than writing storage directly, so it can't drift from what those
+// endpoints validate/sanitize — then reloads from the server as the single
+// source of truth instead of hand-building the new trip's index entry.
+async function restoreTripBackup(file){
+  const errEl = document.getElementById('kmlError');
+  errEl.textContent = '';
+  let data;
+  try{
+    const text = await file.text();
+    data = JSON.parse(text);
+  }catch(e){
+    errEl.textContent = 'Could not read backup file: ' + e.message;
+    return;
+  }
+  if(!data || typeof data.kml_source !== 'string' || !Array.isArray(data.variants) || !data.variants.length){
+    errEl.textContent = "That file doesn't look like a trip backup.";
+    return;
+  }
+  const name = typeof data.name === 'string' && data.name.trim() ? data.name.trim() : 'Restored trip';
+  const filename = typeof data.filename === 'string' && data.filename.trim() ? data.filename.trim() : 'restored.kml';
+  const btn = document.getElementById('restoreBackupBtn');
+  const prevLabel = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = 'Restoring…';
+  try{
+    let tripId;
+    if(remoteMode){
+      const created = await api('/api/trips', {
+        method:'POST',
+        body: JSON.stringify({name, filename, kml_source: data.kml_source}),
+      });
+      tripId = created.trip.trip_id;
+      const first = data.variants[0];
+      await api(`/api/trips/${tripId}/variants/${created.variant.variant_id}`, {
+        method:'PUT',
+        body: JSON.stringify({
+          version: created.variant.version, name: first.name || 'Main',
+          plans: first.plans || {}, dayMeta: first.dayMeta || {}, customPlaces: first.customPlaces || [],
+        }),
+      });
+      for(const v of data.variants.slice(1)){
+        await api(`/api/trips/${tripId}/variants`, {
+          method:'POST',
+          body: JSON.stringify({name: v.name || 'Variant', plans: v.plans || {}, dayMeta: v.dayMeta || {}, customPlaces: v.customPlaces || []}),
+        });
+      }
+      if(Array.isArray(data.enrichment)){
+        await api(`/api/trips/${tripId}/enrichment`, {method:'PUT', body: JSON.stringify({enrichment: data.enrichment})});
+      }
+      if(Array.isArray(data.packingList)){
+        await api(`/api/trips/${tripId}/packing`, {method:'PUT', body: JSON.stringify({packingList: data.packingList})});
+      }
+      if(Array.isArray(data.budgetItems)){
+        await api(`/api/trips/${tripId}/budget`, {method:'PUT', body: JSON.stringify({budgetItems: data.budgetItems})});
+      }
+      if(Array.isArray(data.comments)){
+        for(const c of data.comments){
+          if(!c || !c.text || !c.scope) continue;
+          const body = {scope: c.scope, text: c.text};
+          if(c.scope === 'day') body.day = c.day;
+          if(c.scope === 'place') body.placeId = c.placeId;
+          try{ await api(`/api/trips/${tripId}/comments`, {method:'POST', body: JSON.stringify(body)}); }
+          catch(e){ /* one bad comment shouldn't abort the whole restore */ }
+        }
+      }
+      await loadRemoteIndex();
+    }else{
+      tripId = addTrip(name, filename, data.kml_source);
+      const trip = tripsIndex.trips[tripId];
+      const firstVariantId = Object.keys(trip.variants)[0];
+      const first = data.variants[0];
+      localStorage.setItem(variantKey(tripId, firstVariantId), JSON.stringify({
+        plans: first.plans || {}, dayMeta: first.dayMeta || {}, customPlaces: first.customPlaces || [],
+      }));
+      trip.variants[firstVariantId] = first.name || 'Main';
+      for(const v of data.variants.slice(1)){
+        const variantId = newId();
+        localStorage.setItem(variantKey(tripId, variantId), JSON.stringify({
+          plans: v.plans || {}, dayMeta: v.dayMeta || {}, customPlaces: v.customPlaces || [],
+        }));
+        trip.variants[variantId] = v.name || 'Variant';
+      }
+      localStorage.setItem(`tripplan-enrich:${tripId}`, JSON.stringify(Array.isArray(data.enrichment) ? data.enrichment : []));
+      localStorage.setItem(`tripplan-comments:${tripId}`, JSON.stringify(Array.isArray(data.comments) ? data.comments : []));
+      localStorage.setItem(`tripplan-packing:${tripId}`, JSON.stringify(Array.isArray(data.packingList) ? data.packingList : []));
+      localStorage.setItem(`tripplan-budget:${tripId}`, JSON.stringify(Array.isArray(data.budgetItems) ? data.budgetItems : []));
+      saveTripsIndex();
+    }
+    tripsIndex.activeTripId = tripId;
+    saveTripsIndex();
+    activateCurrentTrip();
+  }catch(e){
+    errEl.textContent = 'Restore failed: ' + e.message;
+  }finally{
+    btn.disabled = false;
+    btn.textContent = prevLabel;
+  }
+}
+
 function haversineKm(a, b){
   const rad = x => x * Math.PI / 180;
   const dLat = rad(b.lat - a.lat), dLon = rad(b.lon - a.lon);
@@ -3604,6 +3760,15 @@ document.getElementById('shareTripBtn').addEventListener('click', async ()=>{
 document.getElementById('deleteTripBtn').addEventListener('click', ()=>deleteTrip(tripsIndex.activeTripId));
 document.getElementById('printTripBtn').addEventListener('click', printTripItinerary);
 document.getElementById('exportGpxBtn').addEventListener('click', exportTripGpx);
+document.getElementById('backupTripBtn').addEventListener('click', exportTripBackup);
+document.getElementById('restoreBackupBtn').addEventListener('click', ()=>{
+  document.getElementById('backupFileInput').click();
+});
+document.getElementById('backupFileInput').addEventListener('change', async (e)=>{
+  const file = e.target.files[0];
+  e.target.value = '';
+  if(file) await restoreTripBackup(file);
+});
 document.getElementById('placeSearchInput').addEventListener('input', (e)=>{
   placeFilter = e.target.value;
   renderMasterList();
