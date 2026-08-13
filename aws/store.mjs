@@ -111,6 +111,13 @@ const fileTripsDriver = {
     tripsWrite(db);
     return db.trips[tripId];
   },
+  async putTripBudget(tripId, budgetItems) {
+    const db = tripsRead();
+    if (!db.trips[tripId]) return null;
+    db.trips[tripId].budgetItems = budgetItems;
+    tripsWrite(db);
+    return db.trips[tripId];
+  },
   async addTripComment(tripId, comment) {
     const db = tripsRead();
     if (!db.trips[tripId]) return null;
@@ -338,6 +345,9 @@ const dynamoTripsDriver = {
     if (i.packingList?.S) {
       try { trip.packingList = JSON.parse(i.packingList.S); } catch { /* ignore corrupt blob */ }
     }
+    if (i.budgetItems?.S) {
+      try { trip.budgetItems = JSON.parse(i.budgetItems.S); } catch { /* ignore corrupt blob */ }
+    }
     return trip;
   },
   async putTripEnrichment(tripId, enrichment) {
@@ -359,6 +369,17 @@ const dynamoTripsDriver = {
       UpdateExpression: 'SET packingList = :p',
       ConditionExpression: 'attribute_exists(trip_id)',
       ExpressionAttributeValues: { ':p': { S: JSON.stringify(packingList) } },
+    }));
+    return this.getTrip(tripId);
+  },
+  async putTripBudget(tripId, budgetItems) {
+    const d = await dynamo();
+    await d.client.send(new d.UpdateItemCommand({
+      TableName: TRIPS_TABLE,
+      Key: { trip_id: { S: tripId } },
+      UpdateExpression: 'SET budgetItems = :b',
+      ConditionExpression: 'attribute_exists(trip_id)',
+      ExpressionAttributeValues: { ':b': { S: JSON.stringify(budgetItems) } },
     }));
     return this.getTrip(tripId);
   },
@@ -676,6 +697,7 @@ export const createTrip = tripsDriver.createTrip.bind(tripsDriver);
 export const getTrip = tripsDriver.getTrip.bind(tripsDriver);
 export const putTripEnrichment = tripsDriver.putTripEnrichment.bind(tripsDriver);
 export const putTripPacking = tripsDriver.putTripPacking.bind(tripsDriver);
+export const putTripBudget = tripsDriver.putTripBudget.bind(tripsDriver);
 export const addTripComment = tripsDriver.addTripComment.bind(tripsDriver);
 export const deleteTripComment = tripsDriver.deleteTripComment.bind(tripsDriver);
 export const listTripsForOwner = tripsDriver.listTripsForOwner.bind(tripsDriver);

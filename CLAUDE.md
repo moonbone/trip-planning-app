@@ -97,7 +97,14 @@ The user's own real trip currently loaded into the app is a Norway road trip, Au
   (editor+; whole-array replace on every add/check/delete, same shallow read-modify-write
   pattern as `enrichment`, not per-item CRUD like comments — simpler since packing items
   don't need per-author tracking; server sanitizes/truncates each item's text and caps the
-  list at 300 items). An AI "Summarize day" button (signed-in UI, server-gated
+  list at 300 items). A **trip budget** (💰 button next to packing, its own modal) follows
+  the exact same pattern one field over: a flat `{id, category, label, amount}` list per
+  trip (not per variant), local key `tripplan-budget:<id>` or a `budgetItems` field via
+  `PUT /api/trips/:id/budget` (editor+, whole-array replace, sanitized/capped at 300 items,
+  amount clamped to `[0, 1e8]`, empty-label items dropped). Displays each amount with the
+  fuel settings' currency label rather than a second currency input, since that's already
+  "the currency for this trip's costs" in spirit.
+  An AI "Summarize day" button (signed-in UI, server-gated
   to one account) posts a text rendition of the day to `/api/ai/summarize-day`, which calls
   Claude on Bedrock via `aws/ai.mjs` (SDK bundled in Lambda runtime only — locally it 502s).
   A "📍 From Maps" button lets you paste a Google Maps link (or raw `lat, lon`) to add a

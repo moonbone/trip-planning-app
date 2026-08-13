@@ -473,6 +473,70 @@
     color:var(--ink-soft);
     margin-bottom:8px;
   }
+  .budget-item{
+    display:flex;
+    align-items:center;
+    gap:8px;
+    padding:5px 2px;
+    border-bottom:1px solid var(--border);
+  }
+  .budget-item .cat{
+    flex-shrink:0;
+    font-size:11px;
+    color:var(--ink-soft);
+    background:var(--bg);
+    border:1px solid var(--border-strong);
+    border-radius:5px;
+    padding:2px 6px;
+  }
+  .budget-item .label{
+    flex:1;
+    font-size:13.5px;
+    word-break:break-word;
+  }
+  .budget-item .amount{
+    flex-shrink:0;
+    font-family:'IBM Plex Mono',monospace;
+    font-size:13px;
+    color:var(--accent-dark);
+    font-weight:600;
+  }
+  .budget-item .remove-btn{
+    flex-shrink:0;
+  }
+  .budget-add-row{
+    display:flex;
+    gap:6px;
+    margin-top:10px;
+    flex-wrap:wrap;
+  }
+  .budget-add-row select{
+    flex:1 1 100px;
+  }
+  .budget-add-row input[type=text]{
+    flex:2 1 120px;
+  }
+  .budget-add-row input[type=number]{
+    flex:1 1 80px;
+  }
+  .budget-add-row select,
+  .budget-add-row input{
+    border:1px solid var(--border-strong);
+    border-radius:6px;
+    padding:7px 9px;
+    font:inherit;
+    font-size:13px;
+    background:var(--panel);
+    color:var(--ink);
+  }
+  .budget-total{
+    font-size:14px;
+    font-weight:600;
+    color:var(--ink);
+    margin:0 0 10px;
+    display:flex;
+    justify-content:space-between;
+  }
   .fuel-icon{
     flex-shrink:0;
   }
@@ -1032,6 +1096,7 @@
         <select id="tripSelect"></select>
         <button class="reset-btn" id="tripNotesBtn" title="Trip comments">💬</button>
         <button class="reset-btn" id="packingBtn" title="Packing checklist">🎒</button>
+        <button class="reset-btn" id="budgetBtn" title="Trip budget">💰</button>
         <button class="reset-btn" id="shareTripBtn" style="display:none;">Share</button>
         <button class="reset-btn" id="deleteTripBtn">Delete trip</button>
       </div>
@@ -1178,6 +1243,28 @@
       <button class="reset-btn" id="packingAddBtn">Add</button>
     </div>
     <div class="error-note" id="packingError"></div>
+  </div>
+</div>
+
+<div class="info-modal-overlay" id="budgetModal" style="display:none;">
+  <div class="info-modal">
+    <button class="info-close" id="budgetModalClose" title="Close">×</button>
+    <h2>💰 Trip budget</h2>
+    <p class="budget-total" id="budgetTotal"></p>
+    <div id="budgetListEl"></div>
+    <div class="budget-add-row">
+      <select id="budgetCategory">
+        <option>Accommodation</option>
+        <option>Activity</option>
+        <option>Food</option>
+        <option>Transport</option>
+        <option>Other</option>
+      </select>
+      <input type="text" id="budgetLabel" maxlength="120" placeholder="What's this for?">
+      <input type="number" id="budgetAmount" min="0" step="0.01" placeholder="Amount">
+      <button class="reset-btn" id="budgetAddBtn">Add</button>
+    </div>
+    <div class="error-note" id="budgetError"></div>
   </div>
 </div>
 
@@ -1479,6 +1566,7 @@ async function loadRemoteIndex(){
     remoteEnrichment[t.trip_id] = detail.trip.enrichment || [];
     remoteComments[t.trip_id] = detail.trip.comments || [];
     remotePacking[t.trip_id] = detail.trip.packingList || [];
+    remoteBudget[t.trip_id] = detail.trip.budgetItems || [];
     const variants = {};
     detail.variants.forEach(v=>{
       variants[v.variant_id] = v.name;
@@ -1625,7 +1713,7 @@ async function enterRemoteMode(email){
   showSync('Loading trips…');
   try{
     await importLocalTrips(email);
-    remoteVersions = {}; remoteSources = {}; remoteVariantState = {}; remoteEnrichment = {}; remoteComments = {}; remotePacking = {};
+    remoteVersions = {}; remoteSources = {}; remoteVariantState = {}; remoteEnrichment = {}; remoteComments = {}; remotePacking = {}; remoteBudget = {};
     await loadRemoteIndex();
     remoteMode = true;
     activateCurrentTrip();
@@ -1670,6 +1758,7 @@ function activateCurrentTrip(){
     enrichment = remoteEnrichment[tripsIndex.activeTripId] || [];
     tripComments = remoteComments[tripsIndex.activeTripId] || [];
     packingList = remotePacking[tripsIndex.activeTripId] || [];
+    budgetItems = remoteBudget[tripsIndex.activeTripId] || [];
   }else{
     try{ enrichment = JSON.parse(localStorage.getItem(`tripplan-enrich:${tripsIndex.activeTripId}`)) || []; }
     catch(e){ enrichment = []; }
@@ -1677,6 +1766,8 @@ function activateCurrentTrip(){
     catch(e){ tripComments = []; }
     try{ packingList = JSON.parse(localStorage.getItem(packingLocalKey())) || []; }
     catch(e){ packingList = []; }
+    try{ budgetItems = JSON.parse(localStorage.getItem(budgetLocalKey())) || []; }
+    catch(e){ budgetItems = []; }
   }
   // applyTrip() above already ran matchEnrichment() against the *previous*
   // trip's enrichment (or none, on first load) via rebuildById() — redo it
@@ -2167,6 +2258,90 @@ function openPackingModal(){
 }
 function closePackingModal(){
   document.getElementById('packingModal').style.display = 'none';
+}
+
+// Trip budget: same flat-list-per-trip pattern as packing (whole-array PUT,
+// not per variant — costs don't depend on the route plan). Displays amounts
+// with the fuel settings' currency label rather than a second currency
+// field, since it's already "the currency for this trip's costs" in spirit.
+let budgetItems = [];
+let remoteBudget = {};
+function budgetLocalKey(){ return `tripplan-budget:${tripsIndex.activeTripId}`; }
+async function commitBudgetItems(newList){
+  const errEl = document.getElementById('budgetError');
+  errEl.textContent = '';
+  if(remoteMode){
+    try{
+      await api(`/api/trips/${tripsIndex.activeTripId}/budget`, {method:'PUT', body: JSON.stringify({budgetItems:newList})});
+      remoteBudget[tripsIndex.activeTripId] = newList;
+    }catch(e){
+      errEl.textContent = 'Could not save: ' + e.message;
+      return false;
+    }
+  }else{
+    try{ localStorage.setItem(budgetLocalKey(), JSON.stringify(newList)); }
+    catch(e){ errEl.textContent = 'Could not store — browser storage may be full.'; return false; }
+  }
+  budgetItems = newList;
+  renderBudgetList();
+  return true;
+}
+function renderBudgetList(){
+  const listEl = document.getElementById('budgetListEl');
+  const totalEl = document.getElementById('budgetTotal');
+  const currency = (loadFuelSettings().currency || '').trim();
+  const suffix = currency ? ' ' + escapeHtml(currency) : '';
+  const total = budgetItems.reduce((s,it)=>s+it.amount, 0);
+  totalEl.innerHTML = budgetItems.length
+    ? `<span>Total</span><span>${total.toFixed(2)}${suffix}</span>` : '';
+  listEl.innerHTML = budgetItems.length ? '' :
+    '<div class="empty-note">No costs logged yet — add accommodation, activities, or anything else you\'re budgeting for.</div>';
+  budgetItems.forEach(item=>{
+    const row = document.createElement('div');
+    row.className = 'budget-item';
+    const cat = document.createElement('span');
+    cat.className = 'cat';
+    cat.textContent = item.category;
+    const label = document.createElement('span');
+    label.className = 'label';
+    label.textContent = item.label;
+    const amount = document.createElement('span');
+    amount.className = 'amount';
+    amount.textContent = item.amount.toFixed(2) + (currency ? ' ' + currency : '');
+    const del = document.createElement('button');
+    del.className = 'remove-btn';
+    del.textContent = '×';
+    del.title = 'Remove item';
+    del.onclick = ()=>commitBudgetItems(budgetItems.filter(it=>it.id !== item.id));
+    row.appendChild(cat);
+    row.appendChild(label);
+    row.appendChild(amount);
+    row.appendChild(del);
+    listEl.appendChild(row);
+  });
+}
+function addBudgetItem(){
+  const catInput = document.getElementById('budgetCategory');
+  const labelInput = document.getElementById('budgetLabel');
+  const amountInput = document.getElementById('budgetAmount');
+  const label = labelInput.value.trim();
+  const amount = parseFloat(amountInput.value);
+  if(!label || !isFinite(amount) || amount < 0) return;
+  labelInput.value = '';
+  amountInput.value = '';
+  commitBudgetItems([...budgetItems, {id: 'b' + newId(), category: catInput.value, label, amount}]);
+}
+function openBudgetModal(){
+  if(!activeTrip()){
+    document.getElementById('kmlError').textContent = 'Load a trip first — the budget attaches to a trip.';
+    return;
+  }
+  document.getElementById('budgetError').textContent = '';
+  renderBudgetList();
+  document.getElementById('budgetModal').style.display = '';
+}
+function closeBudgetModal(){
+  document.getElementById('budgetModal').style.display = 'none';
 }
 
 function commentsFor(scope){
@@ -3453,6 +3628,18 @@ document.getElementById('packingAddBtn').addEventListener('click', addPackingIte
 document.getElementById('packingInput').addEventListener('keydown', (e)=>{
   if(e.key === 'Enter') addPackingItem();
 });
+document.getElementById('budgetBtn').addEventListener('click', openBudgetModal);
+document.getElementById('budgetModalClose').addEventListener('click', closeBudgetModal);
+document.getElementById('budgetModal').addEventListener('click', (e)=>{
+  if(e.target === e.currentTarget) closeBudgetModal();
+});
+document.getElementById('budgetAddBtn').addEventListener('click', addBudgetItem);
+document.getElementById('budgetLabel').addEventListener('keydown', (e)=>{
+  if(e.key === 'Enter') addBudgetItem();
+});
+document.getElementById('budgetAmount').addEventListener('keydown', (e)=>{
+  if(e.key === 'Enter') addBudgetItem();
+});
 document.getElementById('dayNotesBtn').addEventListener('click', ()=>{
   if(!activeTrip()) return;
   openModal({scope:'day', day: activeDay}, `Day ${activeDay} — notes`);
@@ -3934,6 +4121,7 @@ function clearActiveTrip(){
   tripComments = [];
   enrichment = [];
   packingList = [];
+  budgetItems = [];
   rebuildById();
   lastRoute = null;
 }
@@ -3958,6 +4146,7 @@ async function deleteTrip(tripId){
     delete remoteEnrichment[tripId];
     delete remoteComments[tripId];
     delete remotePacking[tripId];
+    delete remoteBudget[tripId];
   }
   delete tripsIndex.trips[tripId];
   const next = Object.keys(tripsIndex.trips)[0] || null;
@@ -3969,6 +4158,7 @@ async function deleteTrip(tripId){
     localStorage.removeItem(`tripplan-enrich:${tripId}`);
     localStorage.removeItem(`tripplan-comments:${tripId}`);
     localStorage.removeItem(`tripplan-packing:${tripId}`);
+    localStorage.removeItem(`tripplan-budget:${tripId}`);
     Object.keys(localStorage)
       .filter(k=>k.startsWith(`tripplan-variant:${tripId}:`))
       .forEach(k=>localStorage.removeItem(k));
