@@ -172,7 +172,18 @@ The user's own real trip currently loaded into the app is a Norway road trip, Au
   matches the last-calculated `lastRoute`, otherwise a straight-line/50kmh fallback
   (`ESTIMATE_AVG_SPEED_KMH`) so every day tab can be flagged without routing all of them
   up front — deliberately a rough overestimate for winding/mountain roads, so it favors
-  flagging over missing a genuinely long day.
+  flagging over missing a genuinely long day. A weather forecast line (col-right, between
+  "Trip overview" and "Drive summary") shows the active day's forecast — high/low temp,
+  precipitation, a condition icon — for whichever place is first in that day's route
+  (`renderWeather`, called from `renderAll`). Calls Open-Meteo directly from the browser
+  (`api.open-meteo.com`, no key, CORS-enabled for client-side use — same trust model as
+  the Nominatim geocoding already called client-side elsewhere in this app), so it needs
+  no server env var and works whether signed in or not. Its forecast horizon is ~16 days,
+  so days already past or too far out just render nothing rather than a stale guess; a
+  request-token guard (`weatherRequestToken`) discards a slow response that resolves after
+  the user has already switched to a different day. Results are cached in memory per
+  `lat,lon,date` for the session (`weatherCache`) — switching back to an already-fetched
+  day doesn't re-hit the API.
 - `aws/handler.mjs` — Lambda handler. Serves `index.html` at `GET /`, proxies
   `POST /route` to OpenRouteService using `process.env.ORS_API_KEY`, resolves shortened
   Google Maps links via `POST /resolve-maps-link` (host-allowlisted to Google's own

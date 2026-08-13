@@ -1150,6 +1150,7 @@
   <div class="col col-right">
     <p class="section-label">Trip overview</p>
     <div id="tripOverview"></div>
+    <div id="weatherPanel"></div>
     <p class="section-label">Drive summary</p>
     <div class="fuel-settings" id="fuelSettings" title="Set your car's fuel consumption and price to see an estimated cost — saved in this browser, applies to every trip">
       <span class="fuel-icon">⛽</span>
@@ -2930,12 +2931,74 @@ function renderAll(){
   document.getElementById('dayStartInput').value = getDayMeta(activeDay).start;
   renderStats();
   renderTripOverview();
+  renderWeather();
   renderTripUi();
   updateKmlStatus();
   saveLastVisit();
   document.getElementById('errorNote').textContent = '';
   // a plan change makes any AI summary stale — hide until re-requested
   document.getElementById('aiSummaryOut').style.display = 'none';
+}
+
+// Weather forecast for the active day, from Open-Meteo — free, keyless,
+// CORS-enabled for direct browser calls (same trust model as the Nominatim
+// geocoding already called client-side elsewhere in this app). Its forecast
+// horizon is about 16 days, so days outside that window — already past, or
+// too far in the future — show nothing rather than a stale/wrong guess.
+const WEATHER_CODE_LABELS = {
+  0: '☀️ Clear', 1: '🌤️ Mostly clear', 2: '⛅ Partly cloudy', 3: '☁️ Overcast',
+  45: '🌫️ Fog', 48: '🌫️ Fog',
+  51: '🌦️ Light drizzle', 53: '🌦️ Drizzle', 55: '🌧️ Dense drizzle',
+  56: '🌧️ Freezing drizzle', 57: '🌧️ Freezing drizzle',
+  61: '🌦️ Light rain', 63: '🌧️ Rain', 65: '🌧️ Heavy rain',
+  66: '🌧️ Freezing rain', 67: '🌧️ Freezing rain',
+  71: '🌨️ Light snow', 73: '🌨️ Snow', 75: '❄️ Heavy snow', 77: '🌨️ Snow grains',
+  80: '🌦️ Rain showers', 81: '🌧️ Rain showers', 82: '🌧️ Violent showers',
+  85: '🌨️ Snow showers', 86: '🌨️ Snow showers',
+  95: '⛈️ Thunderstorm', 96: '⛈️ Thunderstorm', 99: '⛈️ Thunderstorm',
+};
+let weatherCache = {};
+let weatherRequestToken = 0;
+async function fetchWeather(lat, lon, date){
+  const key = `${lat.toFixed(2)},${lon.toFixed(2)},${date}`;
+  if(key in weatherCache) return weatherCache[key];
+  try{
+    const url = 'https://api.open-meteo.com/v1/forecast?latitude=' + lat + '&longitude=' + lon +
+      '&daily=temperature_2m_max,temperature_2m_min,precipitation_sum,weathercode' +
+      '&timezone=auto&start_date=' + date + '&end_date=' + date;
+    const res = await fetch(url);
+    if(!res.ok) throw new Error('HTTP ' + res.status);
+    const data = await res.json();
+    const d = data.daily;
+    if(!d || !d.time || !d.time.length) throw new Error('no forecast data');
+    const result = {
+      tMax: Math.round(d.temperature_2m_max[0]), tMin: Math.round(d.temperature_2m_min[0]),
+      precip: d.precipitation_sum[0], code: d.weathercode[0],
+    };
+    weatherCache[key] = result;
+    return result;
+  }catch(e){
+    weatherCache[key] = null;
+    return null;
+  }
+}
+async function renderWeather(){
+  const el = document.getElementById('weatherPanel');
+  if(!el) return;
+  const date = DAY_DATES[activeDay];
+  const ids = getRouteIds(activeDay);
+  const ref = ids.length ? byId[ids[0]] : null;
+  el.innerHTML = '';
+  if(!date || !ref) return;
+  const diffDays = Math.round((new Date(date + 'T00:00:00') - new Date(new Date().toDateString())) / 86400000);
+  if(diffDays < 0 || diffDays > 15) return;
+  const token = ++weatherRequestToken;
+  const forecast = await fetchWeather(ref.lat, ref.lon, date);
+  if(token !== weatherRequestToken) return; // a newer day was selected meanwhile
+  if(!forecast) return;
+  const label = WEATHER_CODE_LABELS[forecast.code] || '🌡️';
+  const precipText = forecast.precip > 0 ? ` · ${forecast.precip}mm rain` : '';
+  el.innerHTML = `<p class="stats-sub">${label} ${forecast.tMax}° / ${forecast.tMin}°C${precipText}</p>`;
 }
 
 async function fetchFromProxy(ids){
