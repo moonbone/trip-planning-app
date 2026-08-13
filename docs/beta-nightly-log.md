@@ -3,6 +3,101 @@
 A running log of what each scheduled nightly session built on `beta`, so
 future runs don't duplicate or contradict prior work. Newest entry first.
 
+## 2026-08-13
+
+`beta` was at da3f49f going in (prior night's four features: packing
+checklist, fuel cost estimate, GPX export, dark mode). Picked four
+independent changes tonight, each committed and pushed separately, each
+verified against the local dev-server before pushing:
+
+1. **Long-driving-day warning.** CLAUDE.md's "Known open items" has flagged
+   Day 7 of the user's own trip (Gol → Loen, ~6h estimated) as "worth
+   double-checking" for a while, but nothing in the app called out heavy
+   driving days generically. A day at or above 4.5h of driving (the common
+   "keep it under ~4.5h" road-trip planning guidance) now gets a ⚠️ badge
+   on its tab, a warning line in the active day's drive summary, a count in
+   the trip overview panel, and a note in the printable itinerary. Tab
+   badges use a straight-line-distance/50kmh estimate (`dayDriveEstimate`)
+   so every day can be flagged without routing all of them up front —
+   deliberately a rough overestimate for winding/mountain roads — and
+   switch to the exact figure once a day's route is actually calculated.
+
+2. **Trip budget/cost tracker.** Fuel cost (added two nights ago) was the
+   only cost estimate in the app — nothing captured accommodation,
+   activities, or other trip spending. A 💰 button next to packing opens a
+   modal for a flat `{id, category, label, amount}` cost list per trip (not
+   per variant, same reasoning as packing), with a running total. Follows
+   packing's exact dual-driver pattern: `tripplan-budget:<id>` locally, or
+   a `budgetItems` field via `PUT /api/trips/:id/budget` signed in
+   (editor+, whole-array replace, sanitized/capped at 300 items, amounts
+   clamped to `[0, 1e8]`, empty-label items dropped). Reuses the fuel
+   settings' currency label for display rather than adding a second
+   currency field.
+
+3. **Trip backup/restore as a JSON file.** Everything about a trip beyond
+   the KML itself — plan variants, custom places, imported place info,
+   comments, packing list, budget — lives only in this app's storage;
+   clearing local storage or losing account access loses all of it, with
+   no way to reconstruct it even by re-uploading the original KML. "💾
+   Backup trip" downloads one JSON file with the KML source plus every
+   plan variant (not just the active one) and all trip-scoped data above.
+   "📥 Restore backup" always creates a **new** trip from that file (never
+   overwrites), pushing the data through the same create-trip/create-
+   variant/PUT-enrichment/PUT-packing/PUT-budget/POST-comment endpoints the
+   UI itself uses, then reloading from `loadRemoteIndex()` as the source of
+   truth for the new trip's index entry rather than hand-building it.
+
+4. **Weather forecast for the active day.** A forecast line between the
+   trip overview and drive summary panels shows high/low temp,
+   precipitation, and a condition icon for the active day's first stop —
+   genuinely timely given the user's own trip starts tomorrow. Calls
+   Open-Meteo directly from the browser (free, keyless, CORS-enabled for
+   client-side use, same trust model as the Nominatim geocoding already
+   used elsewhere in this app), so no new server config or secret was
+   needed. Its forecast horizon is ~16 days, so days already past or too
+   far out just render nothing. A request-token guard discards a slow
+   response that resolves after the user has switched days; results are
+   cached in memory per `lat,lon,date` for the session.
+
+All four verified locally against the file-based dev-server
+(`AUTH_DEV_FAKE=1`) with Playwright: the long-driving-day badge against a
+hand-written KML with an intentionally far-flung stop; the budget tracker's
+add/remove/persist/reload cycle in both the signed-out (localStorage) and
+signed-in (DynamoDB-file) paths, plus server-side validation (403 for a
+viewer-role share, 400 for a non-array or >300-item payload, and
+sanitization — trim, control-char strip, negative-amount clamp,
+over-cap clamp, empty-label drop); the backup/restore round-trip
+end-to-end in both storage modes (packing/budget/comments/multiple
+variants all came back correctly) plus graceful rejection of a malformed
+or non-JSON file; and the weather panel's date-window boundary (KML dates
+in 2020 and 2030 correctly triggered zero API calls) and request-token
+race guard (a deliberately slow stale response was confirmed discarded in
+favor of the actively-selected day's data). The weather feature's live
+Open-Meteo call itself couldn't be exercised inside a Playwright browser in
+this sandbox (no outbound network from the browser process here, unlike
+`curl`/Node fetch, which do have proxy access) — same known sandbox
+limitation prior nights hit with the Leaflet CDN. Verified the API
+call/response-parsing logic separately via a direct Node fetch (real
+response, correctly parsed) and the full render pipeline via a stubbed
+`fetch` response in-browser, so the only untested leg is the live network
+hop itself, which is unrelated to sandbox-vs-production code paths.
+
+**Decided not to do, and why:**
+- **Auto-splitting a long driving day across two days.** Flagging is
+  useful; auto-rearranging someone's itinerary based on a heuristic drive
+  estimate is a destructive, opinionated action better left to the user,
+  matching last-night's stance on not auto-merging near-duplicate places.
+- **A dedicated currency field for the budget tracker.** Reused the fuel
+  settings' currency label instead — asking for currency twice for two
+  cost-related features in the same trip felt redundant, and "the car's
+  currency" and "the trip's currency" are the same thing in practice.
+- **Restoring comment authorship/timestamps verbatim on remote restore.**
+  Comments are POST-per-item only (no bulk endpoint), and the server
+  already stamps author/timestamp from the session — re-posting as the
+  restoring user is correct behavior, not a compromise; the original
+  metadata is preserved as-is on the *local*-mode restore path, where
+  comments are just copied into localStorage rather than re-posted.
+
 ## 2026-08-12
 
 `beta` was at a5eb87a...885a605 going in (last night's three features: printable
