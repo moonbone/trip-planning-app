@@ -867,6 +867,15 @@
     color:var(--rust);
     margin:-8px 0 14px;
   }
+  .stats-now{
+    font-size:12px;
+    font-weight:600;
+    color:var(--accent-dark);
+    background:var(--accent-light);
+    border-radius:6px;
+    padding:6px 10px;
+    margin:-4px 0 14px;
+  }
   .leg{
     display:flex;
     justify-content:space-between;
@@ -1860,6 +1869,44 @@ function saveLastVisit(){
 function parseClock(s){
   const m = /^(\d{1,2}):(\d{2})$/.exec(s || '');
   return m ? (+m[1])*60 + (+m[2]) : 9*60;
+}
+function nowMinutesLocal(){
+  const d = new Date();
+  return d.getHours()*60 + d.getMinutes();
+}
+// "Now" banner in the day timeline: only meaningful when the active day's
+// date is today and a route has been calculated (so arrival times are
+// known). Walks the same start→drive→stay segments renderStats already
+// computes and reports which one contains the current wall-clock minute.
+function nowBanner(ids, route, meta){
+  if(!ids.length || DAY_DATES[activeDay] !== todayStr()) return '';
+  const nowMin = nowMinutesLocal();
+  let t = parseClock(meta.start);
+  const segs = [];
+  ids.forEach((id,i)=>{
+    if(i > 0){
+      const lm = Math.round(route.legs[i-1].duration/60);
+      segs.push({type:'drive', toId:id, start:t, end:t+lm});
+      t += lm;
+    }
+    const stay = stayMinutes(activeDay, id);
+    segs.push({type:'stop', id, start:t, end:t+stay});
+    t += stay;
+  });
+  if(nowMin < segs[0].start){
+    return `<p class="stats-now">🕒 Day starts at ${fmtClock(segs[0].start)}</p>`;
+  }
+  const last = segs[segs.length-1];
+  if(nowMin >= last.end){
+    return `<p class="stats-now">✅ Today's plan is done — back at ${escapeHtml(byId[last.id].name)}</p>`;
+  }
+  // Zero-length stay segments (no time recorded there) fall through: nowMin
+  // never satisfies "< end" for a segment whose end equals its own start.
+  const cur = segs.find(s=>nowMin < s.end);
+  if(cur.type === 'stop'){
+    return `<p class="stats-now">📍 Now at ${escapeHtml(byId[cur.id].name)}${cur.end > cur.start ? ` until ${fmtClock(cur.end)}` : ''}</p>`;
+  }
+  return `<p class="stats-now">🚗 Driving to ${escapeHtml(byId[cur.toId].name)} — arriving ~${fmtClock(cur.end)}</p>`;
 }
 function fmtClock(mins){
   mins = Math.round(mins) % 1440;
@@ -2918,10 +2965,15 @@ function renderStats(){
   statsEl.innerHTML = `
     <p class="stats-total">${meta.start} → ${fmtClock(t)}</p>
     <p class="stats-sub">${hrs}h ${mins}m driving · ${sh}h ${sm}m at stops · ${totalKm} km${isLoopDay(activeDay) ? ' · loops back to hotel' : ''}${fuelCostText(Number(totalKm))}</p>
+    ${nowBanner(ids, route, meta)}
     ${longWarn}
     ${rows}
   `;
 }
+// Refreshes the "now" banner (and everything else in the stats panel, which
+// is pure display — no inputs or listeners live inside it) once a minute so
+// the live indicator advances without the user touching anything.
+setInterval(renderStats, 60000);
 
 function renderAll(){
   renderTabs();

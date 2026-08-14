@@ -172,7 +172,13 @@ The user's own real trip currently loaded into the app is a Norway road trip, Au
   matches the last-calculated `lastRoute`, otherwise a straight-line/50kmh fallback
   (`ESTIMATE_AVG_SPEED_KMH`) so every day tab can be flagged without routing all of them
   up front — deliberately a rough overestimate for winding/mountain roads, so it favors
-  flagging over missing a genuinely long day. A weather forecast line (col-right, between
+  flagging over missing a genuinely long day. When the active day's date is today, the
+  drive summary also shows a live "now" banner (`nowBanner`, called from `renderStats`,
+  refreshed every 60s by a `setInterval`) — before departure, at a stop until its planned
+  departure time, driving with an ETA, or done for the day — computed by walking the same
+  start→drive→stay segments the timeline rows already render and comparing against the
+  current wall clock. Only shown once a route is calculated for that day (arrival times
+  come from `lastRoute`, same guard `renderStats` already uses). A weather forecast line (col-right, between
   "Trip overview" and "Drive summary") shows the active day's forecast — high/low temp,
   precipitation, a condition icon — for whichever place is first in that day's route
   (`renderWeather`, called from `renderAll`). Calls Open-Meteo directly from the browser
