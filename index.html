@@ -789,6 +789,10 @@
   .status-in_progress{background:#F0D9A0; color:#6B4E00;}
   .status-processed{background:var(--accent-light); color:var(--accent-dark);}
   .status-done{background:var(--accent); color:#fff;}
+  /* Fixed purple regardless of viewing environment — a deliberate callback
+     to the beta deployment's accent color (see body.beta-env), so "shipped
+     to beta, not yet in production" reads the same on mainline too. */
+  .status-in_beta{background:#D2BFE8; color:#4D2C73;}
   .ticket-desc{
     font-size:13px;
     color:var(--ink);
@@ -2470,7 +2474,7 @@ document.getElementById('syncFromMainlineBtn').addEventListener('click', async (
 // Any characters are allowed; the server strips control chars and every
 // render path HTML-escapes, so nothing needs rejecting here beyond
 // required fields and length.
-const STATUS_LABELS = { new:'New', in_progress:'In progress', processed:'Processed', done:'Done' };
+const STATUS_LABELS = { new:'New', in_progress:'In progress', in_beta:'In beta', processed:'Processed', done:'Done' };
 
 function validateTicketClient(subject, description){
   subject = subject.trim();

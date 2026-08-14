@@ -26,7 +26,7 @@ import {
   isSyncAvailable, syncAllFromMainline,
 } from './store.mjs';
 
-const TICKET_STATUSES = ['new', 'in_progress', 'processed', 'done'];
+const TICKET_STATUSES = ['new', 'in_progress', 'in_beta', 'processed', 'done'];
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 // deploy.sh copies the repo's index.html next to this file before zipping,
