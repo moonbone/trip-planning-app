@@ -206,6 +206,21 @@ The user's own real trip currently loaded into the app is a Norway road trip, Au
   on Lambda, `data/tickets.json` locally). Submitting requires a signed-in session — the
   submitter email comes from the session cookie, never the request body, and is stripped
   from all public responses. The old `aws/tickets-db.mjs` (node:sqlite) is gone.
+- `aws/sw.js` — service worker for offline app-shell + map-tile caching, registered from
+  `index.html` (`navigator.serviceWorker.register('/sw.js')`, fire-and-forget). Network-first
+  for the shell (this page plus Leaflet's CDN CSS/JS) so an online visit always runs the
+  live app — same reasoning as `index.html`'s `Cache-Control: no-store` below, which the
+  service worker deliberately doesn't undermine; its cache is only a fallback for when
+  there's genuinely no network, which matters given how much of this app's own feature set
+  (printable itinerary, GPX export, this) exists because Norwegian-fjord-style road trips
+  regularly have no signal. Cache-first for OSM tile requests (`{s}.tile.openstreetmap.org`)
+  so map areas already viewed while online stay visible offline — the actual point of this
+  feature. `aws/manifest.webmanifest` + `aws/icon.svg` (a plain teal pin, first icon this
+  app has ever had) make it installable ("Add to Home Screen"). All three live directly in
+  `aws/` (unlike `index.html`, there's no root-level copy to sync) and are served by
+  `aws/handler.mjs` at `/sw.js`, `/manifest.webmanifest`, `/icon.svg` — see `deploy.sh` for
+  the zip step. Bump the cache-name constants in `sw.js` if the caching strategy itself
+  ever needs old cached entries invalidated.
 - `dev-server.mjs` — runs `aws/handler.mjs` locally over plain HTTP (`node --env-file=.env
   dev-server.mjs`), so the real proxy and tickets routes can be tested before deploying.
   Copies root `index.html` into `aws/index.html` at startup (mirroring what `deploy.sh`

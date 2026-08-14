@@ -4,6 +4,10 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Trip Planner</title>
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="icon" href="/icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/icon.svg">
+<meta name="theme-color" content="#2B6777">
 <script>
 // Applied before <style> so there's no flash of the wrong theme on load —
 // the rest of the theme logic (toggle button, icon, system-preference
@@ -4588,6 +4592,16 @@ function renderTripUi(){
     document.getElementById('variantDeleteBtn').style.display =
       Object.keys(trip.variants).length > 1 ? '' : 'none';
   }
+}
+
+// Offline app shell + map-tile caching for signal-dead stretches of a road
+// trip — see aws/sw.js. Registration is fire-and-forget: a failure here
+// (unsupported browser, blocked by an extension) just means the app behaves
+// exactly as it did before this feature existed.
+if('serviceWorker' in navigator){
+  window.addEventListener('load', ()=>{
+    navigator.serviceWorker.register('/sw.js').catch(()=>{});
+  });
 }
 
 (function start(){

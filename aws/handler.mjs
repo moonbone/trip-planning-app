@@ -32,6 +32,11 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 // deploy.sh copies the repo's index.html next to this file before zipping,
 // so this read works both locally and in the deployed package.
 const INDEX_HTML = readFileSync(join(__dirname, 'index.html'), 'utf8');
+// Service worker + PWA manifest + icon live in aws/ directly (no root-level
+// counterpart to copy in, unlike index.html) — see deploy.sh for the zip step.
+const SW_JS = readFileSync(join(__dirname, 'sw.js'), 'utf8');
+const MANIFEST_JSON = readFileSync(join(__dirname, 'manifest.webmanifest'), 'utf8');
+const ICON_SVG = readFileSync(join(__dirname, 'icon.svg'), 'utf8');
 
 // Trip location data never touches the server: the browser parses a
 // user-uploaded KML client-side and keeps it in localStorage.
@@ -42,6 +47,11 @@ const INDEX_HTML = readFileSync(join(__dirname, 'index.html'), 'utf8');
 // GET responses with no validator quite aggressively).
 const HTML_HEADERS = { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' };
 const JSON_HEADERS = { 'Content-Type': 'application/json' };
+// Same no-store reasoning as HTML_HEADERS: a service worker update should
+// reach the browser on the very next visit, not sit behind an HTTP cache.
+const SW_HEADERS = { 'Content-Type': 'application/javascript; charset=utf-8', 'Cache-Control': 'no-store' };
+const MANIFEST_HEADERS = { 'Content-Type': 'application/manifest+json', 'Cache-Control': 'no-store' };
+const SVG_HEADERS = { 'Content-Type': 'image/svg+xml', 'Cache-Control': 'no-store' };
 
 export const handler = async (event) => {
   const method = event.requestContext?.http?.method ?? event.httpMethod ?? 'GET';
@@ -49,6 +59,18 @@ export const handler = async (event) => {
 
   if (method === 'GET' && (rawPath === '/' || rawPath === '/index.html')) {
     return { statusCode: 200, headers: HTML_HEADERS, body: INDEX_HTML };
+  }
+
+  if (method === 'GET' && rawPath === '/sw.js') {
+    return { statusCode: 200, headers: SW_HEADERS, body: SW_JS };
+  }
+
+  if (method === 'GET' && rawPath === '/manifest.webmanifest') {
+    return { statusCode: 200, headers: MANIFEST_HEADERS, body: MANIFEST_JSON };
+  }
+
+  if (method === 'GET' && rawPath === '/icon.svg') {
+    return { statusCode: 200, headers: SVG_HEADERS, body: ICON_SVG };
   }
 
   if (rawPath === '/route') {
