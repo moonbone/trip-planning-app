@@ -3,6 +3,109 @@
 A running log of what each scheduled nightly session built on `beta`, so
 future runs don't duplicate or contradict prior work. Newest entry first.
 
+## 2026-08-14
+
+`beta` was at 8c49821 going in (last night's four features: long-driving-day
+warning, budget tracker, backup/restore, weather forecast). Today is
+literally the first day of the user's own trip (per CLAUDE.md's "Trip facts
+worth knowing"), which shaped tonight's picks. Three changes, each committed
+and pushed separately, each verified against the local dev-server before
+pushing:
+
+1. **Live "now" indicator on today's day timeline.** The app had plenty of
+   *planned* clock times (drive summary, timeline rows) but nothing that
+   answered "where should I be right now" mid-trip. When the active day's
+   date is today and a route is calculated, the drive summary now shows a
+   banner (`nowBanner`) derived from the exact same start→drive→stay
+   segments the timeline rows already render, compared against the current
+   wall clock: before departure, at a stop until its planned departure time,
+   driving with an ETA, or done for the day. Refreshes every 60s via
+   `setInterval(renderStats, 60000)` so it advances without the user
+   touching anything — `renderStats` is pure display with no inputs/
+   listeners inside it, so re-running it on a timer is safe.
+
+2. **Sunrise/sunset in the weather panel.** Small, low-risk extension of
+   last night's Open-Meteo weather call — added `sunrise,sunset` to the
+   `daily` params already being requested and rendered them alongside
+   temp/precip. Genuinely useful for pacing a long driving day given how
+   much Norway's day length swings in August.
+
+3. **Offline app-shell + map-tile caching via a service worker.** The
+   biggest piece tonight. Several of this app's own existing features exist
+   specifically because Norwegian-fjord-style road trips regularly have no
+   signal (printable itinerary, GPX export, both from earlier nights) — but
+   nothing made the *app itself* work with no network at all. `aws/sw.js` is
+   network-first for the shell (this page + Leaflet's CDN CSS/JS) so an
+   online visit always runs the live app — deliberately not undermining
+   `index.html`'s existing `Cache-Control: no-store` (there specifically so
+   a stale cached copy never silently keeps running old client code); the
+   service worker's cache is only a fallback for when there's genuinely no
+   network. Cache-first for OSM tile requests
+   (`{s}.tile.openstreetmap.org`), so map areas already viewed while online
+   stay visible offline — the actual point of the feature. Also added
+   `aws/manifest.webmanifest` + `aws/icon.svg` (a plain teal pin — the
+   app's first icon ever) so it's installable via "Add to Home Screen".
+   Registered fire-and-forget from `index.html`; served by
+   `aws/handler.mjs` at `/sw.js`, `/manifest.webmanifest`, `/icon.svg`
+   (all three live directly in `aws/`, no root-level copy needed, unlike
+   `index.html`); `deploy.sh` zips them in alongside the rest.
+
+All three verified locally against the file-based dev-server
+(`AUTH_DEV_FAKE=1`) with Playwright. The "now" banner was driven through
+all six of its states (before start, at each of two stops, driving between
+them, and day-complete) using `page.clock.setFixedTime` against a synthetic
+routed day, with a stubbed `/route` response. The weather sunrise/sunset
+extension was checked against a stubbed Open-Meteo response. The service
+worker got the most scrutiny given how easy SW caching is to get subtly
+wrong: registered and activated correctly in a real browser; the shell got
+runtime-cached on the first *controlled* navigation (the very first, pre-
+registration load is never SW-controlled, by spec); and — rather than
+trusting Playwright's `context.setOffline()` emulation, which turned out to
+let a first pass silently succeed for the wrong reason — the dev server was
+actually killed (`SIGKILL`, not emulated) before reloading, confirming the
+shell really does come from the SW's cache with zero live server involved.
+A separate pass proved the opposite direction matters too: mutated
+`index.html` on disk while the server stayed up (simulating a live
+redeploy) and confirmed the *next* online reload picks up the change
+immediately, not a stale cached copy — network-first genuinely wins while
+online. Playwright's `page.route()` turned out not to intercept requests a
+service worker issues internally from its own `fetch()` calls (only page/
+document-initiated requests) — confirmed by a stub that Chromium never
+actually hit — so the tile cache-first path, the "leave non-shell/non-tile
+GET requests alone" guard, and the navigation fallback logic were instead
+unit-tested by running `sw.js`'s real, unmodified source against a minimal
+mocked `self`/`caches`/`fetch` environment in plain Node, which caught all
+five of the same behaviors that mattered. Confirmed all three commits
+deployed successfully via `deploy-beta.yml`, and did a handful of read-only
+GETs against the live beta URL afterward — `/`, `/sw.js`,
+`/manifest.webmanifest`, `/icon.svg` — confirming correct status codes,
+content types, and that the served HTML actually contains the manifest
+link and SW registration call.
+
+**Decided not to do, and why:**
+- **A fourth feature.** Three well-tested, independent changes — one of
+  them a genuinely substantial one (the service worker) that deserved full
+  attention to its failure modes rather than being rushed to make room for
+  a fourth — felt like the right scope for tonight rather than padding for
+  its own sake.
+- **Precaching every visible map tile proactively, instead of only the
+  tiles actually viewed.** Precaching would need to know the trip's route
+  geometry and a tile-pyramid computation ahead of time — real complexity
+  for a benefit (offline tiles for areas never actually looked at) the user
+  is unlikely to need. Cache-as-you-go covers the realistic case: you look
+  at the map while you still have signal, then it's still there later.
+- **A `Service-Worker-Allowed` header or a non-root SW scope.** `/sw.js` is
+  already served from the origin root, which gives it root scope by
+  default — no extra header needed, and a narrower scope would be pure
+  complexity for no benefit on a single-page app.
+- **Live-testing the SW against a real, unstubbed OSM tile server or the
+  Leaflet CDN.** Same known sandbox limitation prior nights hit (no
+  outbound access to those hosts from here) — briefly tried routing around
+  it via a `/etc/hosts` override for `a.tile.openstreetmap.org` pointed at
+  a local stub server, decided that was a heavier and more invasive change
+  to the sandbox than the coverage gain justified, reverted it, and used
+  the mocked-environment unit test instead.
+
 ## 2026-08-13
 
 `beta` was at da3f49f going in (prior night's four features: packing
