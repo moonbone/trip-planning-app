@@ -3016,16 +3016,20 @@ async function fetchWeather(lat, lon, date){
   if(key in weatherCache) return weatherCache[key];
   try{
     const url = 'https://api.open-meteo.com/v1/forecast?latitude=' + lat + '&longitude=' + lon +
-      '&daily=temperature_2m_max,temperature_2m_min,precipitation_sum,weathercode' +
+      '&daily=temperature_2m_max,temperature_2m_min,precipitation_sum,weathercode,sunrise,sunset' +
       '&timezone=auto&start_date=' + date + '&end_date=' + date;
     const res = await fetch(url);
     if(!res.ok) throw new Error('HTTP ' + res.status);
     const data = await res.json();
     const d = data.daily;
     if(!d || !d.time || !d.time.length) throw new Error('no forecast data');
+    // sunrise/sunset come back as local ISO timestamps ("...T05:32") since
+    // timezone=auto — just the HH:MM half is wanted for display.
+    const clockOf = iso => (iso || '').split('T')[1] || null;
     const result = {
       tMax: Math.round(d.temperature_2m_max[0]), tMin: Math.round(d.temperature_2m_min[0]),
       precip: d.precipitation_sum[0], code: d.weathercode[0],
+      sunrise: clockOf(d.sunrise && d.sunrise[0]), sunset: clockOf(d.sunset && d.sunset[0]),
     };
     weatherCache[key] = result;
     return result;
@@ -3050,7 +3054,9 @@ async function renderWeather(){
   if(!forecast) return;
   const label = WEATHER_CODE_LABELS[forecast.code] || '🌡️';
   const precipText = forecast.precip > 0 ? ` · ${forecast.precip}mm rain` : '';
-  el.innerHTML = `<p class="stats-sub">${label} ${forecast.tMax}° / ${forecast.tMin}°C${precipText}</p>`;
+  const sunText = forecast.sunrise && forecast.sunset
+    ? ` · 🌅 ${forecast.sunrise} 🌇 ${forecast.sunset}` : '';
+  el.innerHTML = `<p class="stats-sub">${label} ${forecast.tMax}° / ${forecast.tMin}°C${precipText}${sunText}</p>`;
 }
 
 async function fetchFromProxy(ids){

@@ -180,7 +180,7 @@ The user's own real trip currently loaded into the app is a Norway road trip, Au
   current wall clock. Only shown once a route is calculated for that day (arrival times
   come from `lastRoute`, same guard `renderStats` already uses). A weather forecast line (col-right, between
   "Trip overview" and "Drive summary") shows the active day's forecast — high/low temp,
-  precipitation, a condition icon — for whichever place is first in that day's route
+  precipitation, sunrise/sunset, a condition icon — for whichever place is first in that day's route
   (`renderWeather`, called from `renderAll`). Calls Open-Meteo directly from the browser
   (`api.open-meteo.com`, no key, CORS-enabled for client-side use — same trust model as
   the Nominatim geocoding already called client-side elsewhere in this app), so it needs
