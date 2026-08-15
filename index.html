@@ -1155,6 +1155,7 @@
         <label class="start-label">Start <input type="time" id="dayStartInput"></label>
         <button class="reset-btn" id="addPlaceBtn" title="Add your own place (e.g. a laundromat) by clicking the map">＋ Place</button>
         <button class="reset-btn" id="addPlaceFromMapsBtn" title="Import a place by pasting a Google Maps link or coordinates">📍 From Maps</button>
+        <button class="reset-btn" id="searchPlaceBtn" title="Add a place by searching its name or address">🔍 Search</button>
         <button class="reset-btn" id="dayNotesBtn" title="Comments for this day">💬</button>
         <button class="reset-btn" id="resetDayBtn">Reset day</button>
       </div>
@@ -2234,6 +2235,39 @@ async function importFromMapsLink(){
   if(!name) return;
   const p = {id: 'c' + newId(), name, lat: coords.lat, lon: coords.lon, custom: true};
   if(coords.image) p.image = coords.image;
+  customPlaces.push(p);
+  rebuildById();
+  if(!plans[activeDay]) plans[activeDay] = [];
+  plans[activeDay].push(p.id);
+  saveVariant();
+  renderAll();
+}
+
+// Complements the map-click and Maps-link import paths above: adds a place
+// by geocoding a typed name/address via the same Nominatim helper used to
+// resolve a Maps link that carries no coordinates. Useful when you know a
+// place's name but don't have a map pin or link for it yet.
+async function searchPlaceByName(){
+  if(!activeTrip()){
+    document.getElementById('kmlError').textContent = 'Load a trip first — custom places are stored with the trip.';
+    return;
+  }
+  const query = await promptDialog('Search for a place', {message: 'Place name or address (e.g. "Nigardsbreen glacier" or "Storgata 1, Bergen"):'});
+  if(!query || !query.trim()) return;
+  const errEl = document.getElementById('kmlError');
+  errEl.textContent = 'Searching…';
+  let coords;
+  try{
+    coords = await geocodeAddress(query.trim());
+  }catch(e){
+    errEl.textContent = 'Could not find "' + query.trim() + '" (' + e.message + '). Try a more specific search, '
+      + 'or use the ＋ Place button to drop a pin by hand.';
+    return;
+  }
+  errEl.textContent = '';
+  const name = (await promptDialog('Search for a place', {message: 'Name for this place:', defaultValue: coords.name || query.trim()}) || '').trim();
+  if(!name) return;
+  const p = {id: 'c' + newId(), name, lat: coords.lat, lon: coords.lon, custom: true};
   customPlaces.push(p);
   rebuildById();
   if(!plans[activeDay]) plans[activeDay] = [];
@@ -3919,6 +3953,7 @@ document.getElementById('placeSearchInput').addEventListener('input', (e)=>{
 });
 document.getElementById('addPlaceBtn').addEventListener('click', startPlacing);
 document.getElementById('addPlaceFromMapsBtn').addEventListener('click', importFromMapsLink);
+document.getElementById('searchPlaceBtn').addEventListener('click', searchPlaceByName);
 document.addEventListener('keydown', (e)=>{
   if(e.key === 'Escape' && placingName) cancelPlacing();
   if(e.key === 'Escape') hidePlaceInfo();

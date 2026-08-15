@@ -119,6 +119,13 @@ The user's own real trip currently loaded into the app is a Norway road trip, Au
   (`aws/handler.mjs` fetches with a link-preview-crawler User-Agent — Google only serves
   real per-place OG data, not a generic placeholder, to that) and stores the photo directly
   on the custom place's `image` field, shown in the place-info modal alongside enrichment.
+  A "🔍 Search" button next to it adds a place by typed name/address instead of a map click
+  or a Maps link — `searchPlaceByName` reuses the same `geocodeAddress`/Nominatim helper the
+  Maps-link import falls back to, for when you know a place's name but have neither a pin nor
+  a link yet.
+  Each day's tab (and the route panel's day label, and the printable itinerary) shows the
+  day's date via `formatDayDate` (e.g. "Sun, Aug 16") next to the day number — `DAY_DATES` was
+  already parsed from the KML, it just wasn't surfaced anywhere but one export string before.
   A fuel cost estimate (⛽ row above "Drive summary") takes a consumption (L/100km),
   price/liter, and currency label the user types in — one plain `tripplan-fuel-settings`
   localStorage key, deliberately *not* trip-scoped or synced (it's the car, not the trip)
