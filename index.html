@@ -2788,24 +2788,29 @@ function gmapsDirUrl(from, to){
   const origin = from ? `&origin=${from.lat},${from.lon}` : '';
   return `https://www.google.com/maps/dir/?api=1&destination=${to.lat},${to.lon}&travelmode=driving${origin}`;
 }
-// Small per-segment link: preview the drive from the previous stop here.
-function segmentNavLink(fromId, toId){
+// Per-item nav link: routes from the device's current location (same
+// gmapsDirUrl(lastPos, ...) fallback as "Navigate to next stop" — omits
+// the origin, letting Google Maps use its own current-location default,
+// when we don't have a fix yet), not from the previous stop in the list —
+// the plan can drift from reality (running early/late, a detour), so this
+// always answers "how do I get there from here right now."
+function segmentNavLink(toId){
   const a = document.createElement('a');
   a.className = 'nav-btn';
-  a.href = gmapsDirUrl(byId[fromId], byId[toId]);
+  a.href = gmapsDirUrl(lastPos, byId[toId]);
   a.target = '_blank';
   a.rel = 'noopener';
-  a.title = `Google Maps: ${byId[fromId].name} → ${byId[toId].name}`;
+  a.title = `Google Maps: navigate to ${byId[toId].name} from your location`;
   a.textContent = '➤';
   return a;
 }
 
-function hotelRow(hotelId, label, fromId){
+function hotelRow(hotelId, label){
   const row = document.createElement('div');
   row.className = 'route-item hotel-stop';
   row.innerHTML = `<span class="idx hotel-idx">⌂</span><span class="name">${escapeHtml(byId[hotelId].name)}</span><span class="hotel-tag">${label}</span>`;
   wireInfoClick(row, hotelId);
-  if(fromId) row.appendChild(segmentNavLink(fromId, hotelId));
+  row.appendChild(segmentNavLink(hotelId));
   return row;
 }
 
@@ -2895,7 +2900,7 @@ function renderRouteList(){
     suffix.className = 'stay-suffix';
     suffix.textContent = 'min';
     row.appendChild(suffix);
-    if(prevId) row.appendChild(segmentNavLink(prevId, id));
+    row.appendChild(segmentNavLink(id));
     prevId = id;
     const rm = document.createElement('button');
     rm.className = 'remove-btn';
@@ -2921,7 +2926,7 @@ function renderRouteList(){
   });
   if(sleep){
     if(prevId) appendLegInfo(prevId, sleep);
-    el.appendChild(hotelRow(sleep, isLoopDay(activeDay) ? 'Return' : 'End', prevId));
+    el.appendChild(hotelRow(sleep, isLoopDay(activeDay) ? 'Return' : 'End'));
   }
   if(stops.length===0 && !wake && !sleep){
     el.innerHTML = '<div class="empty-note">No stops yet — add some from the left.</div>';
