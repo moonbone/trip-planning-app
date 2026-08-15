@@ -194,6 +194,14 @@
     margin-bottom:-1px;
   }
   .tab.active .num{background:var(--rust);}
+  .tab-date{
+    font-family:'Inter',sans-serif;
+    font-weight:400;
+    font-size:11px;
+    color:var(--ink-soft);
+    margin-top:2px;
+    margin-left:26px;
+  }
   main{
     display:grid;
     grid-template-columns:300px 1fr 340px;
@@ -1849,6 +1857,15 @@ function todayStr(){
   const d = new Date();
   return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
 }
+// Ticket "Dates": DAY_DATES stores plain 'YYYY-MM-DD' (parsed from the KML
+// folder name) — fine for sorting/comparison but not for display. This is
+// the one shared formatter for showing a day's date to the user.
+function formatDayDate(iso){
+  if(!iso) return '';
+  const d = new Date(iso + 'T00:00:00');
+  if(isNaN(d)) return iso;
+  return d.toLocaleDateString(undefined, {weekday:'short', month:'short', day:'numeric'});
+}
 // Day tab to open on load: the tab used earlier today if any, else the
 // trip day matching today's date, else Day 1.
 function initialDay(){
@@ -2545,7 +2562,8 @@ function renderTabs(){
   DAYS.forEach(d=>{
     const t = document.createElement('div');
     t.className = 'tab' + (d===activeDay ? ' active':'');
-    t.innerHTML = `<span class="num">${d}</span>Day ${d}${longDriveBadgeHtml(d)}`;
+    const dateHtml = DAY_DATES[d] ? `<div class="tab-date">${formatDayDate(DAY_DATES[d])}</div>` : '';
+    t.innerHTML = `<span class="num">${d}</span>Day ${d}${longDriveBadgeHtml(d)}${dateHtml}`;
     t.onclick = ()=>{ activeDay=d; renderAll(); };
     el.appendChild(t);
   });
@@ -2785,7 +2803,8 @@ function wireInfoClick(row, placeId){
 function renderRouteList(){
   const wake = wakeHotelId(activeDay), sleep = sleepHotelId(activeDay);
   const stops = dayStops(activeDay);
-  document.getElementById('routeLabel').textContent = `Day ${activeDay} route (${stops.length} stops)`;
+  const activeDateSuffix = DAY_DATES[activeDay] ? ` · ${formatDayDate(DAY_DATES[activeDay])}` : '';
+  document.getElementById('routeLabel').textContent = `Day ${activeDay} route (${stops.length} stops)${activeDateSuffix}`;
   const el = document.getElementById('routeList');
   el.innerHTML = '';
   // Per-leg drive times inline in the route list, available once a route was
@@ -3408,7 +3427,7 @@ function renderPrintableItinerary(trip, days){
         ? '<p class="t-total t-warn">Driving times unavailable for this day — showing stop order only.</p>'
         : '<p class="t-total">No driving this day.</p>';
     return `<div class="day-block">
-      <h2>Day ${d.day}${d.date ? ` — ${d.date}` : ''}</h2>
+      <h2>Day ${d.day}${d.date ? ` — ${formatDayDate(d.date)}` : ''}</h2>
       <table>${rows}</table>
       ${totalsHtml}
       ${notesHtml}
@@ -3943,7 +3962,7 @@ document.getElementById('tripNotesBtn').addEventListener('click', ()=>{
 // ---- AI day summary (Bedrock, currently owner-only server-side) ----
 function dayDescriptionText(){
   const ids = getRouteIds(activeDay);
-  const lines = [`Day ${activeDay}` + (DAY_DATES[activeDay] ? ` (${DAY_DATES[activeDay]})` : '') + ':'];
+  const lines = [`Day ${activeDay}` + (DAY_DATES[activeDay] ? ` (${formatDayDate(DAY_DATES[activeDay])})` : '') + ':'];
   const legMatch = lastRoute && lastRoute.day === activeDay
     && lastRoute.ids.join() === ids.join();
   ids.forEach((id, i)=>{
