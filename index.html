@@ -4,6 +4,21 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Trip Planner</title>
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="icon" href="/icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/icon.svg">
+<meta name="theme-color" content="#2B6777">
+<script>
+// Applied before <style> so there's no flash of the wrong theme on load —
+// the rest of the theme logic (toggle button, icon, system-preference
+// listener) lives in the main script further down.
+(function(){
+  try{
+    var t = localStorage.getItem('tripplan-theme');
+    if(t === 'light' || t === 'dark') document.documentElement.setAttribute('data-theme', t);
+  }catch(e){}
+})();
+</script>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css" />
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600;9..144,700&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
@@ -27,6 +42,73 @@
     --accent-dark:#4D2C73;
     --accent-light:#D2BFE8;
     --bg:#EFEAF5;
+  }
+  /* Dark theme: system preference by default (unless the user picked
+     "light" explicitly), or the explicit toggle at any time. --accent-light
+     flips role here — a pale wash in light mode, a dark wash in dark mode —
+     so the --accent-dark text sitting on top of it (place-item.selected,
+     status-processed, alloc-future) stays readable either way. --accent
+     itself is deliberately left close to its light-mode value: it's used
+     as a filled badge/button background with white text (route-item .idx,
+     add-btn.added, status-done, beta-badge) as well as a border, and both
+     roles want a color that reads clearly against white *and* against a
+     dark panel — the same shade already does both jobs. */
+  @media (prefers-color-scheme: dark){
+    :root:not([data-theme="light"]){
+      --bg:#15191C;
+      --panel:#232A30;
+      --ink:#E7E9E6;
+      --ink-soft:#8FA0A6;
+      --accent:#3E8A9E;
+      --accent-dark:#7FCBDF;
+      --accent-light:#1F4854;
+      --rust:#E08858;
+      --border:#2A3237;
+      --border-strong:#3A444A;
+    }
+    :root:not([data-theme="light"]) body.beta-env{
+      --accent:#8B5FC7;
+      --accent-dark:#C9A8ED;
+      --accent-light:#3A2A55;
+      --bg:#1A1622;
+    }
+  }
+  :root[data-theme="dark"]{
+    --bg:#15191C;
+    --panel:#232A30;
+    --ink:#E7E9E6;
+    --ink-soft:#8FA0A6;
+    --accent:#3E8A9E;
+    --accent-dark:#7FCBDF;
+    --accent-light:#1F4854;
+    --rust:#E08858;
+    --border:#2A3237;
+    --border-strong:#3A444A;
+  }
+  :root[data-theme="dark"] body.beta-env{
+    --accent:#8B5FC7;
+    --accent-dark:#C9A8ED;
+    --accent-light:#3A2A55;
+    --bg:#1A1622;
+  }
+  :root[data-theme="dark"] .info-modal,
+  :root[data-theme="dark"] .dialog-box{
+    border:1px solid var(--border-strong);
+  }
+  /* .calc-btn's light-mode background (--accent-dark, a near-black teal)
+     would be pale in dark mode since --accent-dark's role flips to "bright
+     text" there — so the main CTA button switches to --accent instead
+     (already dark/saturated enough to hold white text in both themes) with
+     a brightness-filter hover rather than swapping to a named color. */
+  :root[data-theme="dark"] .calc-btn{background:var(--accent);}
+  :root[data-theme="dark"] .calc-btn:hover{background:var(--accent);filter:brightness(1.15);}
+  @media (prefers-color-scheme: dark){
+    :root:not([data-theme="light"]) .info-modal,
+    :root:not([data-theme="light"]) .dialog-box{
+      border:1px solid var(--border-strong);
+    }
+    :root:not([data-theme="light"]) .calc-btn{background:var(--accent);}
+    :root:not([data-theme="light"]) .calc-btn:hover{background:var(--accent);filter:brightness(1.15);}
   }
   .beta-badge{
     display:inline-block;
@@ -100,7 +182,7 @@
     text-align:center;
     border-radius:50%;
     background:var(--border-strong);
-    color:var(--panel);
+    color:#fff;
     font-size:11px;
     margin-right:6px;
   }
@@ -112,6 +194,14 @@
     margin-bottom:-1px;
   }
   .tab.active .num{background:var(--rust);}
+  .tab-date{
+    font-family:'Inter',sans-serif;
+    font-weight:400;
+    font-size:11px;
+    color:var(--ink-soft);
+    margin-top:2px;
+    margin-left:26px;
+  }
   main{
     display:grid;
     grid-template-columns:300px 1fr 340px;
@@ -162,6 +252,18 @@
     color:var(--ink-soft);
     max-width:100%;
   }
+  .place-search{
+    width:100%;
+    border:1px solid var(--border);
+    border-radius:6px;
+    padding:7px 10px;
+    font-family:'Inter',sans-serif;
+    font-size:13px;
+    background:var(--panel);
+    color:var(--ink);
+    margin-bottom:8px;
+  }
+  .place-search:focus{outline:2px solid var(--accent-light); outline-offset:-1px;}
   .place-item{
     display:flex;
     align-items:center;
@@ -198,6 +300,11 @@
   .place-item .alloc-future{
     background:var(--accent-light);
     color:var(--accent-dark);
+  }
+  .dupe-badge{
+    cursor:help;
+    font-size:11px;
+    flex-shrink:0;
   }
   .place-item .name.has-info,
   .route-item .name.has-info{
@@ -284,6 +391,8 @@
     font-size:14px;
     margin-bottom:10px;
     box-sizing:border-box;
+    background:var(--panel);
+    color:var(--ink);
   }
   .dialog-actions{
     display:flex;
@@ -304,6 +413,8 @@
     font-size:13px;
     resize:vertical;
     margin:6px 0;
+    background:var(--panel);
+    color:var(--ink);
   }
   .comment-item{
     border:1px solid var(--border);
@@ -322,6 +433,139 @@
   .comment-item .remove-btn{
     position:absolute;
     top:6px;right:6px;
+  }
+  .packing-progress{
+    font-size:12px;
+    color:var(--ink-soft);
+    margin:0 0 10px;
+  }
+  .packing-item{
+    display:flex;
+    align-items:center;
+    gap:8px;
+    padding:5px 2px;
+    border-bottom:1px solid var(--border);
+  }
+  .packing-item input[type=checkbox]{
+    flex-shrink:0;
+    width:16px;height:16px;
+  }
+  .packing-item span{
+    flex:1;
+    font-size:13.5px;
+    word-break:break-word;
+  }
+  .packing-item.checked span{
+    text-decoration:line-through;
+    color:var(--ink-soft);
+  }
+  .packing-item .remove-btn{
+    flex-shrink:0;
+  }
+  .packing-add-row{
+    display:flex;
+    gap:6px;
+    margin-top:10px;
+  }
+  .packing-add-row input{
+    flex:1;
+    border:1px solid var(--border-strong);
+    border-radius:6px;
+    padding:7px 9px;
+    font:inherit;
+    font-size:13px;
+    background:var(--panel);
+    color:var(--ink);
+  }
+  .fuel-settings{
+    display:flex;
+    align-items:center;
+    gap:4px;
+    font-size:12px;
+    color:var(--ink-soft);
+    margin-bottom:8px;
+  }
+  .budget-item{
+    display:flex;
+    align-items:center;
+    gap:8px;
+    padding:5px 2px;
+    border-bottom:1px solid var(--border);
+  }
+  .budget-item .cat{
+    flex-shrink:0;
+    font-size:11px;
+    color:var(--ink-soft);
+    background:var(--bg);
+    border:1px solid var(--border-strong);
+    border-radius:5px;
+    padding:2px 6px;
+  }
+  .budget-item .label{
+    flex:1;
+    font-size:13.5px;
+    word-break:break-word;
+  }
+  .budget-item .amount{
+    flex-shrink:0;
+    font-family:'IBM Plex Mono',monospace;
+    font-size:13px;
+    color:var(--accent-dark);
+    font-weight:600;
+  }
+  .budget-item .remove-btn{
+    flex-shrink:0;
+  }
+  .budget-add-row{
+    display:flex;
+    gap:6px;
+    margin-top:10px;
+    flex-wrap:wrap;
+  }
+  .budget-add-row select{
+    flex:1 1 100px;
+  }
+  .budget-add-row input[type=text]{
+    flex:2 1 120px;
+  }
+  .budget-add-row input[type=number]{
+    flex:1 1 80px;
+  }
+  .budget-add-row select,
+  .budget-add-row input{
+    border:1px solid var(--border-strong);
+    border-radius:6px;
+    padding:7px 9px;
+    font:inherit;
+    font-size:13px;
+    background:var(--panel);
+    color:var(--ink);
+  }
+  .budget-total{
+    font-size:14px;
+    font-weight:600;
+    color:var(--ink);
+    margin:0 0 10px;
+    display:flex;
+    justify-content:space-between;
+  }
+  .fuel-icon{
+    flex-shrink:0;
+  }
+  .fuel-settings input[type=number]{
+    width:4.2em;
+  }
+  .fuel-settings input[type=text]{
+    width:3.4em;
+  }
+  .fuel-settings input{
+    border:1px solid var(--border-strong);
+    border-radius:5px;
+    padding:3px 5px;
+    font:inherit;
+    font-size:12px;
+    background:var(--panel);
+    color:var(--ink);
   }
   .cmt-badge{
     font-size:10.5px;
@@ -583,7 +827,7 @@
   .route-item .idx{
     font-family:'IBM Plex Mono',monospace;
     font-size:11px;
-    color:var(--panel);
+    color:#fff;
     background:var(--accent);
     width:20px;height:20px;
     border-radius:50%;
@@ -629,6 +873,20 @@
     font-size:12px;
     color:var(--ink-soft);
     margin:0 0 14px;
+  }
+  .stats-warn{
+    font-size:12px;
+    color:var(--rust);
+    margin:-8px 0 14px;
+  }
+  .stats-now{
+    font-size:12px;
+    font-weight:600;
+    color:var(--accent-dark);
+    background:var(--accent-light);
+    border-radius:6px;
+    padding:6px 10px;
+    margin:-4px 0 14px;
   }
   .leg{
     display:flex;
@@ -705,6 +963,7 @@
     white-space:nowrap;
   }
   .view-toggle-btn:hover{background:var(--accent-light);}
+  .theme-toggle-btn{padding:8px 11px;font-size:15px;line-height:1;}
   .header-actions{
     display:flex;
     align-items:center;
@@ -840,6 +1099,7 @@
     <p>Pick places for each day, reorder them, get real driving times.</p>
   </div>
   <div class="header-actions">
+    <button class="view-toggle-btn theme-toggle-btn" id="themeToggleBtn" title="Toggle dark mode">🌙</button>
     <span class="sync-status" id="syncStatus" style="display:none;"><span class="spinner"></span><span id="syncStatusText"></span></span>
     <span class="user-badge" id="userBadge" style="display:none;"></span>
     <button class="view-toggle-btn" id="backofficeBtn" style="display:none;">Backoffice</button>
@@ -860,17 +1120,28 @@
       <div class="trip-row" id="tripRow">
         <select id="tripSelect"></select>
         <button class="reset-btn" id="tripNotesBtn" title="Trip comments">💬</button>
+        <button class="reset-btn" id="packingBtn" title="Packing checklist">🎒</button>
+        <button class="reset-btn" id="budgetBtn" title="Trip budget">💰</button>
         <button class="reset-btn" id="shareTripBtn" style="display:none;">Share</button>
         <button class="reset-btn" id="deleteTripBtn">Delete trip</button>
       </div>
       <input type="file" id="kmlFileInput" accept=".kml,.xml">
       <div class="trip-row">
         <button class="reset-btn" id="importInfoBtn" title="Import a JSON file with per-place descriptions, photos and links">Import place info</button>
+        <button class="reset-btn" id="printTripBtn" title="Open a printable, offline-friendly day-by-day itinerary in a new tab">🖨️ Print itinerary</button>
+        <button class="reset-btn" id="exportGpxBtn" title="Download every stop and driving route as a GPX file, for GPS devices/apps like Garmin or OsmAnd">🗺️ Export GPX</button>
+        <button class="reset-btn" id="exportIcsBtn" title="Download one calendar event per day — planned start time, driving time, and stops — to import into your phone's calendar">📅 Export calendar</button>
+      </div>
+      <div class="trip-row">
+        <button class="reset-btn" id="backupTripBtn" title="Download everything about this trip — plan variants, custom places, place info, comments, packing list, budget — as one JSON file you can restore later">💾 Backup trip</button>
+        <button class="reset-btn" id="restoreBackupBtn" title="Restore a trip from a backup JSON file, as a new trip">📥 Restore backup</button>
       </div>
       <input type="file" id="infoFileInput" accept=".json,application/json" style="display:none;">
+      <input type="file" id="backupFileInput" accept=".json,application/json" style="display:none;">
       <div class="error-note" id="kmlError"></div>
     </div>
     <p class="section-label">All places</p>
+    <input type="text" class="place-search" id="placeSearchInput" placeholder="Filter places by name…" autocomplete="off">
     <div id="masterList"></div>
   </div>
 
@@ -889,6 +1160,7 @@
         <label class="start-label">Start <input type="time" id="dayStartInput"></label>
         <button class="reset-btn" id="addPlaceBtn" title="Add your own place (e.g. a laundromat) by clicking the map">＋ Place</button>
         <button class="reset-btn" id="addPlaceFromMapsBtn" title="Import a place by pasting a Google Maps link or coordinates">📍 From Maps</button>
+        <button class="reset-btn" id="searchPlaceBtn" title="Add a place by searching its name or address">🔍 Search</button>
         <button class="reset-btn" id="dayNotesBtn" title="Comments for this day">💬</button>
         <button class="reset-btn" id="resetDayBtn">Reset day</button>
       </div>
@@ -903,8 +1175,19 @@
   </div>
 
   <div class="col col-right">
+    <p class="section-label">Trip overview</p>
+    <div id="tripOverview"></div>
+    <div id="weatherPanel"></div>
     <p class="section-label">Drive summary</p>
+    <div class="fuel-settings" id="fuelSettings" title="Set your car's fuel consumption and price to see an estimated cost — saved in this browser, applies to every trip">
+      <span class="fuel-icon">⛽</span>
+      <input type="number" id="fuelConsumption" min="0" step="0.1" placeholder="L/100km">
+      <span>×</span>
+      <input type="number" id="fuelPrice" min="0" step="0.01" placeholder="price/L">
+      <input type="text" id="fuelCurrency" maxlength="6" placeholder="kr">
+    </div>
     <div id="statsPanel"><div class="empty-note">Select 2+ stops and calculate to see times.</div></div>
+    <button class="calc-btn suggest-nav-btn" id="copyDayBtn" title="Copy this day's plan as plain text — handy for sharing offline">📋 Copy day plan</button>
     <button class="calc-btn suggest-nav-btn" id="aiSummaryBtn" style="display:none;">✨ Summarize day</button>
     <div id="aiSummaryOut" class="ai-summary" style="display:none;" dir="auto"></div>
     <p class="source-note">Routing via a private proxy (your OpenRouteService key stays server-side, never shipped to the browser); falls back to free OSRM demo servers if the proxy isn't reachable. Estimates only — always double check ferries, road closures and seasonal conditions before you go.</p>
@@ -979,6 +1262,42 @@
       <button class="reset-btn" id="commentAddBtn">Add comment</button>
       <div class="error-note" id="commentError"></div>
     </div>
+  </div>
+</div>
+
+<div class="info-modal-overlay" id="packingModal" style="display:none;">
+  <div class="info-modal">
+    <button class="info-close" id="packingModalClose" title="Close">×</button>
+    <h2>🎒 Packing checklist</h2>
+    <p class="packing-progress" id="packingProgress"></p>
+    <div id="packingListEl"></div>
+    <div class="packing-add-row">
+      <input type="text" id="packingInput" maxlength="200" placeholder="Add an item…">
+      <button class="reset-btn" id="packingAddBtn">Add</button>
+    </div>
+    <div class="error-note" id="packingError"></div>
+  </div>
+</div>
+
+<div class="info-modal-overlay" id="budgetModal" style="display:none;">
+  <div class="info-modal">
+    <button class="info-close" id="budgetModalClose" title="Close">×</button>
+    <h2>💰 Trip budget</h2>
+    <p class="budget-total" id="budgetTotal"></p>
+    <div id="budgetListEl"></div>
+    <div class="budget-add-row">
+      <select id="budgetCategory">
+        <option>Accommodation</option>
+        <option>Activity</option>
+        <option>Food</option>
+        <option>Transport</option>
+        <option>Other</option>
+      </select>
+      <input type="text" id="budgetLabel" maxlength="120" placeholder="What's this for?">
+      <input type="number" id="budgetAmount" min="0" step="0.01" placeholder="Amount">
+      <button class="reset-btn" id="budgetAddBtn">Add</button>
+    </div>
+    <div class="error-note" id="budgetError"></div>
   </div>
 </div>
 
@@ -1110,6 +1429,38 @@ function getRouteIds(day){
   return ids;
 }
 
+// 4.5h — common trip-planning guidance for a comfortable driving day.
+const LONG_DRIVE_WARN_MIN = 270;
+// Straight-line fallback speed for days that haven't been routed yet —
+// generous enough for winding rural/mountain roads and ferry waits, so the
+// estimate errs toward flagging rather than missing a genuinely long day.
+const ESTIMATE_AVG_SPEED_KMH = 50;
+
+// Exact drive time when it matches the last calculated route for this day;
+// otherwise a rough straight-line estimate so long days can be flagged
+// across all day tabs without routing every day up front.
+function dayDriveEstimate(day){
+  const ids = getRouteIds(day);
+  if(ids.length < 2) return null;
+  if(lastRoute && lastRoute.day === day && lastRoute.ids.join() === ids.join()){
+    return {min: Math.round(lastRoute.route.duration/60), exact:true};
+  }
+  let km = 0;
+  for(let i=1;i<ids.length;i++){
+    const a = byId[ids[i-1]], b = byId[ids[i]];
+    if(a && b) km += haversineKm(a,b);
+  }
+  return {min: Math.round(km/ESTIMATE_AVG_SPEED_KMH*60), exact:false};
+}
+
+function longDriveBadgeHtml(day){
+  const est = dayDriveEstimate(day);
+  if(!est || est.min < LONG_DRIVE_WARN_MIN) return '';
+  const hrs = Math.floor(est.min/60), mins = est.min%60;
+  const title = `Long driving day — ${est.exact ? '' : 'approx. '}${hrs}h ${mins}m of driving. Consider splitting stops across another day.`;
+  return `<span class="dupe-badge" title="${escapeHtml(title)}">⚠️</span>`;
+}
+
 let plans = {};
 // Per-day schedule settings: {start:'HH:MM', stay:{placeId:minutes}}
 let dayMeta = {};
@@ -1120,6 +1471,8 @@ let map, routeLayer, markersLayer, locationLayer;
 let lastPos = null; // latest geolocation fix {lat, lon}
 let mobileSection = 'route';
 let currentView = 'planner';
+let placeFilter = ''; // lowercased search text over the master places list
+let NEAR_DUPES = {}; // placeId -> [{id, name, km}] — places within a few meters but a different name/id
 
 // ---- Multi-trip storage ----
 // tripplan-trips is the index and the commit point: written last when adding,
@@ -1245,6 +1598,8 @@ async function loadRemoteIndex(){
     remoteSources[t.trip_id] = detail.trip.kml_source;
     remoteEnrichment[t.trip_id] = detail.trip.enrichment || [];
     remoteComments[t.trip_id] = detail.trip.comments || [];
+    remotePacking[t.trip_id] = detail.trip.packingList || [];
+    remoteBudget[t.trip_id] = detail.trip.budgetItems || [];
     const variants = {};
     detail.variants.forEach(v=>{
       variants[v.variant_id] = v.name;
@@ -1391,7 +1746,7 @@ async function enterRemoteMode(email){
   showSync('Loading trips…');
   try{
     await importLocalTrips(email);
-    remoteVersions = {}; remoteSources = {}; remoteVariantState = {}; remoteEnrichment = {}; remoteComments = {};
+    remoteVersions = {}; remoteSources = {}; remoteVariantState = {}; remoteEnrichment = {}; remoteComments = {}; remotePacking = {}; remoteBudget = {};
     await loadRemoteIndex();
     remoteMode = true;
     activateCurrentTrip();
@@ -1401,7 +1756,7 @@ async function enterRemoteMode(email){
 }
 function exitRemoteMode(){
   remoteMode = false;
-  remoteVersions = {}; remoteSources = {}; remoteVariantState = {}; remoteEnrichment = {}; remoteComments = {};
+  remoteVersions = {}; remoteSources = {}; remoteVariantState = {}; remoteEnrichment = {}; remoteComments = {}; remotePacking = {};
   clearTimeout(syncTimer);
   // account-scoped prefs don't belong in a signed-out browser
   localStorage.removeItem('tripplan-remote-prefs');
@@ -1411,6 +1766,9 @@ function exitRemoteMode(){
 // (Re)applies the active trip of whichever index is current.
 function activateCurrentTrip(){
   lastRoute = null;
+  placeFilter = '';
+  const searchInput = document.getElementById('placeSearchInput');
+  if(searchInput) searchInput.value = '';
   const trip = activeTrip();
   if(!trip){
     clearActiveTrip();
@@ -1432,12 +1790,23 @@ function activateCurrentTrip(){
   if(remoteMode){
     enrichment = remoteEnrichment[tripsIndex.activeTripId] || [];
     tripComments = remoteComments[tripsIndex.activeTripId] || [];
+    packingList = remotePacking[tripsIndex.activeTripId] || [];
+    budgetItems = remoteBudget[tripsIndex.activeTripId] || [];
   }else{
     try{ enrichment = JSON.parse(localStorage.getItem(`tripplan-enrich:${tripsIndex.activeTripId}`)) || []; }
     catch(e){ enrichment = []; }
     try{ tripComments = JSON.parse(localStorage.getItem(`tripplan-comments:${tripsIndex.activeTripId}`)) || []; }
     catch(e){ tripComments = []; }
+    try{ packingList = JSON.parse(localStorage.getItem(packingLocalKey())) || []; }
+    catch(e){ packingList = []; }
+    try{ budgetItems = JSON.parse(localStorage.getItem(budgetLocalKey())) || []; }
+    catch(e){ budgetItems = []; }
   }
+  // applyTrip() above already ran matchEnrichment() against the *previous*
+  // trip's enrichment (or none, on first load) via rebuildById() — redo it
+  // now that the right trip's enrichment is loaded, or imported photos/
+  // descriptions stay wrong until something else happens to rebuild ids.
+  matchEnrichment();
   loadVariant();
   activeDay = initialDay();
   renderAll();
@@ -1494,6 +1863,15 @@ function todayStr(){
   const d = new Date();
   return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
 }
+// Ticket "Dates": DAY_DATES stores plain 'YYYY-MM-DD' (parsed from the KML
+// folder name) — fine for sorting/comparison but not for display. This is
+// the one shared formatter for showing a day's date to the user.
+function formatDayDate(iso){
+  if(!iso) return '';
+  const d = new Date(iso + 'T00:00:00');
+  if(isNaN(d)) return iso;
+  return d.toLocaleDateString(undefined, {weekday:'short', month:'short', day:'numeric'});
+}
 // Day tab to open on load: the tab used earlier today if any, else the
 // trip day matching today's date, else Day 1.
 function initialDay(){
@@ -1519,9 +1897,102 @@ function parseClock(s){
   const m = /^(\d{1,2}):(\d{2})$/.exec(s || '');
   return m ? (+m[1])*60 + (+m[2]) : 9*60;
 }
+function nowMinutesLocal(){
+  const d = new Date();
+  return d.getHours()*60 + d.getMinutes();
+}
+// "Now" banner in the day timeline: only meaningful when the active day's
+// date is today and a route has been calculated (so arrival times are
+// known). Walks the same start→drive→stay segments renderStats already
+// computes and reports which one contains the current wall-clock minute.
+function nowBanner(ids, route, meta){
+  if(!ids.length || DAY_DATES[activeDay] !== todayStr()) return '';
+  const nowMin = nowMinutesLocal();
+  let t = parseClock(meta.start);
+  const segs = [];
+  ids.forEach((id,i)=>{
+    if(i > 0){
+      const lm = Math.round(route.legs[i-1].duration/60);
+      segs.push({type:'drive', toId:id, start:t, end:t+lm});
+      t += lm;
+    }
+    const stay = stayMinutes(activeDay, id);
+    segs.push({type:'stop', id, start:t, end:t+stay});
+    t += stay;
+  });
+  if(nowMin < segs[0].start){
+    return `<p class="stats-now">🕒 Day starts at ${fmtClock(segs[0].start)}</p>`;
+  }
+  const last = segs[segs.length-1];
+  if(nowMin >= last.end){
+    return `<p class="stats-now">✅ Today's plan is done — back at ${escapeHtml(byId[last.id].name)}</p>`;
+  }
+  // Zero-length stay segments (no time recorded there) fall through: nowMin
+  // never satisfies "< end" for a segment whose end equals its own start.
+  const cur = segs.find(s=>nowMin < s.end);
+  if(cur.type === 'stop'){
+    return `<p class="stats-now">📍 Now at ${escapeHtml(byId[cur.id].name)}${cur.end > cur.start ? ` until ${fmtClock(cur.end)}` : ''}</p>`;
+  }
+  return `<p class="stats-now">🚗 Driving to ${escapeHtml(byId[cur.toId].name)} — arriving ~${fmtClock(cur.end)}</p>`;
+}
 function fmtClock(mins){
   mins = Math.round(mins) % 1440;
   return String(Math.floor(mins/60)).padStart(2,'0') + ':' + String(mins%60).padStart(2,'0');
+}
+
+// Fuel cost estimate: a personal car setting, not trip data, so it's one
+// plain localStorage key shared across every trip rather than anything
+// synced or trip-scoped.
+function loadFuelSettings(){
+  try{ return JSON.parse(localStorage.getItem('tripplan-fuel-settings')) || {}; }
+  catch(e){ return {}; }
+}
+function saveFuelSettings(s){
+  try{ localStorage.setItem('tripplan-fuel-settings', JSON.stringify(s)); }
+  catch(e){ console.error('save failed', e); }
+}
+function fuelSettingsFromInputs(){
+  return {
+    consumption: parseFloat(document.getElementById('fuelConsumption').value) || 0,
+    price: parseFloat(document.getElementById('fuelPrice').value) || 0,
+    currency: document.getElementById('fuelCurrency').value.trim(),
+  };
+}
+function applyFuelSettingsToInputs(s){
+  document.getElementById('fuelConsumption').value = s.consumption || '';
+  document.getElementById('fuelPrice').value = s.price || '';
+  document.getElementById('fuelCurrency').value = s.currency || '';
+}
+// Returns '' when consumption/price aren't both set — callers append this
+// directly, so an empty string just omits the cost cleanly.
+function fuelCostText(distanceKm, settings){
+  const s = settings || loadFuelSettings();
+  if(!s.consumption || !s.price) return '';
+  const cost = distanceKm * (s.consumption/100) * s.price;
+  const rounded = cost >= 100 ? Math.round(cost) : Math.round(cost*10)/10;
+  return ` · ≈ ${rounded}${s.currency ? ' ' + escapeHtml(s.currency) : ''} fuel`;
+}
+
+// Dark mode: an explicit tripplan-theme ('light'|'dark') in localStorage
+// wins; otherwise the CSS itself follows prefers-color-scheme (see the
+// @media block), so "system" needs no stored value at all. The head's
+// early inline script already applied any stored choice before first
+// paint — this just keeps the toggle button's icon and click handler in
+// sync with it.
+function currentTheme(){
+  const stored = localStorage.getItem('tripplan-theme');
+  if(stored === 'light' || stored === 'dark') return stored;
+  return (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) ? 'dark' : 'light';
+}
+function applyTheme(theme){
+  if(theme) document.documentElement.setAttribute('data-theme', theme);
+  else document.documentElement.removeAttribute('data-theme');
+  document.getElementById('themeToggleBtn').textContent = currentTheme() === 'dark' ? '☀️' : '🌙';
+}
+function toggleTheme(){
+  const next = currentTheme() === 'dark' ? 'light' : 'dark';
+  try{ localStorage.setItem('tripplan-theme', next); }catch(e){}
+  applyTheme(next);
 }
 
 function initMap(){
@@ -1777,6 +2248,39 @@ async function importFromMapsLink(){
   renderAll();
 }
 
+// Complements the map-click and Maps-link import paths above: adds a place
+// by geocoding a typed name/address via the same Nominatim helper used to
+// resolve a Maps link that carries no coordinates. Useful when you know a
+// place's name but don't have a map pin or link for it yet.
+async function searchPlaceByName(){
+  if(!activeTrip()){
+    document.getElementById('kmlError').textContent = 'Load a trip first — custom places are stored with the trip.';
+    return;
+  }
+  const query = await promptDialog('Search for a place', {message: 'Place name or address (e.g. "Nigardsbreen glacier" or "Storgata 1, Bergen"):'});
+  if(!query || !query.trim()) return;
+  const errEl = document.getElementById('kmlError');
+  errEl.textContent = 'Searching…';
+  let coords;
+  try{
+    coords = await geocodeAddress(query.trim());
+  }catch(e){
+    errEl.textContent = 'Could not find "' + query.trim() + '" (' + e.message + '). Try a more specific search, '
+      + 'or use the ＋ Place button to drop a pin by hand.';
+    return;
+  }
+  errEl.textContent = '';
+  const name = (await promptDialog('Search for a place', {message: 'Name for this place:', defaultValue: coords.name || query.trim()}) || '').trim();
+  if(!name) return;
+  const p = {id: 'c' + newId(), name, lat: coords.lat, lon: coords.lon, custom: true};
+  customPlaces.push(p);
+  rebuildById();
+  if(!plans[activeDay]) plans[activeDay] = [];
+  plans[activeDay].push(p.id);
+  saveVariant();
+  renderAll();
+}
+
 // ---- Place info modal (enrichment) + comments ----
 // Imported text may carry HTML from its source: reduce it to plain text,
 // escape it, then re-linkify bare URLs — nothing else renders as markup.
@@ -1796,6 +2300,162 @@ function safeHttpUrl(u){
 let tripComments = [];
 let remoteComments = {};
 let modalScope = null; // {scope:'place'|'day'|'trip', placeId?, day?}
+
+// Packing checklist: one flat list per trip (not per variant — what to pack
+// doesn't change between route plans). Whole-array PUT on every edit, same
+// shallow pattern as enrichment: tripplan-packing:<id> locally, one PUT
+// endpoint signed in.
+let packingList = [];
+let remotePacking = {};
+function packingLocalKey(){ return `tripplan-packing:${tripsIndex.activeTripId}`; }
+async function commitPackingList(newList){
+  const errEl = document.getElementById('packingError');
+  errEl.textContent = '';
+  if(remoteMode){
+    try{
+      await api(`/api/trips/${tripsIndex.activeTripId}/packing`, {method:'PUT', body: JSON.stringify({packingList:newList})});
+      remotePacking[tripsIndex.activeTripId] = newList;
+    }catch(e){
+      errEl.textContent = 'Could not save: ' + e.message;
+      return false;
+    }
+  }else{
+    try{ localStorage.setItem(packingLocalKey(), JSON.stringify(newList)); }
+    catch(e){ errEl.textContent = 'Could not store — browser storage may be full.'; return false; }
+  }
+  packingList = newList;
+  renderPackingList();
+  return true;
+}
+function renderPackingList(){
+  const listEl = document.getElementById('packingListEl');
+  const progressEl = document.getElementById('packingProgress');
+  const checked = packingList.filter(it=>it.checked).length;
+  progressEl.textContent = packingList.length ? `${checked} / ${packingList.length} packed` : '';
+  listEl.innerHTML = packingList.length ? '' : '<div class="empty-note">No items yet — add what you need to pack.</div>';
+  packingList.forEach(item=>{
+    const row = document.createElement('div');
+    row.className = 'packing-item' + (item.checked ? ' checked' : '');
+    const cb = document.createElement('input');
+    cb.type = 'checkbox';
+    cb.checked = item.checked;
+    cb.onchange = ()=>commitPackingList(packingList.map(it=>it.id===item.id ? {...it, checked: cb.checked} : it));
+    const span = document.createElement('span');
+    span.textContent = item.text;
+    const del = document.createElement('button');
+    del.className = 'remove-btn';
+    del.textContent = '×';
+    del.title = 'Remove item';
+    del.onclick = ()=>commitPackingList(packingList.filter(it=>it.id !== item.id));
+    row.appendChild(cb);
+    row.appendChild(span);
+    row.appendChild(del);
+    listEl.appendChild(row);
+  });
+}
+function addPackingItem(){
+  const input = document.getElementById('packingInput');
+  const text = input.value.trim();
+  if(!text) return;
+  input.value = '';
+  commitPackingList([...packingList, {id: 'p' + newId(), text, checked:false}]);
+}
+function openPackingModal(){
+  if(!activeTrip()){
+    document.getElementById('kmlError').textContent = 'Load a trip first — the packing list attaches to a trip.';
+    return;
+  }
+  document.getElementById('packingError').textContent = '';
+  renderPackingList();
+  document.getElementById('packingModal').style.display = '';
+}
+function closePackingModal(){
+  document.getElementById('packingModal').style.display = 'none';
+}
+
+// Trip budget: same flat-list-per-trip pattern as packing (whole-array PUT,
+// not per variant — costs don't depend on the route plan). Displays amounts
+// with the fuel settings' currency label rather than a second currency
+// field, since it's already "the currency for this trip's costs" in spirit.
+let budgetItems = [];
+let remoteBudget = {};
+function budgetLocalKey(){ return `tripplan-budget:${tripsIndex.activeTripId}`; }
+async function commitBudgetItems(newList){
+  const errEl = document.getElementById('budgetError');
+  errEl.textContent = '';
+  if(remoteMode){
+    try{
+      await api(`/api/trips/${tripsIndex.activeTripId}/budget`, {method:'PUT', body: JSON.stringify({budgetItems:newList})});
+      remoteBudget[tripsIndex.activeTripId] = newList;
+    }catch(e){
+      errEl.textContent = 'Could not save: ' + e.message;
+      return false;
+    }
+  }else{
+    try{ localStorage.setItem(budgetLocalKey(), JSON.stringify(newList)); }
+    catch(e){ errEl.textContent = 'Could not store — browser storage may be full.'; return false; }
+  }
+  budgetItems = newList;
+  renderBudgetList();
+  return true;
+}
+function renderBudgetList(){
+  const listEl = document.getElementById('budgetListEl');
+  const totalEl = document.getElementById('budgetTotal');
+  const currency = (loadFuelSettings().currency || '').trim();
+  const suffix = currency ? ' ' + escapeHtml(currency) : '';
+  const total = budgetItems.reduce((s,it)=>s+it.amount, 0);
+  totalEl.innerHTML = budgetItems.length
+    ? `<span>Total</span><span>${total.toFixed(2)}${suffix}</span>` : '';
+  listEl.innerHTML = budgetItems.length ? '' :
+    '<div class="empty-note">No costs logged yet — add accommodation, activities, or anything else you\'re budgeting for.</div>';
+  budgetItems.forEach(item=>{
+    const row = document.createElement('div');
+    row.className = 'budget-item';
+    const cat = document.createElement('span');
+    cat.className = 'cat';
+    cat.textContent = item.category;
+    const label = document.createElement('span');
+    label.className = 'label';
+    label.textContent = item.label;
+    const amount = document.createElement('span');
+    amount.className = 'amount';
+    amount.textContent = item.amount.toFixed(2) + (currency ? ' ' + currency : '');
+    const del = document.createElement('button');
+    del.className = 'remove-btn';
+    del.textContent = '×';
+    del.title = 'Remove item';
+    del.onclick = ()=>commitBudgetItems(budgetItems.filter(it=>it.id !== item.id));
+    row.appendChild(cat);
+    row.appendChild(label);
+    row.appendChild(amount);
+    row.appendChild(del);
+    listEl.appendChild(row);
+  });
+}
+function addBudgetItem(){
+  const catInput = document.getElementById('budgetCategory');
+  const labelInput = document.getElementById('budgetLabel');
+  const amountInput = document.getElementById('budgetAmount');
+  const label = labelInput.value.trim();
+  const amount = parseFloat(amountInput.value);
+  if(!label || !isFinite(amount) || amount < 0) return;
+  labelInput.value = '';
+  amountInput.value = '';
+  commitBudgetItems([...budgetItems, {id: 'b' + newId(), category: catInput.value, label, amount}]);
+}
+function openBudgetModal(){
+  if(!activeTrip()){
+    document.getElementById('kmlError').textContent = 'Load a trip first — the budget attaches to a trip.';
+    return;
+  }
+  document.getElementById('budgetError').textContent = '';
+  renderBudgetList();
+  document.getElementById('budgetModal').style.display = '';
+}
+function closeBudgetModal(){
+  document.getElementById('budgetModal').style.display = 'none';
+}
 
 function commentsFor(scope){
   return tripComments.filter(c=>{
@@ -1941,7 +2601,8 @@ function renderTabs(){
   DAYS.forEach(d=>{
     const t = document.createElement('div');
     t.className = 'tab' + (d===activeDay ? ' active':'');
-    t.innerHTML = `<span class="num">${d}</span>Day ${d}`;
+    const dateHtml = DAY_DATES[d] ? `<div class="tab-date">${formatDayDate(DAY_DATES[d])}</div>` : '';
+    t.innerHTML = `<span class="num">${d}</span>Day ${d}${longDriveBadgeHtml(d)}${dateHtml}`;
     t.onclick = ()=>{ activeDay=d; renderAll(); };
     el.appendChild(t);
   });
@@ -1954,6 +2615,8 @@ function renderMasterList(){
     el.innerHTML = '<div class="empty-note">No trip loaded — upload your KML export above.</div>';
     return;
   }
+  const filter = placeFilter.trim().toLowerCase();
+  let shownCount = 0;
   // Ticket #10: which days (besides the active one) already use each place,
   // so mix-and-matching shows what's covered — struck-through for days
   // before the one being planned ("visited"), highlighted for later days.
@@ -1966,18 +2629,24 @@ function renderMasterList(){
     });
   });
   DAYS.forEach(d=>{
+    const wake = wakeHotelId(activeDay), sleep = sleepHotelId(activeDay);
+    // pinned start/end rows stay visible regardless of the filter — they're
+    // structural context for the active day, not search results
+    const dayPlaces = PLACES.filter(p=>p.day===d).filter(p=>
+      p.id === wake || p.id === sleep || !filter || p.name.toLowerCase().includes(filter));
+    if(!dayPlaces.length) return;
     const heading = document.createElement('div');
     heading.className = 'day-group-heading';
     heading.textContent = 'Originally day ' + d;
     el.appendChild(heading);
-    PLACES.filter(p=>p.day===d).forEach(p=>{
-      const wake = wakeHotelId(activeDay), sleep = sleepHotelId(activeDay);
+    dayPlaces.forEach(p=>{
+      shownCount++;
       if(p.id === wake || p.id === sleep){
         const badge = p.id === wake && p.id === sleep ? 'start + return'
           : p.id === wake ? 'start' : 'end';
         const row = document.createElement('div');
         row.className = 'place-item selected';
-        row.innerHTML = `<span class="name">${escapeHtml(p.name)}</span><span class="day-badge">${badge}</span>`;
+        row.innerHTML = `<span class="name">${escapeHtml(p.name)}</span>${dupeBadgeHtml(p.id)}<span class="day-badge">${badge}</span>`;
         wireInfoClick(row, p.id);
         el.appendChild(row);
         return;
@@ -1991,7 +2660,7 @@ function renderMasterList(){
       const allocBadges =
         (past.length ? `<span class="alloc-badge alloc-past" title="Already planned on a previous day">✓ ${past.map(d2=>'D'+d2).join('·')}</span>` : '')
         + (future.length ? `<span class="alloc-badge alloc-future" title="Planned on a later day">→ ${future.map(d2=>'D'+d2).join('·')}</span>` : '');
-      row.innerHTML = `<span class="name">${escapeHtml(p.name)}</span>${allocBadges}<span class="day-badge">D${p.day}</span>`;
+      row.innerHTML = `<span class="name">${escapeHtml(p.name)}</span>${dupeBadgeHtml(p.id)}${allocBadges}<span class="day-badge">D${p.day}</span>`;
       wireInfoClick(row, p.id);
       const btn = document.createElement('button');
       btn.className = 'add-btn' + (isSelected ? ' added' : '');
@@ -2012,12 +2681,14 @@ function renderMasterList(){
       el.appendChild(row);
     });
   });
-  if(customPlaces.length){
+  const filteredCustomPlaces = customPlaces.filter(p=>!filter || p.name.toLowerCase().includes(filter));
+  if(filteredCustomPlaces.length){
     const heading = document.createElement('div');
     heading.className = 'day-group-heading';
     heading.textContent = 'Custom places';
     el.appendChild(heading);
-    customPlaces.forEach(p=>{
+    filteredCustomPlaces.forEach(p=>{
+      shownCount++;
       const isSelected = (plans[activeDay] || []).includes(p.id);
       const row = document.createElement('div');
       row.className = 'place-item' + (isSelected ? ' selected' : '');
@@ -2061,6 +2732,9 @@ function renderMasterList(){
       row.appendChild(del);
       el.appendChild(row);
     });
+  }
+  if(filter && !shownCount){
+    el.innerHTML = `<div class="empty-note">No places match "${escapeHtml(placeFilter.trim())}".</div>`;
   }
 }
 
@@ -2168,7 +2842,8 @@ function wireInfoClick(row, placeId){
 function renderRouteList(){
   const wake = wakeHotelId(activeDay), sleep = sleepHotelId(activeDay);
   const stops = dayStops(activeDay);
-  document.getElementById('routeLabel').textContent = `Day ${activeDay} route (${stops.length} stops)`;
+  const activeDateSuffix = DAY_DATES[activeDay] ? ` · ${formatDayDate(DAY_DATES[activeDay])}` : '';
+  document.getElementById('routeLabel').textContent = `Day ${activeDay} route (${stops.length} stops)${activeDateSuffix}`;
   const el = document.getElementById('routeList');
   el.innerHTML = '';
   // Per-leg drive times inline in the route list, available once a route was
@@ -2299,6 +2974,25 @@ function setMobileSection(section){
 // Day timeline: departure at the chosen start time, each stop's arrival
 // clock time from the driving legs, plus the minutes spent per stop.
 // Hidden when the plan no longer matches what was last calculated.
+function renderTripOverview(){
+  const el = document.getElementById('tripOverview');
+  if(!PLACES.length){
+    el.innerHTML = '<div class="empty-note">Upload a trip to see an overview.</div>';
+    return;
+  }
+  const totalPlaces = PLACES.length + customPlaces.length;
+  const hotelIds = new Set(Object.values(DAY_HOTELS).filter(Boolean));
+  const incompleteDays = DAYS.filter(d=>getRouteIds(d).length < 2).length;
+  const longDays = DAYS.filter(d=>{
+    const est = dayDriveEstimate(d);
+    return est && est.min >= LONG_DRIVE_WARN_MIN;
+  }).length;
+  el.innerHTML = `
+    <p class="stats-total">${DAYS.length} day${DAYS.length===1?'':'s'}${TRIP_START ? ` · starts ${TRIP_START}` : ''}</p>
+    <p class="stats-sub">${totalPlaces} place${totalPlaces===1?'':'s'} · ${hotelIds.size} overnight stop${hotelIds.size===1?'':'s'}${incompleteDays ? ` · ${incompleteDays} day${incompleteDays===1?'':'s'} need${incompleteDays===1?'s':''} at least one stop` : ''}${longDays ? ` · ⚠️ ${longDays} long driving day${longDays===1?'':'s'}` : ''}</p>
+  `;
+}
+
 function renderStats(){
   const statsEl = document.getElementById('statsPanel');
   if(!lastRoute || lastRoute.day !== activeDay
@@ -2328,12 +3022,20 @@ function renderStats(){
   const driveMin = Math.round(route.duration/60);
   const hrs = Math.floor(driveMin/60), mins = driveMin%60;
   const sh = Math.floor(stayTotal/60), sm = stayTotal%60;
+  const longWarn = driveMin >= LONG_DRIVE_WARN_MIN
+    ? '<p class="stats-warn">⚠️ Long driving day — consider splitting stops across another day.</p>' : '';
   statsEl.innerHTML = `
     <p class="stats-total">${meta.start} → ${fmtClock(t)}</p>
-    <p class="stats-sub">${hrs}h ${mins}m driving · ${sh}h ${sm}m at stops · ${totalKm} km${isLoopDay(activeDay) ? ' · loops back to hotel' : ''}</p>
+    <p class="stats-sub">${hrs}h ${mins}m driving · ${sh}h ${sm}m at stops · ${totalKm} km${isLoopDay(activeDay) ? ' · loops back to hotel' : ''}${fuelCostText(Number(totalKm))}</p>
+    ${nowBanner(ids, route, meta)}
+    ${longWarn}
     ${rows}
   `;
 }
+// Refreshes the "now" banner (and everything else in the stats panel, which
+// is pure display — no inputs or listeners live inside it) once a minute so
+// the live indicator advances without the user touching anything.
+setInterval(renderStats, 60000);
 
 function renderAll(){
   renderTabs();
@@ -2342,12 +3044,81 @@ function renderAll(){
   renderMapMarkers();
   document.getElementById('dayStartInput').value = getDayMeta(activeDay).start;
   renderStats();
+  renderTripOverview();
+  renderWeather();
   renderTripUi();
   updateKmlStatus();
   saveLastVisit();
   document.getElementById('errorNote').textContent = '';
   // a plan change makes any AI summary stale — hide until re-requested
   document.getElementById('aiSummaryOut').style.display = 'none';
+}
+
+// Weather forecast for the active day, from Open-Meteo — free, keyless,
+// CORS-enabled for direct browser calls (same trust model as the Nominatim
+// geocoding already called client-side elsewhere in this app). Its forecast
+// horizon is about 16 days, so days outside that window — already past, or
+// too far in the future — show nothing rather than a stale/wrong guess.
+const WEATHER_CODE_LABELS = {
+  0: '☀️ Clear', 1: '🌤️ Mostly clear', 2: '⛅ Partly cloudy', 3: '☁️ Overcast',
+  45: '🌫️ Fog', 48: '🌫️ Fog',
+  51: '🌦️ Light drizzle', 53: '🌦️ Drizzle', 55: '🌧️ Dense drizzle',
+  56: '🌧️ Freezing drizzle', 57: '🌧️ Freezing drizzle',
+  61: '🌦️ Light rain', 63: '🌧️ Rain', 65: '🌧️ Heavy rain',
+  66: '🌧️ Freezing rain', 67: '🌧️ Freezing rain',
+  71: '🌨️ Light snow', 73: '🌨️ Snow', 75: '❄️ Heavy snow', 77: '🌨️ Snow grains',
+  80: '🌦️ Rain showers', 81: '🌧️ Rain showers', 82: '🌧️ Violent showers',
+  85: '🌨️ Snow showers', 86: '🌨️ Snow showers',
+  95: '⛈️ Thunderstorm', 96: '⛈️ Thunderstorm', 99: '⛈️ Thunderstorm',
+};
+let weatherCache = {};
+let weatherRequestToken = 0;
+async function fetchWeather(lat, lon, date){
+  const key = `${lat.toFixed(2)},${lon.toFixed(2)},${date}`;
+  if(key in weatherCache) return weatherCache[key];
+  try{
+    const url = 'https://api.open-meteo.com/v1/forecast?latitude=' + lat + '&longitude=' + lon +
+      '&daily=temperature_2m_max,temperature_2m_min,precipitation_sum,weathercode,sunrise,sunset' +
+      '&timezone=auto&start_date=' + date + '&end_date=' + date;
+    const res = await fetch(url);
+    if(!res.ok) throw new Error('HTTP ' + res.status);
+    const data = await res.json();
+    const d = data.daily;
+    if(!d || !d.time || !d.time.length) throw new Error('no forecast data');
+    // sunrise/sunset come back as local ISO timestamps ("...T05:32") since
+    // timezone=auto — just the HH:MM half is wanted for display.
+    const clockOf = iso => (iso || '').split('T')[1] || null;
+    const result = {
+      tMax: Math.round(d.temperature_2m_max[0]), tMin: Math.round(d.temperature_2m_min[0]),
+      precip: d.precipitation_sum[0], code: d.weathercode[0],
+      sunrise: clockOf(d.sunrise && d.sunrise[0]), sunset: clockOf(d.sunset && d.sunset[0]),
+    };
+    weatherCache[key] = result;
+    return result;
+  }catch(e){
+    weatherCache[key] = null;
+    return null;
+  }
+}
+async function renderWeather(){
+  const el = document.getElementById('weatherPanel');
+  if(!el) return;
+  const date = DAY_DATES[activeDay];
+  const ids = getRouteIds(activeDay);
+  const ref = ids.length ? byId[ids[0]] : null;
+  el.innerHTML = '';
+  if(!date || !ref) return;
+  const diffDays = Math.round((new Date(date + 'T00:00:00') - new Date(new Date().toDateString())) / 86400000);
+  if(diffDays < 0 || diffDays > 15) return;
+  const token = ++weatherRequestToken;
+  const forecast = await fetchWeather(ref.lat, ref.lon, date);
+  if(token !== weatherRequestToken) return; // a newer day was selected meanwhile
+  if(!forecast) return;
+  const label = WEATHER_CODE_LABELS[forecast.code] || '🌡️';
+  const precipText = forecast.precip > 0 ? ` · ${forecast.precip}mm rain` : '';
+  const sunText = forecast.sunrise && forecast.sunset
+    ? ` · 🌅 ${forecast.sunrise} 🌇 ${forecast.sunset}` : '';
+  el.innerHTML = `<p class="stats-sub">${label} ${forecast.tMax}° / ${forecast.tMin}°C${precipText}${sunText}</p>`;
 }
 
 async function fetchFromProxy(ids){
@@ -2622,6 +3393,471 @@ async function calculateRoute(){
   }
 }
 
+// ---- Printable / offline itinerary export ----
+// Builds one day's stop list with clock times, fetching driving times from
+// the routing API independently of whatever day is currently active/cached
+// in lastRoute. Days that can't be routed (offline, API down, rate limit)
+// still return a stop list — just without arrival times or leg distances —
+// so the export degrades gracefully instead of failing outright.
+async function buildDayItinerary(day){
+  const ids = getRouteIds(day);
+  const meta = getDayMeta(day);
+  const result = {
+    day, date: DAY_DATES[day] || null, start: meta.start,
+    loop: isLoopDay(day), stops: [], notes: [], routed: false, needsRoute: ids.length >= 2,
+    distanceKm: null, driveMin: null, end: null,
+  };
+  let route = null;
+  if(ids.length >= 2){
+    try{ route = await fetchFromProxy(ids); }
+    catch(e){ try{ route = await fetchFromOSRM(ids); }catch(e2){ route = null; } }
+  }
+  let t = parseClock(meta.start);
+  ids.forEach((id, i)=>{
+    const p = byId[id];
+    if(!p) return;
+    let legMin = null, legKm = null;
+    if(i > 0 && route){
+      const leg = route.legs[i-1];
+      legMin = Math.round(leg.duration/60);
+      legKm = (leg.distance/1000).toFixed(0);
+      t += legMin;
+    }
+    const stay = stayMinutes(day, id);
+    result.stops.push({name: p.name, overnight: !!p.overnight, stay, arrival: route ? fmtClock(t) : null, legMin, legKm});
+    t += stay;
+  });
+  if(route){
+    result.routed = true;
+    result.distanceKm = (route.distance/1000).toFixed(0);
+    result.driveMin = Math.round(route.duration/60);
+    result.end = fmtClock(t);
+  }
+  result.notes = commentsFor({scope:'day', day}).map(c=>c.text);
+  return result;
+}
+
+function renderPrintableItinerary(trip, days){
+  const routedDays = days.filter(d=>d.routed);
+  const totalKm = routedDays.reduce((s,d)=> s + Number(d.distanceKm), 0);
+  const totalMin = routedDays.reduce((s,d)=> s + d.driveMin, 0);
+  const unrouted = days.filter(d=>!d.routed && d.needsRoute).length;
+  const hrs = Math.floor(totalMin/60), mins = totalMin%60;
+  const fuel = loadFuelSettings();
+  const dayHtml = days.filter(d=>d.stops.length).map(d=>{
+    const rows = d.stops.map((s,i)=>{
+      const stopRow = `<tr>
+        <td class="t-time">${s.arrival || ''}</td>
+        <td>${s.overnight ? '🏨 ' : ''}${escapeHtml(s.name)}${s.stay ? ` <span class="t-stay">(${s.stay} min stop)</span>` : ''}</td>
+      </tr>`;
+      // the leg between stop i and i+1 is recorded as the *arrival* leg on
+      // stop i+1 (it's the drive that got you there), not on stop i.
+      const next = d.stops[i+1];
+      const legRow = next
+        ? `<tr class="t-leg"><td></td><td>${next.legMin != null ? `↓ drive ${next.legMin} min · ${next.legKm} km` : '↓ drive (time unavailable)'}</td></tr>`
+        : '';
+      return stopRow + legRow;
+    }).join('');
+    const notesHtml = d.notes.length
+      ? `<div class="t-notes"><b>Notes:</b> ${d.notes.map(n=>escapeHtml(n)).join(' · ')}</div>` : '';
+    const totalsHtml = d.routed
+      ? `<p class="t-total">${d.start} → ${d.end} · ${Math.floor(d.driveMin/60)}h ${d.driveMin%60}m driving · ${d.distanceKm} km${d.loop ? ' · loops back to hotel' : ''}${fuelCostText(Number(d.distanceKm), fuel)}</p>${d.driveMin >= LONG_DRIVE_WARN_MIN ? '<p class="t-total t-warn">⚠️ Long driving day</p>' : ''}`
+      : d.needsRoute
+        ? '<p class="t-total t-warn">Driving times unavailable for this day — showing stop order only.</p>'
+        : '<p class="t-total">No driving this day.</p>';
+    return `<div class="day-block">
+      <h2>Day ${d.day}${d.date ? ` — ${formatDayDate(d.date)}` : ''}</h2>
+      <table>${rows}</table>
+      ${totalsHtml}
+      ${notesHtml}
+    </div>`;
+  }).join('');
+  return `<!doctype html>
+<html><head><meta charset="utf-8">
+<title>${escapeHtml(trip.name)} — itinerary</title>
+<style>
+  body{font-family:-apple-system,Segoe UI,Helvetica,Arial,sans-serif;max-width:800px;margin:2rem auto;padding:0 1.5rem;color:#222;line-height:1.4;}
+  h1{margin-bottom:0.2rem;}
+  .t-sub{color:#666;margin-top:0;}
+  .t-summary{background:#f4f2ee;border-radius:8px;padding:0.8rem 1rem;margin:1rem 0 1.5rem;}
+  .day-block{page-break-inside:avoid;margin-bottom:1.6rem;border-top:1px solid #ddd;padding-top:0.8rem;}
+  .day-block h2{margin:0 0 0.5rem;font-size:1.1rem;}
+  table{width:100%;border-collapse:collapse;font-size:0.95rem;}
+  td{padding:2px 0;vertical-align:top;}
+  .t-time{width:4.5em;color:#555;font-variant-numeric:tabular-nums;}
+  .t-stay{color:#777;font-size:0.85em;}
+  tr.t-leg td{color:#888;font-size:0.85em;padding-left:4.5em;}
+  .t-total{color:#555;font-size:0.9rem;margin:0.4rem 0 0;}
+  .t-warn{color:#a05a00;}
+  .t-notes{font-size:0.9rem;color:#555;margin-top:0.3rem;}
+  .print-btn{position:fixed;top:1rem;right:1rem;padding:0.5rem 1rem;border-radius:6px;border:none;background:#C0552E;color:#fff;cursor:pointer;font-size:0.95rem;}
+  @media print{ .no-print{display:none;} body{margin:0;max-width:none;} }
+</style></head>
+<body>
+  <button class="print-btn no-print" onclick="window.print()">Print / Save as PDF</button>
+  <h1>${escapeHtml(trip.name)}</h1>
+  <p class="t-sub">${days.length} days${trip.tripStart ? ` · starting ${trip.tripStart}` : ''}</p>
+  <div class="t-summary">
+    ${totalKm ? `<b>${totalKm} km</b> total driving · <b>${hrs}h ${mins}m</b> total driving time${fuelCostText(totalKm, fuel)}` : 'Driving totals unavailable'}
+    ${unrouted ? ` · ${unrouted} day${unrouted>1?'s':''} without routing data` : ''}
+  </div>
+  ${dayHtml}
+</body></html>`;
+}
+
+// Opens a new tab synchronously (before any await) so browsers don't treat
+// it as a blocked popup, then fills it in once all days are fetched —
+// routing each day independently means this can take a few seconds.
+async function printTripItinerary(){
+  const trip = activeTrip();
+  if(!trip || !DAYS.length){
+    document.getElementById('errorNote').textContent = 'Load a trip first.';
+    return;
+  }
+  const win = window.open('', '_blank');
+  if(!win){
+    document.getElementById('errorNote').textContent = 'Could not open a new tab — check your popup blocker.';
+    return;
+  }
+  win.document.write('<!doctype html><title>Building itinerary…</title><body style="font-family:sans-serif;padding:2rem;color:#555"><p id="loadingMsg">Fetching driving times…</p></body>');
+  const btn = document.getElementById('printTripBtn');
+  const prevLabel = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = 'Building…';
+  try{
+    const days = [];
+    for(const day of DAYS){
+      const msgEl = win.document.getElementById('loadingMsg');
+      if(msgEl) msgEl.textContent = `Fetching driving times… (day ${day} of ${DAYS.length})`;
+      days.push(await buildDayItinerary(day));
+    }
+    win.document.open();
+    win.document.write(renderPrintableItinerary({...trip, tripStart: TRIP_START}, days));
+    win.document.close();
+  }catch(e){
+    win.document.body.innerHTML = '<p style="font-family:sans-serif;color:#900;padding:2rem;">Could not build itinerary: ' + escapeHtml(e.message) + '</p>';
+  }finally{
+    btn.disabled = false;
+    btn.textContent = prevLabel;
+  }
+}
+
+// ---- GPX export ----
+// One file for the whole trip: every stop as a <wpt> (deduped across days,
+// like PLACES already is), plus a <trk> per day when that day's route can
+// be fetched — same sequential per-day fetch-with-fallback as the printable
+// itinerary, so a day that can't be routed just loses its track line
+// instead of failing the whole export. For loading into a GPS device/app
+// (Garmin, OsmAnd, Google Earth…) rather than turn-by-turn nav in-app.
+async function buildTripGpx(trip){
+  const seen = new Set();
+  const wpts = [];
+  for(const day of DAYS){
+    getRouteIds(day).forEach(id=>{
+      if(seen.has(id)) return;
+      seen.add(id);
+      const p = byId[id];
+      if(!p) return;
+      wpts.push(`  <wpt lat="${p.lat}" lon="${p.lon}"><name>${escapeHtml(p.name)}</name>${p.overnight ? '<sym>Lodging</sym>' : ''}</wpt>`);
+    });
+  }
+  const tracks = [];
+  for(const day of DAYS){
+    const ids = getRouteIds(day);
+    if(ids.length < 2) continue;
+    let route = null;
+    try{ route = await fetchFromProxy(ids); }
+    catch(e){ try{ route = await fetchFromOSRM(ids); }catch(e2){ route = null; } }
+    const coords = route?.geometry?.coordinates;
+    if(!coords || !coords.length) continue;
+    const pts = coords.map(([lon,lat])=>`      <trkpt lat="${lat}" lon="${lon}"></trkpt>`).join('\n');
+    tracks.push(`  <trk><name>Day ${day}</name><trkseg>\n${pts}\n  </trkseg></trk>`);
+  }
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<gpx version="1.1" creator="Trip Planner" xmlns="http://www.topografix.com/GPX/1/1">
+  <metadata><name>${escapeHtml(trip.name)}</name></metadata>
+${wpts.join('\n')}
+${tracks.join('\n')}
+</gpx>
+`;
+}
+
+async function exportTripGpx(){
+  const trip = activeTrip();
+  if(!trip || !DAYS.length){
+    document.getElementById('errorNote').textContent = 'Load a trip first.';
+    return;
+  }
+  const btn = document.getElementById('exportGpxBtn');
+  const prevLabel = btn.textContent;
+  btn.disabled = true;
+  try{
+    btn.textContent = 'Building…';
+    const gpx = await buildTripGpx(trip);
+    const blob = new Blob([gpx], {type: 'application/gpx+xml'});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${(trip.name || 'trip').replace(/[^\w\- ]+/g, '').trim() || 'trip'}.gpx`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  }catch(e){
+    document.getElementById('errorNote').textContent = 'Could not export GPX: ' + e.message;
+  }finally{
+    btn.disabled = false;
+    btn.textContent = prevLabel;
+  }
+}
+
+// ---- ICS calendar export ----
+// One VEVENT per day, spanning that day's planned start time to its
+// computed end time — reuses buildDayItinerary(), the same per-day
+// fetch-with-fallback the printable itinerary and GPX export already use,
+// so a day that can't be routed just falls back to a rough default
+// duration instead of failing the whole export. Deliberately floating
+// local time (no TZID/Z on DTSTART/DTEND, just a bare VEVENT) rather than a
+// full VTIMEZONE block — the simplest thing that actually works, and it's
+// how a phone calendar naturally reads a road-trip day while the
+// traveler's own device is set to the trip's timezone.
+const ICS_DEFAULT_DAY_HOURS = 4;
+function icsEscape(s){
+  return String(s || '').replace(/\\/g, '\\\\').replace(/,/g, '\\,').replace(/;/g, '\\;').replace(/\n/g, '\\n');
+}
+// RFC 5545: content lines must not exceed 75 octets; continuation lines
+// start with a single leading space.
+function icsFold(line){
+  if(line.length <= 74) return line;
+  let out = line.slice(0, 74);
+  let rest = line.slice(74);
+  while(rest.length){
+    out += '\r\n ' + rest.slice(0, 73);
+    rest = rest.slice(73);
+  }
+  return out;
+}
+function icsDateTime(dateIso, hhmm){
+  return dateIso.replace(/-/g, '') + 'T' + (hhmm || '09:00').replace(':', '') + '00';
+}
+function buildTripIcs(days){
+  const dtstamp = new Date().toISOString().replace(/[-:]/g, '').split('.')[0] + 'Z';
+  const events = days.filter(d=>d.date && d.stops.length).map(d=>{
+    // A day's *first* stop can also be flagged overnight (it's the previous
+    // night's hotel, pinned as the route's start) — only the *last* stop is
+    // reliably tonight's destination, per parseKmlTrip's contract that a
+    // folder's last placemark is that night's accommodation.
+    const lastStop = d.stops[d.stops.length - 1];
+    const overnightStop = lastStop.overnight ? lastStop : null;
+    const firstStop = d.stops[0];
+    const summary = overnightStop && overnightStop !== firstStop
+      ? `Day ${d.day}: drive to ${overnightStop.name}` : `Day ${d.day}: ${firstStop.name}`;
+    const dtstart = icsDateTime(d.date, d.start);
+    const endTime = d.routed && d.end ? d.end : fmtClock(parseClock(d.start) + ICS_DEFAULT_DAY_HOURS * 60);
+    const dtend = icsDateTime(d.date, endTime);
+    const descParts = [d.stops.map(s=>(s.overnight ? '🏨 ' : '') + s.name).join('\n')];
+    if(d.routed) descParts.push(`${Math.floor(d.driveMin/60)}h ${d.driveMin%60}m driving \u00b7 ${d.distanceKm} km`);
+    if(d.notes.length) descParts.push('Notes: ' + d.notes.join('; '));
+    return [
+      'BEGIN:VEVENT',
+      `UID:tripplan-day${d.day}-${dtstart}@tripplanner`,
+      `DTSTAMP:${dtstamp}`,
+      `DTSTART:${dtstart}`,
+      `DTEND:${dtend}`,
+      `SUMMARY:${icsEscape(summary)}`,
+      `DESCRIPTION:${icsEscape(descParts.join('\n\n'))}`,
+      `LOCATION:${icsEscape((overnightStop || firstStop).name)}`,
+      'END:VEVENT',
+    ].map(icsFold).join('\r\n');
+  });
+  return ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Trip Planner//EN', 'CALSCALE:GREGORIAN',
+    ...events, 'END:VCALENDAR'].join('\r\n') + '\r\n';
+}
+
+async function exportTripIcs(){
+  const trip = activeTrip();
+  if(!trip || !DAYS.length){
+    document.getElementById('errorNote').textContent = 'Load a trip first.';
+    return;
+  }
+  const btn = document.getElementById('exportIcsBtn');
+  const prevLabel = btn.textContent;
+  btn.disabled = true;
+  try{
+    const days = [];
+    for(const day of DAYS){
+      btn.textContent = `Building… (day ${day} of ${DAYS.length})`;
+      days.push(await buildDayItinerary(day));
+    }
+    const ics = buildTripIcs(days);
+    const blob = new Blob([ics], {type: 'text/calendar'});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${(trip.name || 'trip').replace(/[^\w\- ]+/g, '').trim() || 'trip'}.ics`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  }catch(e){
+    document.getElementById('errorNote').textContent = 'Could not export calendar: ' + e.message;
+  }finally{
+    btn.disabled = false;
+    btn.textContent = prevLabel;
+  }
+}
+
+// Trip backup: everything needed to fully recreate a trip elsewhere —
+// the KML source (plans reference place ids deterministically derived from
+// it, per parseKmlTrip's contract) plus every variant's plan/dayMeta/
+// customPlaces, enrichment, comments, packing, and budget. The KML file
+// alone can be re-uploaded from wherever it came from, but variants,
+// enrichment, comments, packing, and budget exist only inside this app —
+// this is the only way to get them back if local storage is cleared or an
+// account is lost.
+function buildTripBackup(){
+  const trip = activeTrip();
+  if(!trip) return null;
+  const tripId = tripsIndex.activeTripId;
+  const source = remoteMode ? remoteSources[tripId] : localStorage.getItem(`tripplan-trip-src:${tripId}`);
+  const variants = Object.entries(trip.variants).map(([variantId, name])=>{
+    let state;
+    if(variantId === trip.activeVariantId){
+      state = {plans, dayMeta, customPlaces};
+    }else if(remoteMode){
+      state = remoteVariantState[`${tripId}:${variantId}`] || {};
+    }else{
+      try{ state = JSON.parse(localStorage.getItem(variantKey(tripId, variantId))) || {}; }
+      catch(e){ state = {}; }
+    }
+    return {name, plans: state.plans || {}, dayMeta: state.dayMeta || {}, customPlaces: state.customPlaces || []};
+  });
+  return {
+    kind: 'trip-planner-backup', version: 1, exportedAt: new Date().toISOString(),
+    name: trip.name, filename: trip.filename, kml_source: source,
+    variants, enrichment, comments: tripComments, packingList, budgetItems,
+  };
+}
+
+function exportTripBackup(){
+  const backup = buildTripBackup();
+  if(!backup || backup.kml_source == null){
+    document.getElementById('errorNote').textContent = 'Load a trip first.';
+    return;
+  }
+  const blob = new Blob([JSON.stringify(backup, null, 2)], {type: 'application/json'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `${(backup.name || 'trip').replace(/[^\w\- ]+/g, '').trim() || 'trip'}-backup.json`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
+// Restores a backup as a brand-new trip (never overwrites an existing one).
+// Pushes data through the same endpoints the UI itself uses (create trip,
+// create/rename variants, PUT enrichment/packing/budget, POST each comment)
+// rather than writing storage directly, so it can't drift from what those
+// endpoints validate/sanitize — then reloads from the server as the single
+// source of truth instead of hand-building the new trip's index entry.
+async function restoreTripBackup(file){
+  const errEl = document.getElementById('kmlError');
+  errEl.textContent = '';
+  let data;
+  try{
+    const text = await file.text();
+    data = JSON.parse(text);
+  }catch(e){
+    errEl.textContent = 'Could not read backup file: ' + e.message;
+    return;
+  }
+  if(!data || typeof data.kml_source !== 'string' || !Array.isArray(data.variants) || !data.variants.length){
+    errEl.textContent = "That file doesn't look like a trip backup.";
+    return;
+  }
+  const name = typeof data.name === 'string' && data.name.trim() ? data.name.trim() : 'Restored trip';
+  const filename = typeof data.filename === 'string' && data.filename.trim() ? data.filename.trim() : 'restored.kml';
+  const btn = document.getElementById('restoreBackupBtn');
+  const prevLabel = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = 'Restoring…';
+  try{
+    let tripId;
+    if(remoteMode){
+      const created = await api('/api/trips', {
+        method:'POST',
+        body: JSON.stringify({name, filename, kml_source: data.kml_source}),
+      });
+      tripId = created.trip.trip_id;
+      const first = data.variants[0];
+      await api(`/api/trips/${tripId}/variants/${created.variant.variant_id}`, {
+        method:'PUT',
+        body: JSON.stringify({
+          version: created.variant.version, name: first.name || 'Main',
+          plans: first.plans || {}, dayMeta: first.dayMeta || {}, customPlaces: first.customPlaces || [],
+        }),
+      });
+      for(const v of data.variants.slice(1)){
+        await api(`/api/trips/${tripId}/variants`, {
+          method:'POST',
+          body: JSON.stringify({name: v.name || 'Variant', plans: v.plans || {}, dayMeta: v.dayMeta || {}, customPlaces: v.customPlaces || []}),
+        });
+      }
+      if(Array.isArray(data.enrichment)){
+        await api(`/api/trips/${tripId}/enrichment`, {method:'PUT', body: JSON.stringify({enrichment: data.enrichment})});
+      }
+      if(Array.isArray(data.packingList)){
+        await api(`/api/trips/${tripId}/packing`, {method:'PUT', body: JSON.stringify({packingList: data.packingList})});
+      }
+      if(Array.isArray(data.budgetItems)){
+        await api(`/api/trips/${tripId}/budget`, {method:'PUT', body: JSON.stringify({budgetItems: data.budgetItems})});
+      }
+      if(Array.isArray(data.comments)){
+        for(const c of data.comments){
+          if(!c || !c.text || !c.scope) continue;
+          const body = {scope: c.scope, text: c.text};
+          if(c.scope === 'day') body.day = c.day;
+          if(c.scope === 'place') body.placeId = c.placeId;
+          try{ await api(`/api/trips/${tripId}/comments`, {method:'POST', body: JSON.stringify(body)}); }
+          catch(e){ /* one bad comment shouldn't abort the whole restore */ }
+        }
+      }
+      await loadRemoteIndex();
+    }else{
+      tripId = addTrip(name, filename, data.kml_source);
+      const trip = tripsIndex.trips[tripId];
+      const firstVariantId = Object.keys(trip.variants)[0];
+      const first = data.variants[0];
+      localStorage.setItem(variantKey(tripId, firstVariantId), JSON.stringify({
+        plans: first.plans || {}, dayMeta: first.dayMeta || {}, customPlaces: first.customPlaces || [],
+      }));
+      trip.variants[firstVariantId] = first.name || 'Main';
+      for(const v of data.variants.slice(1)){
+        const variantId = newId();
+        localStorage.setItem(variantKey(tripId, variantId), JSON.stringify({
+          plans: v.plans || {}, dayMeta: v.dayMeta || {}, customPlaces: v.customPlaces || [],
+        }));
+        trip.variants[variantId] = v.name || 'Variant';
+      }
+      localStorage.setItem(`tripplan-enrich:${tripId}`, JSON.stringify(Array.isArray(data.enrichment) ? data.enrichment : []));
+      localStorage.setItem(`tripplan-comments:${tripId}`, JSON.stringify(Array.isArray(data.comments) ? data.comments : []));
+      localStorage.setItem(`tripplan-packing:${tripId}`, JSON.stringify(Array.isArray(data.packingList) ? data.packingList : []));
+      localStorage.setItem(`tripplan-budget:${tripId}`, JSON.stringify(Array.isArray(data.budgetItems) ? data.budgetItems : []));
+      saveTripsIndex();
+    }
+    tripsIndex.activeTripId = tripId;
+    saveTripsIndex();
+    activateCurrentTrip();
+  }catch(e){
+    errEl.textContent = 'Restore failed: ' + e.message;
+  }finally{
+    btn.disabled = false;
+    btn.textContent = prevLabel;
+  }
+}
+
 function haversineKm(a, b){
   const rad = x => x * Math.PI / 180;
   const dLat = rad(b.lat - a.lat), dLon = rad(b.lon - a.lon);
@@ -2801,8 +4037,25 @@ document.getElementById('shareTripBtn').addEventListener('click', async ()=>{
   }
 });
 document.getElementById('deleteTripBtn').addEventListener('click', ()=>deleteTrip(tripsIndex.activeTripId));
+document.getElementById('printTripBtn').addEventListener('click', printTripItinerary);
+document.getElementById('exportGpxBtn').addEventListener('click', exportTripGpx);
+document.getElementById('exportIcsBtn').addEventListener('click', exportTripIcs);
+document.getElementById('backupTripBtn').addEventListener('click', exportTripBackup);
+document.getElementById('restoreBackupBtn').addEventListener('click', ()=>{
+  document.getElementById('backupFileInput').click();
+});
+document.getElementById('backupFileInput').addEventListener('change', async (e)=>{
+  const file = e.target.files[0];
+  e.target.value = '';
+  if(file) await restoreTripBackup(file);
+});
+document.getElementById('placeSearchInput').addEventListener('input', (e)=>{
+  placeFilter = e.target.value;
+  renderMasterList();
+});
 document.getElementById('addPlaceBtn').addEventListener('click', startPlacing);
 document.getElementById('addPlaceFromMapsBtn').addEventListener('click', importFromMapsLink);
+document.getElementById('searchPlaceBtn').addEventListener('click', searchPlaceByName);
 document.addEventListener('keydown', (e)=>{
   if(e.key === 'Escape' && placingName) cancelPlacing();
   if(e.key === 'Escape') hidePlaceInfo();
@@ -2812,6 +4065,27 @@ document.getElementById('infoModal').addEventListener('click', (e)=>{
   if(e.target === e.currentTarget) hidePlaceInfo();
 });
 document.getElementById('commentAddBtn').addEventListener('click', addComment);
+document.getElementById('packingBtn').addEventListener('click', openPackingModal);
+document.getElementById('packingModalClose').addEventListener('click', closePackingModal);
+document.getElementById('packingModal').addEventListener('click', (e)=>{
+  if(e.target === e.currentTarget) closePackingModal();
+});
+document.getElementById('packingAddBtn').addEventListener('click', addPackingItem);
+document.getElementById('packingInput').addEventListener('keydown', (e)=>{
+  if(e.key === 'Enter') addPackingItem();
+});
+document.getElementById('budgetBtn').addEventListener('click', openBudgetModal);
+document.getElementById('budgetModalClose').addEventListener('click', closeBudgetModal);
+document.getElementById('budgetModal').addEventListener('click', (e)=>{
+  if(e.target === e.currentTarget) closeBudgetModal();
+});
+document.getElementById('budgetAddBtn').addEventListener('click', addBudgetItem);
+document.getElementById('budgetLabel').addEventListener('keydown', (e)=>{
+  if(e.key === 'Enter') addBudgetItem();
+});
+document.getElementById('budgetAmount').addEventListener('keydown', (e)=>{
+  if(e.key === 'Enter') addBudgetItem();
+});
 document.getElementById('dayNotesBtn').addEventListener('click', ()=>{
   if(!activeTrip()) return;
   openModal({scope:'day', day: activeDay}, `Day ${activeDay} — notes`);
@@ -2825,7 +4099,7 @@ document.getElementById('tripNotesBtn').addEventListener('click', ()=>{
 // ---- AI day summary (Bedrock, currently owner-only server-side) ----
 function dayDescriptionText(){
   const ids = getRouteIds(activeDay);
-  const lines = [`Day ${activeDay}` + (DAY_DATES[activeDay] ? ` (${DAY_DATES[activeDay]})` : '') + ':'];
+  const lines = [`Day ${activeDay}` + (DAY_DATES[activeDay] ? ` (${formatDayDate(DAY_DATES[activeDay])})` : '') + ':'];
   const legMatch = lastRoute && lastRoute.day === activeDay
     && lastRoute.ids.join() === ids.join();
   ids.forEach((id, i)=>{
@@ -2847,6 +4121,26 @@ function dayDescriptionText(){
   commentsFor({scope:'day', day: activeDay}).forEach(c=>lines.push(`Note: ${c.text}`));
   return lines.join('\n');
 }
+document.getElementById('copyDayBtn').addEventListener('click', async ()=>{
+  const btn = document.getElementById('copyDayBtn');
+  if(getRouteIds(activeDay).length < 1){
+    btn.textContent = 'Nothing to copy yet';
+    setTimeout(()=>{ btn.textContent = '📋 Copy day plan'; }, 1500);
+    return;
+  }
+  const text = dayDescriptionText();
+  try{
+    await navigator.clipboard.writeText(text);
+    btn.textContent = '✓ Copied';
+  }catch(e){
+    // clipboard API can be blocked (permissions, non-HTTPS) — fall back to a
+    // manual-copy prompt so the text is still reachable.
+    window.prompt('Copy this day\'s plan:', text);
+    btn.textContent = '📋 Copy day plan';
+    return;
+  }
+  setTimeout(()=>{ btn.textContent = '📋 Copy day plan'; }, 1500);
+});
 document.getElementById('aiSummaryBtn').addEventListener('click', async ()=>{
   const btn = document.getElementById('aiSummaryBtn');
   const out = document.getElementById('aiSummaryOut');
@@ -2930,6 +4224,20 @@ document.getElementById('dayStartInput').addEventListener('change', (e)=>{
   saveMeta();
   renderStats();
 });
+
+['fuelConsumption', 'fuelPrice', 'fuelCurrency'].forEach(id=>{
+  document.getElementById(id).addEventListener('input', ()=>{
+    saveFuelSettings(fuelSettingsFromInputs());
+    renderStats();
+  });
+});
+
+document.getElementById('themeToggleBtn').addEventListener('click', toggleTheme);
+if(window.matchMedia){
+  window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', ()=>{
+    if(!localStorage.getItem('tripplan-theme')) applyTheme(null);
+  });
+}
 
 document.querySelectorAll('.mobile-tab-btn').forEach(btn=>{
   btn.addEventListener('click', ()=> setMobileSection(btn.dataset.section));
@@ -3188,6 +4496,36 @@ function applyTrip(parsed){
   DAY_DATES = parsed.dayDates;
   TRIP_START = DAY_DATES[DAYS[0]] || null;
   computeDayHotels();
+  computeNearDuplicates();
+}
+
+// Flags places that sit within a few meters of each other but weren't
+// deduped (deduping is exact name+coords match) — usually two KML
+// placemarks for the same real-world spot with slightly different
+// coordinates or a typo'd name. Purely informational: never merges or
+// drops anything, just surfaces it so the user can decide.
+function computeNearDuplicates(){
+  NEAR_DUPES = {};
+  const THRESHOLD_KM = 0.05; // ~50 meters
+  for(let i = 0; i < PLACES.length; i++){
+    for(let j = i + 1; j < PLACES.length; j++){
+      const a = PLACES[i], b = PLACES[j];
+      const km = haversineKm(a, b);
+      if(km < THRESHOLD_KM){
+        (NEAR_DUPES[a.id] ||= []).push({id: b.id, name: b.name, km});
+        (NEAR_DUPES[b.id] ||= []).push({id: a.id, name: a.name, km});
+      }
+    }
+  }
+}
+
+function dupeBadgeHtml(id){
+  const dupes = NEAR_DUPES[id];
+  if(!dupes || !dupes.length) return '';
+  const title = dupes.length === 1
+    ? `Very close to "${dupes[0].name}" (${Math.round(dupes[0].km*1000)} m away) — might be the same real-world stop`
+    : `Very close to ${dupes.length} other places — might be the same real-world stop`;
+  return `<span class="dupe-badge" title="${escapeHtml(title)}">⚠️</span>`;
 }
 
 function updateKmlStatus(){
@@ -3228,6 +4566,8 @@ function clearActiveTrip(){
   customPlaces = [];
   tripComments = [];
   enrichment = [];
+  packingList = [];
+  budgetItems = [];
   rebuildById();
   lastRoute = null;
 }
@@ -3251,6 +4591,8 @@ async function deleteTrip(tripId){
     delete remoteSources[tripId];
     delete remoteEnrichment[tripId];
     delete remoteComments[tripId];
+    delete remotePacking[tripId];
+    delete remoteBudget[tripId];
   }
   delete tripsIndex.trips[tripId];
   const next = Object.keys(tripsIndex.trips)[0] || null;
@@ -3261,6 +4603,8 @@ async function deleteTrip(tripId){
     localStorage.removeItem(`tripplan-trip-src:${tripId}`);
     localStorage.removeItem(`tripplan-enrich:${tripId}`);
     localStorage.removeItem(`tripplan-comments:${tripId}`);
+    localStorage.removeItem(`tripplan-packing:${tripId}`);
+    localStorage.removeItem(`tripplan-budget:${tripId}`);
     Object.keys(localStorage)
       .filter(k=>k.startsWith(`tripplan-variant:${tripId}:`))
       .forEach(k=>localStorage.removeItem(k));
@@ -3406,26 +4750,28 @@ function renderTripUi(){
   }
 }
 
+// Offline app shell + map-tile caching for signal-dead stretches of a road
+// trip — see aws/sw.js. Registration is fire-and-forget: a failure here
+// (unsupported browser, blocked by an extension) just means the app behaves
+// exactly as it did before this feature existed.
+if('serviceWorker' in navigator){
+  window.addEventListener('load', ()=>{
+    navigator.serviceWorker.register('/sw.js').catch(()=>{});
+  });
+}
+
 (function start(){
   migrateLegacyStorage();
   loadTripsIndex();
   initMap();
   watchLocation();
-  let loadError = '';
-  if(activeTrip()){
-    try{
-      const source = localStorage.getItem(`tripplan-trip-src:${tripsIndex.activeTripId}`);
-      if(source === null) throw new Error('trip data is missing from storage');
-      applyTrip(parseKmlTrip(source));
-      loadVariant();
-      activeDay = initialDay();
-    }catch(e){
-      clearActiveTrip();
-      loadError = 'Could not load stored trip: ' + e.message;
-    }
-  }
-  renderAll();
-  if(loadError) document.getElementById('errorNote').textContent = loadError;
+  applyFuelSettingsToInputs(loadFuelSettings());
+  applyTheme(localStorage.getItem('tripplan-theme'));
+  // Same trip-loading logic as switching trips (parse KML, load enrichment/
+  // comments/packing/variant, render) — used to be duplicated here with
+  // enrichment/comments/packing left out, so a plain page reload silently
+  // dropped them until the next trip switch.
+  activateCurrentTrip();
   setMobileSection(mobileSection);
   initAuth();
 })();

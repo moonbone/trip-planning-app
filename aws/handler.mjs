@@ -18,7 +18,7 @@ import {
 } from './auth.mjs';
 import {
   upsertUser, getUser, listUsers, newStoreId, VersionConflictError,
-  createTrip, getTrip, listTripsForOwner, deleteTrip, putTripEnrichment,
+  createTrip, getTrip, listTripsForOwner, deleteTrip, putTripEnrichment, putTripPacking, putTripBudget,
   addTripComment, deleteTripComment,
   listVariants, getVariant, putVariant, deleteVariant,
   listSharesForTrip, listSharesForEmail, putShare, deleteShare,
@@ -32,6 +32,11 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 // deploy.sh copies the repo's index.html next to this file before zipping,
 // so this read works both locally and in the deployed package.
 const INDEX_HTML = readFileSync(join(__dirname, 'index.html'), 'utf8');
+// Service worker + PWA manifest + icon live in aws/ directly (no root-level
+// counterpart to copy in, unlike index.html) — see deploy.sh for the zip step.
+const SW_JS = readFileSync(join(__dirname, 'sw.js'), 'utf8');
+const MANIFEST_JSON = readFileSync(join(__dirname, 'manifest.webmanifest'), 'utf8');
+const ICON_SVG = readFileSync(join(__dirname, 'icon.svg'), 'utf8');
 
 // Trip location data never touches the server: the browser parses a
 // user-uploaded KML client-side and keeps it in localStorage.
@@ -42,6 +47,11 @@ const INDEX_HTML = readFileSync(join(__dirname, 'index.html'), 'utf8');
 // GET responses with no validator quite aggressively).
 const HTML_HEADERS = { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' };
 const JSON_HEADERS = { 'Content-Type': 'application/json' };
+// Same no-store reasoning as HTML_HEADERS: a service worker update should
+// reach the browser on the very next visit, not sit behind an HTTP cache.
+const SW_HEADERS = { 'Content-Type': 'application/javascript; charset=utf-8', 'Cache-Control': 'no-store' };
+const MANIFEST_HEADERS = { 'Content-Type': 'application/manifest+json', 'Cache-Control': 'no-store' };
+const SVG_HEADERS = { 'Content-Type': 'image/svg+xml', 'Cache-Control': 'no-store' };
 
 export const handler = async (event) => {
   const method = event.requestContext?.http?.method ?? event.httpMethod ?? 'GET';
@@ -49,6 +59,18 @@ export const handler = async (event) => {
 
   if (method === 'GET' && (rawPath === '/' || rawPath === '/index.html')) {
     return { statusCode: 200, headers: HTML_HEADERS, body: INDEX_HTML };
+  }
+
+  if (method === 'GET' && rawPath === '/sw.js') {
+    return { statusCode: 200, headers: SW_HEADERS, body: SW_JS };
+  }
+
+  if (method === 'GET' && rawPath === '/manifest.webmanifest') {
+    return { statusCode: 200, headers: MANIFEST_HEADERS, body: MANIFEST_JSON };
+  }
+
+  if (method === 'GET' && rawPath === '/icon.svg') {
+    return { statusCode: 200, headers: SVG_HEADERS, body: ICON_SVG };
   }
 
   if (rawPath === '/route') {
@@ -347,6 +369,12 @@ const MAX_ENRICHMENT_BYTES = 300 * 1024;
 const MAX_NAME_LEN = 200;
 const MAX_COMMENT_LEN = 1000;
 const MAX_COMMENTS_PER_TRIP = 500;
+const MAX_PACKING_ITEMS = 300;
+const MAX_PACKING_TEXT_LEN = 200;
+const MAX_BUDGET_ITEMS = 300;
+const MAX_BUDGET_LABEL_LEN = 120;
+const MAX_BUDGET_CATEGORY_LEN = 40;
+const MAX_BUDGET_AMOUNT = 100_000_000;
 
 // Sharing roles (phase 4): viewer < editor < co-owner < owner. Editors
 // change plans/variants; co-owners also manage shares; only the owner
@@ -518,6 +546,48 @@ async function handleTripsApi(event, method, rawPath) {
       }
       await putTripEnrichment(tripId, body.enrichment);
       return ok({ ok: true });
+    }
+
+    // /api/trips/:id/packing — a simple trip-wide checklist (not
+    // variant-scoped — what to pack doesn't change between route plans).
+    // Whole list replaced on each PUT, same shallow read-modify-write as
+    // enrichment; editor and up.
+    if (parts[3] === 'packing') {
+      if (method !== 'PUT') return jsonError(405, 'Method not allowed');
+      if (ROLE_RANK[role] < ROLE_RANK.editor) return jsonError(403, 'View-only access');
+      if (!Array.isArray(body.packingList)) return jsonError(400, 'packingList must be an array');
+      if (body.packingList.length > MAX_PACKING_ITEMS) {
+        return jsonError(400, `Too many items (max ${MAX_PACKING_ITEMS})`);
+      }
+      const cleaned = body.packingList.map((it) => ({
+        id: String(it.id || newStoreId()),
+        text: String(it.text || '').replace(/[\x00-\x08\x0B-\x1F\x7F-\x9F]/g, '').trim().slice(0, MAX_PACKING_TEXT_LEN),
+        checked: !!it.checked,
+      })).filter((it) => it.text);
+      await putTripPacking(tripId, cleaned);
+      return ok({ packingList: cleaned });
+    }
+
+    // /api/trips/:id/budget — a flat trip-wide cost list (not variant-scoped,
+    // same reasoning and same whole-array-PUT shape as packing); editor and up.
+    if (parts[3] === 'budget') {
+      if (method !== 'PUT') return jsonError(405, 'Method not allowed');
+      if (ROLE_RANK[role] < ROLE_RANK.editor) return jsonError(403, 'View-only access');
+      if (!Array.isArray(body.budgetItems)) return jsonError(400, 'budgetItems must be an array');
+      if (body.budgetItems.length > MAX_BUDGET_ITEMS) {
+        return jsonError(400, `Too many items (max ${MAX_BUDGET_ITEMS})`);
+      }
+      const cleanedBudget = body.budgetItems.map((it) => {
+        const amount = Number(it.amount);
+        return {
+          id: String(it.id || newStoreId()),
+          category: String(it.category || 'Other').replace(/[\x00-\x08\x0B-\x1F\x7F-\x9F]/g, '').trim().slice(0, MAX_BUDGET_CATEGORY_LEN) || 'Other',
+          label: String(it.label || '').replace(/[\x00-\x08\x0B-\x1F\x7F-\x9F]/g, '').trim().slice(0, MAX_BUDGET_LABEL_LEN),
+          amount: Number.isFinite(amount) && amount >= 0 && amount <= MAX_BUDGET_AMOUNT ? amount : 0,
+        };
+      }).filter((it) => it.label);
+      await putTripBudget(tripId, cleanedBudget);
+      return ok({ budgetItems: cleanedBudget });
     }
 
     // /api/trips/:id/variants[/:vid] — writes need editor and up

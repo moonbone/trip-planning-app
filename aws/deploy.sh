@@ -76,6 +76,9 @@ cp aws/auth.mjs build/auth.mjs
 cp aws/store.mjs build/store.mjs
 cp aws/ai.mjs build/ai.mjs
 cp index.html build/index.html
+cp aws/sw.js build/sw.js
+cp aws/manifest.webmanifest build/manifest.webmanifest
+cp aws/icon.svg build/icon.svg
 (cd build && zip -qr ../function.zip .)
 rm -rf build
 
