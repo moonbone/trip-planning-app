@@ -3,6 +3,99 @@
 A running log of what each scheduled nightly session built on `beta`, so
 future runs don't duplicate or contradict prior work. Newest entry first.
 
+## 2026-08-15
+
+`beta` was at 8fcdb2e going in (last night's four features: now indicator,
+sunrise/sunset, offline PWA support). Fetched the real feature-request
+backlog from mainline (`GET /tickets`) — of 10 tickets, only one was
+actionable (`new`/`in_progress`); everything else was already `done`. Three
+changes tonight, each committed and pushed separately, each verified
+against the local dev-server (Playwright, `AUTH_DEV_FAKE=1`) before pushing:
+
+1. **Mainline ticket `mst440x8g0duze` ("Dates" — "Please add dates to each
+   day").** `DAY_DATES` was already parsed from every KML upload but only
+   ever reached the user as a raw `YYYY-MM-DD` string in one export path
+   (copy-day-plan) — the primary day tabs, what someone actually looks at
+   to navigate the trip, showed only "Day N" with no date at all. Added a
+   shared `formatDayDate()` helper (e.g. "Sun, Aug 16") and wired it into
+   the tab bar (a new small `.tab-date` sub-line under each tab), the route
+   panel's day label, and the printable itinerary header, replacing the
+   raw ISO string there too. **Marked `in_beta` on mainline** via the
+   admin-token PATCH once pushed and confirmed live.
+
+2. **Add a custom place by searching its name/address.** The two existing
+   ways to add a custom place (map click, paste a Google Maps link) both
+   assume you already have a location in hand. A new "🔍 Search" button
+   next to "📍 From Maps" reuses `geocodeAddress()`/Nominatim — the same
+   helper the Maps-link import already falls back to when a share link
+   carries a place name but no coordinates — so this was mostly new UI
+   wiring around an existing, previously-tested code path, not new
+   geocoding logic.
+
+3. **Whole-trip calendar (`.ics`) export.** Every export so far (print,
+   GPX, backup) targets a specific tool; nothing put the trip on an actual
+   phone calendar. "📅 Export calendar" (next to GPX export) downloads one
+   `VEVENT` per day, spanning that day's planned start time to its computed
+   end time, reusing `buildDayItinerary()` — the same per-day
+   fetch-with-fallback GPX/print already use, so an unrouted day falls back
+   to a rough 4h default duration instead of breaking the export. Uses
+   floating local time (no `TZID`/`Z` on `DTSTART`/`DTEND`) rather than a
+   full `VTIMEZONE` block — simplest thing that reads correctly on a phone
+   calendar while the traveler's device is set to the trip's own timezone.
+
+   Caught and fixed one real bug during testing, before it ever reached
+   `beta`: naively picking "the first stop flagged `overnight`" mislabeled
+   a day's destination as the *previous* night's hotel, since that hotel is
+   pinned as the day's first stop and carries the same `overnight` flag
+   (both the night-before and tonight's hotel are flagged `overnight` on
+   the place object — only *which end of the stop list* they sit at tells
+   you which is which). A hand-written two-day KML fixture (Norheimsund →
+   Kinsarvik-style overnight pattern) reproduced it immediately: day 2's
+   event was titled "drive to Hotel One" (last night's hotel) instead of
+   "drive to Hotel Two" (tonight's). Fixed by using the day's *last* stop
+   specifically, per `parseKmlTrip`'s contract that a folder's last
+   placemark is that night's accommodation.
+
+All three verified locally against the file-based dev-server with
+Playwright: the day-date formatting across all three surfaces (tab,
+route label, printable itinerary) against a two-day KML fixture; the
+search-by-name flow's success path (stubbed Nominatim response, confirmed
+the custom place lands in `customPlaces` with correct coordinates and gets
+added to the active day) and its "no match" error path; and the ICS
+export's routed path (stubbed OSRM response — real place names, real
+per-leg distances/durations), its unrouted fallback path (aborted the
+OSRM calls to force the default-duration branch), and its RFC 5545
+escaping/line-folding (a place name with commas, semicolons, and a literal
+backslash; a description long enough to force multi-line folding) —
+downloaded files were read back off disk and inspected directly rather
+than just eyeballing the generated string in-page. The known sandbox
+limitation from prior nights (no outbound network from the *browser*
+process to external hosts — Leaflet CDN, OSRM demo servers, Nominatim —
+though `curl`/Node fetch from this shell do have proxy access) applied
+here too: routing/geocoding calls in these tests were stubbed via
+Playwright's `page.route()`, same approach prior nights used for the
+weather feature. Confirmed all three commits deployed successfully via
+`deploy-beta.yml`, and spot-checked the live beta HTML afterward for each
+feature's new element IDs/function names (`tab-date`, `searchPlaceBtn`,
+`exportIcsBtn`, `formatDayDate` all present).
+
+**Decided not to do, and why:**
+- **A fourth feature.** Three well-tested, independent changes — one of
+  them (the ICS export) needing real care around a KML-semantics edge case
+  that a shallower pass would have shipped wrong — felt like the right
+  scope for tonight.
+- **A full `VTIMEZONE` block in the ICS export**, instead of floating
+  local time. Correct in principle, but meaningfully more complexity (VTZ
+  definitions, DST rules) for a case — a traveler's phone is generally set
+  to wherever they currently are — where floating time already does the
+  right thing in every mainstream calendar app.
+- **Per-day (as opposed to whole-trip) `.ics` export.** Considered as a
+  companion to "Copy day plan," but the whole-trip file already contains
+  every day as a separate event, and most calendar apps let you import a
+  multi-event file and ignore the ones you don't want — a second export
+  button for a subset of the same data felt like more surface than the
+  benefit justified.
+
 ## 2026-08-14
 
 `beta` was at 8c49821 going in (last night's four features: long-driving-day
