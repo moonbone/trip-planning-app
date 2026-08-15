@@ -126,6 +126,15 @@ The user's own real trip currently loaded into the app is a Norway road trip, Au
   Each day's tab (and the route panel's day label, and the printable itinerary) shows the
   day's date via `formatDayDate` (e.g. "Sun, Aug 16") next to the day number — `DAY_DATES` was
   already parsed from the KML, it just wasn't surfaced anywhere but one export string before.
+  A "📅 Export calendar" button (next to GPX export) downloads a whole-trip `.ics` file — one
+  VEVENT per day, spanning that day's planned start time to its computed end time (or a rough
+  4-hour default when the day hasn't been routed), reusing the same `buildDayItinerary()` data
+  the printable itinerary and GPX export already fetch. Floating local time (no TZID/`Z`) is
+  used deliberately instead of a full `VTIMEZONE` block — simplest thing that reads correctly
+  on a phone calendar while the traveler's device is set to the trip's own timezone. A day's
+  *last* stop (not just any stop flagged `overnight`) is used as "tonight's" destination, since
+  the previous night's hotel is also flagged `overnight` where it appears pinned as that day's
+  *first* stop.
   A fuel cost estimate (⛽ row above "Drive summary") takes a consumption (L/100km),
   price/liter, and currency label the user types in — one plain `tripplan-fuel-settings`
   localStorage key, deliberately *not* trip-scoped or synced (it's the car, not the trip)

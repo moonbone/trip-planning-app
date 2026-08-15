@@ -1126,6 +1126,7 @@
         <button class="reset-btn" id="importInfoBtn" title="Import a JSON file with per-place descriptions, photos and links">Import place info</button>
         <button class="reset-btn" id="printTripBtn" title="Open a printable, offline-friendly day-by-day itinerary in a new tab">🖨️ Print itinerary</button>
         <button class="reset-btn" id="exportGpxBtn" title="Download every stop and driving route as a GPX file, for GPS devices/apps like Garmin or OsmAnd">🗺️ Export GPX</button>
+        <button class="reset-btn" id="exportIcsBtn" title="Download one calendar event per day — planned start time, driving time, and stops — to import into your phone's calendar">📅 Export calendar</button>
       </div>
       <div class="trip-row">
         <button class="reset-btn" id="backupTripBtn" title="Download everything about this trip — plan variants, custom places, place info, comments, packing list, budget — as one JSON file you can restore later">💾 Backup trip</button>
@@ -3606,6 +3607,102 @@ async function exportTripGpx(){
   }
 }
 
+// ---- ICS calendar export ----
+// One VEVENT per day, spanning that day's planned start time to its
+// computed end time — reuses buildDayItinerary(), the same per-day
+// fetch-with-fallback the printable itinerary and GPX export already use,
+// so a day that can't be routed just falls back to a rough default
+// duration instead of failing the whole export. Deliberately floating
+// local time (no TZID/Z on DTSTART/DTEND, just a bare VEVENT) rather than a
+// full VTIMEZONE block — the simplest thing that actually works, and it's
+// how a phone calendar naturally reads a road-trip day while the
+// traveler's own device is set to the trip's timezone.
+const ICS_DEFAULT_DAY_HOURS = 4;
+function icsEscape(s){
+  return String(s || '').replace(/\\/g, '\\\\').replace(/,/g, '\\,').replace(/;/g, '\\;').replace(/\n/g, '\\n');
+}
+// RFC 5545: content lines must not exceed 75 octets; continuation lines
+// start with a single leading space.
+function icsFold(line){
+  if(line.length <= 74) return line;
+  let out = line.slice(0, 74);
+  let rest = line.slice(74);
+  while(rest.length){
+    out += '\r\n ' + rest.slice(0, 73);
+    rest = rest.slice(73);
+  }
+  return out;
+}
+function icsDateTime(dateIso, hhmm){
+  return dateIso.replace(/-/g, '') + 'T' + (hhmm || '09:00').replace(':', '') + '00';
+}
+function buildTripIcs(days){
+  const dtstamp = new Date().toISOString().replace(/[-:]/g, '').split('.')[0] + 'Z';
+  const events = days.filter(d=>d.date && d.stops.length).map(d=>{
+    // A day's *first* stop can also be flagged overnight (it's the previous
+    // night's hotel, pinned as the route's start) — only the *last* stop is
+    // reliably tonight's destination, per parseKmlTrip's contract that a
+    // folder's last placemark is that night's accommodation.
+    const lastStop = d.stops[d.stops.length - 1];
+    const overnightStop = lastStop.overnight ? lastStop : null;
+    const firstStop = d.stops[0];
+    const summary = overnightStop && overnightStop !== firstStop
+      ? `Day ${d.day}: drive to ${overnightStop.name}` : `Day ${d.day}: ${firstStop.name}`;
+    const dtstart = icsDateTime(d.date, d.start);
+    const endTime = d.routed && d.end ? d.end : fmtClock(parseClock(d.start) + ICS_DEFAULT_DAY_HOURS * 60);
+    const dtend = icsDateTime(d.date, endTime);
+    const descParts = [d.stops.map(s=>(s.overnight ? '🏨 ' : '') + s.name).join('\n')];
+    if(d.routed) descParts.push(`${Math.floor(d.driveMin/60)}h ${d.driveMin%60}m driving \u00b7 ${d.distanceKm} km`);
+    if(d.notes.length) descParts.push('Notes: ' + d.notes.join('; '));
+    return [
+      'BEGIN:VEVENT',
+      `UID:tripplan-day${d.day}-${dtstart}@tripplanner`,
+      `DTSTAMP:${dtstamp}`,
+      `DTSTART:${dtstart}`,
+      `DTEND:${dtend}`,
+      `SUMMARY:${icsEscape(summary)}`,
+      `DESCRIPTION:${icsEscape(descParts.join('\n\n'))}`,
+      `LOCATION:${icsEscape((overnightStop || firstStop).name)}`,
+      'END:VEVENT',
+    ].map(icsFold).join('\r\n');
+  });
+  return ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Trip Planner//EN', 'CALSCALE:GREGORIAN',
+    ...events, 'END:VCALENDAR'].join('\r\n') + '\r\n';
+}
+
+async function exportTripIcs(){
+  const trip = activeTrip();
+  if(!trip || !DAYS.length){
+    document.getElementById('errorNote').textContent = 'Load a trip first.';
+    return;
+  }
+  const btn = document.getElementById('exportIcsBtn');
+  const prevLabel = btn.textContent;
+  btn.disabled = true;
+  try{
+    const days = [];
+    for(const day of DAYS){
+      btn.textContent = `Building… (day ${day} of ${DAYS.length})`;
+      days.push(await buildDayItinerary(day));
+    }
+    const ics = buildTripIcs(days);
+    const blob = new Blob([ics], {type: 'text/calendar'});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${(trip.name || 'trip').replace(/[^\w\- ]+/g, '').trim() || 'trip'}.ics`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  }catch(e){
+    document.getElementById('errorNote').textContent = 'Could not export calendar: ' + e.message;
+  }finally{
+    btn.disabled = false;
+    btn.textContent = prevLabel;
+  }
+}
+
 // Trip backup: everything needed to fully recreate a trip elsewhere —
 // the KML source (plans reference place ids deterministically derived from
 // it, per parseKmlTrip's contract) plus every variant's plan/dayMeta/
@@ -3938,6 +4035,7 @@ document.getElementById('shareTripBtn').addEventListener('click', async ()=>{
 document.getElementById('deleteTripBtn').addEventListener('click', ()=>deleteTrip(tripsIndex.activeTripId));
 document.getElementById('printTripBtn').addEventListener('click', printTripItinerary);
 document.getElementById('exportGpxBtn').addEventListener('click', exportTripGpx);
+document.getElementById('exportIcsBtn').addEventListener('click', exportTripIcs);
 document.getElementById('backupTripBtn').addEventListener('click', exportTripBackup);
 document.getElementById('restoreBackupBtn').addEventListener('click', ()=>{
   document.getElementById('backupFileInput').click();
