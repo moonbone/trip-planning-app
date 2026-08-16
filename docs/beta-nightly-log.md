@@ -3,6 +3,127 @@
 A running log of what each scheduled nightly session built on `beta`, so
 future runs don't duplicate or contradict prior work. Newest entry first.
 
+## 2026-08-16
+
+`beta` was at d0534da going in — one commit ahead of the last nightly log
+entry (56535ae): an interactive same-day session (not a nightly run, no log
+entry, hence not otherwise mentioned here) had already landed "Navigate
+per-item from current location, not the previous stop in the list" earlier
+that evening. Fetched the real feature-request backlog from mainline
+(`GET /tickets`): of 10 tickets, none were `new`/`in_progress` — the one
+actionable ticket from a few nights ago (`mst440x8g0duze`, "Dates") is
+already `in_beta`, and everything else is `done`. No mainline work to do
+tonight, so all four changes below are this session's own picks. Each
+committed and pushed separately, each verified against the local
+dev-server with Playwright before pushing:
+
+1. **"🔀 Optimize order" — reorder a day's stops for a shorter route.**
+   Every stop so far has been ordered by hand (drag-and-drop, or whatever
+   order Google My Maps happened to export). With a dozen KML-derived
+   places this easily zig-zags without anyone noticing. `optimizeDayOrder`
+   runs a nearest-neighbor construction plus 2-opt refinement over
+   straight-line (`haversineKm`) distance — client-side only, no routing-
+   API calls (scoring every candidate ordering against OpenRouteService
+   would mean one request per candidate). The pinned wake/sleep hotel(s)
+   anchor the path and are never among the reordered stops; loop days
+   (same hotel both nights) anchor both ends to the same place. Framed
+   explicitly as a heuristic starting point in its confirm dialog (shows
+   the straight-line before/after distance), not a claim of true
+   optimality — nudges the user to recalculate real driving times
+   afterward. A day that's already optimal, or has fewer than two
+   reorderable stops, gets an explanatory alert instead of the confirm.
+
+2. **"Removed X · Undo" toast for the day's quick-remove actions.**
+   Unchecking a place in the master list, or hitting the route list's ×
+   button, is a single accidental click with no confirmation (correctly
+   so — they're common, low-stakes actions and a confirm dialog on every
+   one would be worse) but previously the only way back was re-finding the
+   place in the master list. `showUndoToast` (bottom-center, auto-hides
+   after 6s) re-splices the removed place back at its exact original
+   index. The custom-place *permanent* delete already confirms before
+   deleting, so it's deliberately left without a toast — doesn't need
+   both safety nets. A second removal before undoing the first replaces
+   the toast rather than stacking; only the most recent removal is
+   undoable, matching a single-slot Ctrl+Z.
+
+3. **Whole-trip driving total in the trip overview panel.** The overview
+   showed day/place/overnight counts and flagged long driving days
+   individually, but never totalled the trip's actual driving — a
+   reasonable thing to want to know before committing to a multi-day
+   route. Sums `dayDriveEstimate` (already used per-day for the long-drive
+   badge) across every day: exact for any day matching the last-calculated
+   route, straight-line-estimated otherwise, "≈"-prefixed with an
+   "N/M days calculated exactly" note whenever some days are still
+   estimates. `dayDriveEstimate` now also returns `.km` alongside its
+   existing `.min`/`.exact`, so this reuses the exact same
+   routed-vs-estimated branch rather than duplicating it.
+
+   Caught and fixed one real gap while testing, before it reached `beta`:
+   `calculateRoute()` only ever refreshed the route list and the active
+   day's stats panel, never the trip overview — so this new total went
+   stale (kept showing the pre-calculation estimate) right after
+   calculating a day, until some unrelated action forced a full
+   re-render. Now `calculateRoute()` also calls `renderTripOverview()` on
+   success.
+
+4. **"📑 Duplicate trip."** Trying an alternate stop order or an extra
+   what-if day meant either mutating the only copy of a trip, or a
+   backup-file-then-restore round-trip through the filesystem for what
+   should be one click. `duplicateTrip()` doesn't reimplement any backup/
+   restore logic: it calls the existing `buildTripBackup()`, wraps the
+   result as an in-memory `File`, and hands it to `restoreTripBackup`
+   exactly as if it had been picked from disk via "📥 Restore backup" —
+   same validation, same "always creates new, never overwrites"
+   guarantee, same local/remote dual-driver path. Named "<original>
+   (copy)"; since restore already switches to whatever it just created,
+   duplicating lands you directly on the new copy.
+
+All four verified locally against the file-based dev-server
+(`AUTH_DEV_FAKE=1`) with Playwright. The known sandbox limitation from
+every prior night (no outbound browser access to the Leaflet CDN, so
+`renderMapMarkers` throws on `L is not defined`) applied again, and this
+time actually mattered for testing, not just as background noise: since
+`calculateRoute()`/`activateCurrentTrip()` call `renderAll()` — which
+calls `renderMapMarkers()` — any *unhandled* exception there aborts the
+rest of that call chain, silently skipping code that runs after it (this
+session's own `showUndoToast()` calls, for instance, sit after
+`renderAll()` inside their click handlers). Worked around this properly,
+not just around it, by stubbing a minimal `window.L` (`map`, `tileLayer`,
+`layerGroup`, `marker`, `polyline`, `geoJSON`, `divIcon`, `icon`,
+`latLngBounds`) via `page.addInitScript` before navigation, so the real
+render path runs to completion and every downstream effect (toasts,
+`renderTripOverview()` calls, DOM state) could be tested for real instead
+of inferred. This also caught the `calculateRoute()`/trip-overview
+staleness bug above — invisible without a working map stub, since
+`calculateRoute()` never got far enough to reach the totals-affecting code
+without one. Optimize-order was verified against hand-built zig-zag
+coordinate sets (confirmed the algorithm actually shortens the path, that
+a second click on an already-optimal day is a no-op, and both the loop-day
+and no-anchor edge cases anchor correctly); the undo toast against single
+and rapid-double removals from both the route list and the master list,
+plus the 6s auto-hide timer; the trip-overview total against a stubbed
+`/route` response distinguishing the exact-vs-estimated branch; duplicate
+trip against a full round-trip including a custom place and a packing
+item, plus confirming cancel is a true no-op. Confirmed all four commits
+deployed successfully via `deploy-beta.yml`.
+
+**Mainline tickets:** none open/actionable — nothing to mark `in_beta`
+tonight.
+
+**Decided not to do, and why:**
+- **A km/mi + L/100km↔mpg units toggle.** Genuinely useful for a
+  general-purpose (not Norway-specific) trip planner, but "km" is baked
+  into ~60 places across the file (distance displays, fuel math, GPX/ICS/
+  print text) and fuel efficiency has two incompatible conventions
+  (L/100km vs. mpg) to get right, not just a display-unit swap. Doing it
+  properly is a full session's own scope, not a fourth item alongside
+  three others.
+- **Nearby POI search (gas stations, restaurants) via the free/keyless
+  Overpass API.** Same trust model as Nominatim/Open-Meteo already used
+  here, and plausible for a future night, but needs its own result-list
+  UI and add-as-custom-place flow — more surface than felt right to add
+  as a fourth thing alongside tonight's other three.
+
 ## 2026-08-15
 
 `beta` was at 8fcdb2e going in (last night's four features: now indicator,
