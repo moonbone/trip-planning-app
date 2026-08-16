@@ -206,6 +206,18 @@ The user's own real trip currently loaded into the app is a Norway road trip, Au
   the user has already switched to a different day. Results are cached in memory per
   `lat,lon,date` for the session (`weatherCache`) — switching back to an already-fetched
   day doesn't re-hit the API.
+  A "🔀 Optimize order" button (route header, next to "Reset day") reorders a day's editable
+  stops to shorten the route between the pinned wake/sleep hotel(s) — nearest-neighbor
+  construction plus 2-opt refinement (`optimizeDayOrder`) over straight-line (`haversineKm`)
+  distance, entirely client-side: no routing-API calls, since scoring every candidate
+  ordering against OpenRouteService/OSRM would mean one request per candidate. Deliberately
+  a heuristic starting point, not a claim of true optimality — the confirm dialog says so
+  explicitly and names the before/after straight-line distance, and nudges the user to
+  recalculate driving times afterward for the real figures. Only ever reorders the stops
+  `dayStops()` returns (the hotel anchors are never elements of the array 2-opt operates
+  on, so they can't move); on a loop day (staying the same hotel two nights, `isLoopDay`)
+  both ends anchor to the same place. A no-op day (already-optimal order, or fewer than two
+  stops to reorder) shows an explanatory alert instead of a confirm dialog.
 - `aws/handler.mjs` — Lambda handler. Serves `index.html` at `GET /`, proxies
   `POST /route` to OpenRouteService using `process.env.ORS_API_KEY`, resolves shortened
   Google Maps links via `POST /resolve-maps-link` (host-allowlisted to Google's own

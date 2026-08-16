@@ -1158,6 +1158,7 @@
         <button class="reset-btn" id="addPlaceFromMapsBtn" title="Import a place by pasting a Google Maps link or coordinates">📍 From Maps</button>
         <button class="reset-btn" id="searchPlaceBtn" title="Add a place by searching its name or address">🔍 Search</button>
         <button class="reset-btn" id="dayNotesBtn" title="Comments for this day">💬</button>
+        <button class="reset-btn" id="optimizeOrderBtn" title="Reorder this day's stops to shorten the straight-line route (a starting point — recalculate driving times after)">🔀 Optimize order</button>
         <button class="reset-btn" id="resetDayBtn">Reset day</button>
       </div>
     </div>
@@ -2741,6 +2742,80 @@ function resetDay(){
   renderAll();
 }
 
+// Total straight-line distance of anchorStart -> order -> anchorEnd (anchors
+// omitted when the day has none, e.g. day 1 has no previous-night hotel).
+function pathCostKm(order, anchorStart, anchorEnd){
+  const seq = [...(anchorStart ? [anchorStart] : []), ...order, ...(anchorEnd ? [anchorEnd] : [])];
+  let total = 0;
+  for(let i = 1; i < seq.length; i++) total += haversineKm(seq[i-1], seq[i]);
+  return total;
+}
+
+// Reorders a day's editable stops (the pinned wake/sleep hotels are never
+// moved) to shorten the straight-line route between them — nearest-neighbor
+// construction followed by 2-opt refinement. This is a real driving-distance
+// proxy, not the routing API (no network call, and every candidate ordering
+// would mean one API call each) — it's meant to give a good starting order
+// to then "Calculate driving times" against, not a substitute for that.
+function optimizeDayOrder(){
+  const wake = wakeHotelId(activeDay), sleep = sleepHotelId(activeDay);
+  const stops = dayStops(activeDay);
+  if(stops.length < 2){
+    alert(`Day ${activeDay} needs at least two stops (besides the hotel) before its order can be optimized.`);
+    return;
+  }
+  const anchorStart = wake ? byId[wake] : null;
+  const anchorEnd = sleep ? byId[sleep] : null;
+  const points = stops.map(id => byId[id]);
+
+  let remaining = points.slice();
+  let order = [];
+  let cur = anchorStart;
+  if(!cur){
+    cur = remaining.shift();
+    order.push(cur);
+  }
+  while(remaining.length){
+    let bestIdx = 0, bestDist = Infinity;
+    remaining.forEach((p, i)=>{
+      const d = haversineKm(cur, p);
+      if(d < bestDist){ bestDist = d; bestIdx = i; }
+    });
+    cur = remaining.splice(bestIdx, 1)[0];
+    order.push(cur);
+  }
+
+  // 2-opt: only ever reverses sub-segments of the editable stops, so the
+  // pinned hotel anchors (not part of `order`) are never touched.
+  let improved = true;
+  while(improved){
+    improved = false;
+    for(let i = 0; i < order.length - 1; i++){
+      for(let j = i + 1; j < order.length; j++){
+        const candidate = order.slice(0, i).concat(order.slice(i, j + 1).reverse(), order.slice(j + 1));
+        if(pathCostKm(candidate, anchorStart, anchorEnd) < pathCostKm(order, anchorStart, anchorEnd) - 1e-9){
+          order = candidate;
+          improved = true;
+        }
+      }
+    }
+  }
+
+  const beforeKm = pathCostKm(points, anchorStart, anchorEnd);
+  const afterKm = pathCostKm(order, anchorStart, anchorEnd);
+  const newIds = order.map(p => p.id);
+  if(newIds.join() === stops.join() || afterKm >= beforeKm - 0.05){
+    alert(`Day ${activeDay}'s stop order is already close to optimal (straight-line estimate).`);
+    return;
+  }
+  if(!confirm(`Reorder ${stops.length} stops to shorten the estimated straight-line route from `
+    + `${beforeKm.toFixed(1)} km to ${afterKm.toFixed(1)} km?\n\nThis is a straight-line estimate, `
+    + `not real driving distance — recalculate driving times afterward to see the actual effect.`)) return;
+  plans[activeDay] = newIds;
+  saveState();
+  renderAll();
+}
+
 // FLIP-animate the rows that shift while `mutate` reorders the list, so a
 // drag previews the new order instead of snapping on drop.
 function flipMove(container, mutate){
@@ -4220,6 +4295,7 @@ document.getElementById('variantDeleteBtn').addEventListener('click', deleteVari
 
 document.getElementById('calcBtn').addEventListener('click', calculateRoute);
 document.getElementById('resetDayBtn').addEventListener('click', resetDay);
+document.getElementById('optimizeOrderBtn').addEventListener('click', optimizeDayOrder);
 document.getElementById('dayStartInput').addEventListener('change', (e)=>{
   getDayMeta(activeDay).start = e.target.value || '09:00';
   saveMeta();
