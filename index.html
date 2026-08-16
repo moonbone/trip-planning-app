@@ -929,6 +929,36 @@
     padding-bottom:env(safe-area-inset-bottom);
     z-index:20;
   }
+  .undo-toast{
+    position:fixed;
+    left:50%;
+    bottom:24px;
+    transform:translateX(-50%);
+    background:var(--accent);
+    color:#fff;
+    padding:10px 14px;
+    border-radius:8px;
+    box-shadow:0 4px 14px rgba(0,0,0,0.25);
+    display:flex;
+    align-items:center;
+    gap:14px;
+    font-size:13px;
+    z-index:2200;
+    max-width:calc(100% - 32px);
+  }
+  .undo-toast button{
+    background:none;
+    border:1px solid rgba(255,255,255,0.6);
+    color:#fff;
+    border-radius:5px;
+    padding:3px 10px;
+    font-size:12px;
+    cursor:pointer;
+    flex-shrink:0;
+  }
+  .undo-toast button:hover{
+    background:rgba(255,255,255,0.15);
+  }
   .mobile-tab-btn{
     flex:1;
     display:flex;
@@ -1309,6 +1339,11 @@
       <button class="calc-btn" id="dialogOkBtn">OK</button>
     </div>
   </div>
+</div>
+
+<div class="undo-toast" id="undoToast" style="display:none;">
+  <span id="undoToastMsg"></span>
+  <button id="undoToastBtn">Undo</button>
 </div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
@@ -2668,6 +2703,18 @@ function renderMasterList(){
         if(isSelected){
           const idx = plans[activeDay].indexOf(p.id);
           if(idx !== -1) plans[activeDay].splice(idx,1);
+          const removedDay = activeDay, removedId = p.id, removedIdx = idx;
+          saveState();
+          renderAll();
+          if(idx !== -1){
+            showUndoToast(`Removed "${p.name}" from Day ${removedDay}`, ()=>{
+              if(!plans[removedDay]) plans[removedDay] = [];
+              plans[removedDay].splice(removedIdx, 0, removedId);
+              saveState();
+              renderAll();
+            });
+          }
+          return;
         }else{
           plans[activeDay].push(p.id);
         }
@@ -2706,6 +2753,18 @@ function renderMasterList(){
         if(isSelected){
           const idx = plans[activeDay].indexOf(p.id);
           if(idx !== -1) plans[activeDay].splice(idx,1);
+          const removedDay = activeDay, removedId = p.id, removedIdx = idx;
+          saveState();
+          renderAll();
+          if(idx !== -1){
+            showUndoToast(`Removed "${p.name}" from Day ${removedDay}`, ()=>{
+              if(!plans[removedDay]) plans[removedDay] = [];
+              plans[removedDay].splice(removedIdx, 0, removedId);
+              saveState();
+              renderAll();
+            });
+          }
+          return;
         }else{
           plans[activeDay].push(p.id);
         }
@@ -2733,6 +2792,26 @@ function renderMasterList(){
   if(filter && !shownCount){
     el.innerHTML = `<div class="empty-note">No places match "${escapeHtml(placeFilter.trim())}".</div>`;
   }
+}
+
+// A brief "Removed X · Undo" toast for the day's plan-mutating actions that
+// don't otherwise ask for confirmation (unchecking a place, the route
+// list's × button) — an accidental click is one tap to fix instead of
+// hunting for the place again in the master list. `undoFn` re-applies
+// whatever state the caller captured before mutating.
+let undoToastTimer = null;
+function showUndoToast(message, undoFn){
+  clearTimeout(undoToastTimer);
+  const toast = document.getElementById('undoToast');
+  document.getElementById('undoToastMsg').textContent = message;
+  const btn = document.getElementById('undoToastBtn');
+  btn.onclick = ()=>{
+    clearTimeout(undoToastTimer);
+    toast.style.display = 'none';
+    undoFn();
+  };
+  toast.style.display = 'flex';
+  undoToastTimer = setTimeout(()=>{ toast.style.display = 'none'; }, 6000);
 }
 
 function resetDay(){
@@ -2981,9 +3060,16 @@ function renderRouteList(){
     rm.className = 'remove-btn';
     rm.textContent = '×';
     rm.onclick = ()=>{
+      const removedDay = activeDay, removedId = id, removedIdx = i;
       plans[activeDay].splice(i,1);
       saveState();
       renderAll();
+      showUndoToast(`Removed "${p.name}" from Day ${removedDay}`, ()=>{
+        if(!plans[removedDay]) plans[removedDay] = [];
+        plans[removedDay].splice(removedIdx, 0, removedId);
+        saveState();
+        renderAll();
+      });
     };
     row.appendChild(rm);
 

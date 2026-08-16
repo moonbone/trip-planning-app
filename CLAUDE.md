@@ -218,6 +218,13 @@ The user's own real trip currently loaded into the app is a Norway road trip, Au
   on, so they can't move); on a loop day (staying the same hotel two nights, `isLoopDay`)
   both ends anchor to the same place. A no-op day (already-optimal order, or fewer than two
   stops to reorder) shows an explanatory alert instead of a confirm dialog.
+  Removing a stop from a day (the route list's × button, or unchecking a place in the master
+  list) shows a brief "Removed X · Undo" toast (`showUndoToast`, bottom-center, auto-hides
+  after 6s) instead of asking for confirmation up front — those two are single-click, easy
+  to fire by accident, and previously the only way back was re-finding the place in the
+  master list. The permanent "delete this custom place from the trip" action already has its
+  own confirm dialog, so it doesn't also get a toast. A second removal before undoing the
+  first replaces the toast rather than stacking — only the most recent removal is undoable.
 - `aws/handler.mjs` — Lambda handler. Serves `index.html` at `GET /`, proxies
   `POST /route` to OpenRouteService using `process.env.ORS_API_KEY`, resolves shortened
   Google Maps links via `POST /resolve-maps-link` (host-allowlisted to Google's own
