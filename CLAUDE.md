@@ -234,6 +234,16 @@ The user's own real trip currently loaded into the app is a Norway road trip, Au
   recomputing it. `calculateRoute()` now calls `renderTripOverview()` on success (it previously
   only refreshed the route list and active day's stats) so this total updates the moment a day
   is calculated, not just on the next full re-render (day/trip switch).
+  A "📑 Duplicate trip" button (trip-file panel, next to backup/restore) makes a full copy of
+  the active trip — every plan variant, custom place, comment, packing item, and budget line —
+  to experiment on (try a different stop order, a what-if extra day) without risking the
+  original. `duplicateTrip()` doesn't reimplement any of that: it calls the existing
+  `buildTripBackup()`, wraps the result as an in-memory `File` (a `Blob` with a name, same
+  shape `restoreTripBackup` already expects from a picked file), and hands it to
+  `restoreTripBackup` exactly as if it had come from "📥 Restore backup" — same validation,
+  same "always creates a new trip, never overwrites" behavior, same local/remote dual-driver
+  path. The copy is named "<original> (copy)" and, since `restoreTripBackup` already switches
+  to whatever it just created, duplicating lands you directly on the new copy.
 - `aws/handler.mjs` — Lambda handler. Serves `index.html` at `GET /`, proxies
   `POST /route` to OpenRouteService using `process.env.ORS_API_KEY`, resolves shortened
   Google Maps links via `POST /resolve-maps-link` (host-allowlisted to Google's own

@@ -1161,6 +1161,7 @@
       <div class="trip-row">
         <button class="reset-btn" id="backupTripBtn" title="Download everything about this trip — plan variants, custom places, place info, comments, packing list, budget — as one JSON file you can restore later">💾 Backup trip</button>
         <button class="reset-btn" id="restoreBackupBtn" title="Restore a trip from a backup JSON file, as a new trip">📥 Restore backup</button>
+        <button class="reset-btn" id="duplicateTripBtn" title="Make a full copy of this trip — all plan variants, custom places, comments, packing list, budget — to experiment on without touching the original">📑 Duplicate trip</button>
       </div>
       <input type="file" id="infoFileInput" accept=".json,application/json" style="display:none;">
       <input type="file" id="backupFileInput" accept=".json,application/json" style="display:none;">
@@ -4029,6 +4030,26 @@ async function restoreTripBackup(file){
   }
 }
 
+// Reuses the exact backup/restore round-trip: build an in-memory backup of
+// the active trip, hand it to restoreTripBackup as if it had been picked
+// from disk. Not a shortcut around that code path — the same server/local
+// endpoints, validation, and "always creates a new trip" behavior apply.
+async function duplicateTrip(){
+  const errEl = document.getElementById('kmlError');
+  errEl.textContent = '';
+  const backup = buildTripBackup();
+  if(!backup || backup.kml_source == null){
+    errEl.textContent = 'Load a trip first.';
+    return;
+  }
+  if(!confirm(`Duplicate "${backup.name}" as a new trip? This copies every plan variant, `
+    + `custom place, comment, packing item, and budget line.`)) return;
+  backup.name = `${backup.name} (copy)`;
+  const blob = new Blob([JSON.stringify(backup)], {type: 'application/json'});
+  const file = new File([blob], 'duplicate.json', {type: 'application/json'});
+  await restoreTripBackup(file);
+}
+
 function haversineKm(a, b){
   const rad = x => x * Math.PI / 180;
   const dLat = rad(b.lat - a.lat), dLon = rad(b.lon - a.lon);
@@ -4220,6 +4241,7 @@ document.getElementById('backupFileInput').addEventListener('change', async (e)=
   e.target.value = '';
   if(file) await restoreTripBackup(file);
 });
+document.getElementById('duplicateTripBtn').addEventListener('click', duplicateTrip);
 document.getElementById('placeSearchInput').addEventListener('input', (e)=>{
   placeFilter = e.target.value;
   renderMasterList();
