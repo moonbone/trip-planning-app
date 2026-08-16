@@ -225,6 +225,15 @@ The user's own real trip currently loaded into the app is a Norway road trip, Au
   master list. The permanent "delete this custom place from the trip" action already has its
   own confirm dialog, so it doesn't also get a toast. A second removal before undoing the
   first replaces the toast rather than stacking — only the most recent removal is undoable.
+  The "Trip overview" panel's stats now include a whole-trip driving total (time + km,
+  summed via `dayDriveEstimate`, which already exists for the per-day long-drive badge) —
+  exact for any day matching `lastRoute`, straight-line-estimated otherwise, with a "≈" prefix
+  and an "N/M days calculated exactly" note whenever at least one day is still an estimate.
+  `dayDriveEstimate` itself now also returns `.km` (previously only `.min`/`.exact`) so this
+  reuses the same routed-vs-estimated branch the long-drive badge already relies on rather than
+  recomputing it. `calculateRoute()` now calls `renderTripOverview()` on success (it previously
+  only refreshed the route list and active day's stats) so this total updates the moment a day
+  is calculated, not just on the next full re-render (day/trip switch).
 - `aws/handler.mjs` — Lambda handler. Serves `index.html` at `GET /`, proxies
   `POST /route` to OpenRouteService using `process.env.ORS_API_KEY`, resolves shortened
   Google Maps links via `POST /resolve-maps-link` (host-allowlisted to Google's own

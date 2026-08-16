@@ -1475,14 +1475,14 @@ function dayDriveEstimate(day){
   const ids = getRouteIds(day);
   if(ids.length < 2) return null;
   if(lastRoute && lastRoute.day === day && lastRoute.ids.join() === ids.join()){
-    return {min: Math.round(lastRoute.route.duration/60), exact:true};
+    return {min: Math.round(lastRoute.route.duration/60), km: lastRoute.route.distance/1000, exact:true};
   }
   let km = 0;
   for(let i=1;i<ids.length;i++){
     const a = byId[ids[i-1]], b = byId[ids[i]];
     if(a && b) km += haversineKm(a,b);
   }
-  return {min: Math.round(km/ESTIMATE_AVG_SPEED_KMH*60), exact:false};
+  return {min: Math.round(km/ESTIMATE_AVG_SPEED_KMH*60), km, exact:false};
 }
 
 function longDriveBadgeHtml(day){
@@ -3145,13 +3145,21 @@ function renderTripOverview(){
   const totalPlaces = PLACES.length + customPlaces.length;
   const hotelIds = new Set(Object.values(DAY_HOTELS).filter(Boolean));
   const incompleteDays = DAYS.filter(d=>getRouteIds(d).length < 2).length;
-  const longDays = DAYS.filter(d=>{
-    const est = dayDriveEstimate(d);
-    return est && est.min >= LONG_DRIVE_WARN_MIN;
-  }).length;
+  const driveEstimates = DAYS.map(d=>dayDriveEstimate(d)).filter(Boolean);
+  const longDays = driveEstimates.filter(est=>est.min >= LONG_DRIVE_WARN_MIN).length;
+  let totalDriveLine = '';
+  if(driveEstimates.length){
+    const totalMin = driveEstimates.reduce((s,e)=>s+e.min,0);
+    const totalKm = driveEstimates.reduce((s,e)=>s+e.km,0);
+    const approx = driveEstimates.some(e=>!e.exact);
+    const hrs = Math.floor(totalMin/60), mins = totalMin%60;
+    totalDriveLine = `<p class="stats-sub">${approx ? '≈ ' : ''}${hrs}h ${mins}m driving · ${totalKm.toFixed(0)} km total across the trip`
+      + `${approx ? ` (${driveEstimates.filter(e=>e.exact).length}/${driveEstimates.length} days calculated exactly, rest estimated)` : ''}</p>`;
+  }
   el.innerHTML = `
     <p class="stats-total">${DAYS.length} day${DAYS.length===1?'':'s'}${TRIP_START ? ` · starts ${TRIP_START}` : ''}</p>
     <p class="stats-sub">${totalPlaces} place${totalPlaces===1?'':'s'} · ${hotelIds.size} overnight stop${hotelIds.size===1?'':'s'}${incompleteDays ? ` · ${incompleteDays} day${incompleteDays===1?'':'s'} need${incompleteDays===1?'s':''} at least one stop` : ''}${longDays ? ` · ⚠️ ${longDays} long driving day${longDays===1?'':'s'}` : ''}</p>
+    ${totalDriveLine}
   `;
 }
 
@@ -3545,6 +3553,7 @@ async function calculateRoute(){
     lastRoute = {day: activeDay, ids, route};
     renderRouteList(); // show the per-leg drive times inline
     renderStats();
+    renderTripOverview(); // this day's exact distance now feeds the whole-trip total
     if(!errEl.textContent) errEl.textContent = '';
   }catch(e){
     errEl.textContent = 'Could not calculate route: ' + e.message;
