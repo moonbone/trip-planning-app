@@ -355,6 +355,44 @@
     color:var(--ink-soft);
     cursor:pointer;
   }
+  .search-results-modal{max-width:460px;}
+  .search-results-list{
+    display:flex;flex-direction:column;gap:6px;
+    margin-bottom:12px;
+    max-height:180px;
+    overflow-y:auto;
+  }
+  .search-result-item{
+    display:flex;flex-direction:column;align-items:flex-start;
+    gap:2px;
+    border:1px solid var(--border-strong);
+    border-radius:8px;
+    padding:8px 10px;
+    cursor:pointer;
+    background:var(--panel);
+    color:var(--ink);
+    text-align:left;
+    font:inherit;
+    width:100%;
+    box-sizing:border-box;
+  }
+  .search-result-item .srn{font-weight:600;font-size:13.5px;}
+  .search-result-item .sra{font-size:12px;color:var(--ink-soft);}
+  .search-result-item.selected{border-color:var(--accent);background:var(--accent-light);}
+  .search-result-map{
+    height:160px;
+    border-radius:8px;
+    margin-bottom:10px;
+  }
+  .search-result-photo{width:100%;border-radius:8px;margin-bottom:10px;}
+  .search-result-address{font-size:12.5px;color:var(--ink-soft);margin:0 0 12px;}
+  .search-result-name-label{
+    display:block;
+    font-size:12.5px;
+    color:var(--ink-soft);
+    margin-bottom:12px;
+  }
+  .search-result-name-label input{margin-top:4px;}
   .dialog-overlay{
     position:fixed;inset:0;
     background:rgba(30,42,50,0.45);
@@ -1329,6 +1367,27 @@
   </div>
 </div>
 
+<div class="info-modal-overlay" id="searchResultsModal" style="display:none;">
+  <div class="info-modal search-results-modal">
+    <button class="info-close" id="searchResultsClose" title="Close">×</button>
+    <h2>Confirm place</h2>
+    <div id="searchResultsList" class="search-results-list"></div>
+    <div id="searchResultPreview" class="search-result-preview" style="display:none;">
+      <div id="searchResultMap" class="search-result-map"></div>
+      <img id="searchResultPhoto" class="search-result-photo" alt="" style="display:none;">
+      <p class="search-result-address" id="searchResultAddress"></p>
+      <label class="search-result-name-label">Name for this place
+        <input type="text" class="dialog-input" id="searchResultNameInput" maxlength="120">
+      </label>
+      <div class="dialog-actions">
+        <button class="reset-btn" id="searchResultCancelBtn">Cancel</button>
+        <button class="calc-btn" id="searchResultAddBtn">Add place</button>
+      </div>
+    </div>
+    <div class="error-note" id="searchResultsError"></div>
+  </div>
+</div>
+
 <div class="dialog-overlay" id="dialogModal" style="display:none;">
   <div class="dialog-box">
     <h2 id="dialogTitle"></h2>
@@ -2089,6 +2148,7 @@ document.getElementById('dialogInput').addEventListener('keydown', (e)=>{
 });
 document.addEventListener('keydown', (e)=>{
   if(e.key === 'Escape' && dialogResolve) closeDialog(null);
+  if(e.key === 'Escape' && document.getElementById('searchResultsModal').style.display !== 'none') closeSearchResultsModal();
 });
 
 // ---- Custom places (ticket #9) ----
@@ -2208,6 +2268,54 @@ async function geocodeAddress(query){
   return {lat: parseFloat(results[0].lat), lon: parseFloat(results[0].lon), name: query};
 }
 
+// Ticket msw6fddzu25mte ("Search function confirmation"): the plain
+// geocodeAddress() above is still used by the Maps-link import's title
+// fallback (that flow already has an exact URL/redirect behind it, so the
+// single top match is fine there) — this is a separate multi-result path
+// specifically for "search by typed name", which has no such anchor and
+// genuinely benefits from a confirm-before-save step. Same comma-fallback
+// retry as geocodeAddress; asks Nominatim for up to `limit` matches and
+// `extratags` (carries an OSM `wikipedia` tag when the place has one, used
+// below for a best-effort photo).
+async function nominatimSearchMulti(q, limit){
+  const res = await fetch(
+    'https://nominatim.openstreetmap.org/search?format=jsonv2&extratags=1&limit=' + limit + '&q=' + encodeURIComponent(q)
+  );
+  if(!res.ok) throw new Error('geocoding HTTP ' + res.status);
+  return res.json();
+}
+async function geocodeCandidates(query){
+  let results = await nominatimSearchMulti(query, 5);
+  if(!results.length && query.includes(',')){
+    results = await nominatimSearchMulti(query.slice(query.indexOf(',') + 1).trim(), 5);
+  }
+  if(!results.length) throw new Error('no match found for "' + query + '"');
+  return results.map(r => ({
+    lat: parseFloat(r.lat),
+    lon: parseFloat(r.lon),
+    name: (r.display_name || query).split(',')[0].trim(),
+    address: r.display_name || '',
+    wikipedia: (r.extratags && r.extratags.wikipedia) || null,
+  }));
+}
+
+// Wikipedia's public REST summary endpoint is keyless and CORS-enabled for
+// client-side calls — same no-auth trust model as Nominatim/Open-Meteo
+// already used elsewhere in this app. Only reachable when OSM tagged the
+// place with a `wikipedia` tag ("lang:Title"); returns null otherwise, and
+// on any fetch/parse failure — a missing photo just means the confirm
+// modal shows no image, never a broken import.
+async function fetchCandidatePhoto(candidate){
+  if(!candidate.wikipedia || !candidate.wikipedia.includes(':')) return null;
+  const [lang, title] = candidate.wikipedia.split(/:(.+)/);
+  try{
+    const res = await fetch(`https://${lang}.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(title)}`);
+    if(!res.ok) return null;
+    const data = await res.json();
+    return (data.thumbnail && data.thumbnail.source) || null;
+  }catch(e){ return null; }
+}
+
 async function resolveMapsInput(input){
   const parsed = parseGoogleMapsCoords(input);
   if(!parsed) return null;
@@ -2284,7 +2392,11 @@ async function importFromMapsLink(){
 // Complements the map-click and Maps-link import paths above: adds a place
 // by geocoding a typed name/address via the same Nominatim helper used to
 // resolve a Maps link that carries no coordinates. Useful when you know a
-// place's name but don't have a map pin or link for it yet.
+// place's name but don't have a map pin or link for it yet. Ticket
+// msw6fddzu25mte asked for a confirm-before-save step (name/map/photo) and
+// a picker when the search matches more than one place — both handled by
+// openSearchResultsModal below rather than saving the top match straight
+// off, like this used to.
 async function searchPlaceByName(){
   if(!activeTrip()){
     document.getElementById('kmlError').textContent = 'Load a trip first — custom places are stored with the trip.';
@@ -2294,25 +2406,115 @@ async function searchPlaceByName(){
   if(!query || !query.trim()) return;
   const errEl = document.getElementById('kmlError');
   errEl.textContent = 'Searching…';
-  let coords;
+  let candidates;
   try{
-    coords = await geocodeAddress(query.trim());
+    candidates = await geocodeCandidates(query.trim());
   }catch(e){
     errEl.textContent = 'Could not find "' + query.trim() + '" (' + e.message + '). Try a more specific search, '
       + 'or use the ＋ Place button to drop a pin by hand.';
     return;
   }
   errEl.textContent = '';
-  const name = (await promptDialog('Search for a place', {message: 'Name for this place:', defaultValue: coords.name || query.trim()}) || '').trim();
-  if(!name) return;
-  const p = {id: 'c' + newId(), name, lat: coords.lat, lon: coords.lon, custom: true};
+  openSearchResultsModal(candidates);
+}
+
+// ---- Search result confirm modal (ticket msw6fddzu25mte) ----
+let searchCandidates = [];
+let searchSelectedIdx = -1;
+let searchPhotoCache = {};
+let searchResultMap = null;
+let searchResultMarker = null;
+
+function ensureSearchResultMap(){
+  if(searchResultMap) return searchResultMap;
+  searchResultMap = L.map('searchResultMap', {scrollWheelZoom:false});
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{
+    maxZoom:18, attribution:'© OpenStreetMap contributors'
+  }).addTo(searchResultMap);
+  return searchResultMap;
+}
+
+function renderSearchResultsList(){
+  const el = document.getElementById('searchResultsList');
+  el.innerHTML = '';
+  searchCandidates.forEach((c,i)=>{
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'search-result-item' + (i === searchSelectedIdx ? ' selected' : '');
+    btn.innerHTML = `<span class="srn">${escapeHtml(c.name)}</span><span class="sra">${escapeHtml(c.address)}</span>`;
+    btn.addEventListener('click', ()=>selectSearchCandidate(i));
+    el.appendChild(btn);
+  });
+}
+
+async function selectSearchCandidate(i){
+  searchSelectedIdx = i;
+  renderSearchResultsList();
+  const c = searchCandidates[i];
+  const preview = document.getElementById('searchResultPreview');
+  preview.style.display = '';
+  document.getElementById('searchResultAddress').textContent = c.address;
+  document.getElementById('searchResultNameInput').value = c.name;
+  const photoEl = document.getElementById('searchResultPhoto');
+  photoEl.style.display = 'none';
+  // The map container is hidden (display:none) until `preview` is shown
+  // above, so Leaflet must size/center it on the next frame — sizing it
+  // while still hidden would leave it stuck at 0×0.
+  requestAnimationFrame(()=>{
+    const map = ensureSearchResultMap();
+    map.invalidateSize();
+    map.setView([c.lat, c.lon], 14);
+    if(searchResultMarker) searchResultMarker.remove();
+    searchResultMarker = L.marker([c.lat, c.lon]).addTo(map);
+  });
+  if(!(i in searchPhotoCache)){
+    searchPhotoCache[i] = await fetchCandidatePhoto(c);
+  }
+  if(searchSelectedIdx !== i) return; // user picked a different candidate while the photo was loading
+  if(searchPhotoCache[i]){
+    photoEl.src = searchPhotoCache[i];
+    photoEl.style.display = '';
+  }
+}
+
+function openSearchResultsModal(candidates){
+  searchCandidates = candidates;
+  searchSelectedIdx = -1;
+  searchPhotoCache = {};
+  document.getElementById('searchResultsError').textContent = '';
+  document.getElementById('searchResultPreview').style.display = 'none';
+  renderSearchResultsList();
+  document.getElementById('searchResultsModal').style.display = '';
+  selectSearchCandidate(0);
+}
+function closeSearchResultsModal(){
+  document.getElementById('searchResultsModal').style.display = 'none';
+}
+function confirmSearchResult(){
+  if(searchSelectedIdx < 0) return;
+  const c = searchCandidates[searchSelectedIdx];
+  const name = document.getElementById('searchResultNameInput').value.trim();
+  if(!name){
+    document.getElementById('searchResultsError').textContent = 'Enter a name for this place.';
+    return;
+  }
+  const p = {id: 'c' + newId(), name, lat: c.lat, lon: c.lon, custom: true};
+  const photo = searchPhotoCache[searchSelectedIdx];
+  if(photo) p.image = photo;
   customPlaces.push(p);
   rebuildById();
   if(!plans[activeDay]) plans[activeDay] = [];
   plans[activeDay].push(p.id);
   saveVariant();
   renderAll();
+  closeSearchResultsModal();
 }
+document.getElementById('searchResultsClose').addEventListener('click', closeSearchResultsModal);
+document.getElementById('searchResultCancelBtn').addEventListener('click', closeSearchResultsModal);
+document.getElementById('searchResultAddBtn').addEventListener('click', confirmSearchResult);
+document.getElementById('searchResultsModal').addEventListener('click', (e)=>{
+  if(e.target === e.currentTarget) closeSearchResultsModal();
+});
 
 // ---- Place info modal (enrichment) + comments ----
 // Imported text may carry HTML from its source: reduce it to plain text,

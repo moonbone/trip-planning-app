@@ -120,9 +120,21 @@ The user's own real trip currently loaded into the app is a Norway road trip, Au
   real per-place OG data, not a generic placeholder, to that) and stores the photo directly
   on the custom place's `image` field, shown in the place-info modal alongside enrichment.
   A "🔍 Search" button next to it adds a place by typed name/address instead of a map click
-  or a Maps link — `searchPlaceByName` reuses the same `geocodeAddress`/Nominatim helper the
-  Maps-link import falls back to, for when you know a place's name but have neither a pin nor
-  a link yet.
+  or a Maps link — `searchPlaceByName` geocodes via `geocodeCandidates` (a Nominatim call
+  requesting up to 5 matches with `extratags=1`, a sibling of the single-result
+  `geocodeAddress` the Maps-link import's title fallback still uses unchanged, since that
+  path already has an exact redirect URL behind it and doesn't need a picker). Results open
+  a confirm modal (`openSearchResultsModal`, ticket `msw6fddzu25mte`) instead of saving the
+  top match straight off: a clickable list when Nominatim returns more than one candidate,
+  and for whichever one is selected, a small non-interactive-zoom Leaflet preview map
+  (`#searchResultMap`, its own map instance, lazily created and reused — `ensureSearchResultMap`),
+  the full address, an editable name field pre-filled from the candidate, and a best-effort
+  photo. The photo comes from Wikipedia's public, keyless REST summary API
+  (`fetchCandidatePhoto`, same no-auth client-side-callable trust model as Nominatim/
+  Open-Meteo) when Nominatim's `extratags` carries an OSM `wikipedia` tag for that place —
+  silently omitted otherwise, never blocking the confirm step. Switching candidates while a
+  photo fetch is in flight discards the stale response (`searchSelectedIdx !== i` guard),
+  same request-token pattern the weather panel uses.
   Each day's tab (and the route panel's day label, and the printable itinerary) shows the
   day's date via `formatDayDate` (e.g. "Sun, Aug 16") next to the day number — `DAY_DATES` was
   already parsed from the KML, it just wasn't surfaced anywhere but one export string before.
