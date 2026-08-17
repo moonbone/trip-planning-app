@@ -135,6 +135,14 @@ The user's own real trip currently loaded into the app is a Norway road trip, Au
   silently omitted otherwise, never blocking the confirm step. Switching candidates while a
   photo fetch is in flight discards the stale response (`searchSelectedIdx !== i` guard),
   same request-token pattern the weather panel uses.
+  Each day's route-item row also has small ▲/▼ buttons (`moveStopInDay`) alongside the
+  existing drag-and-drop reordering — real `<button>` elements, so unlike a `draggable` row
+  they're reachable by Tab and operable with Enter/Space, for anyone on a keyboard or a
+  touch device where drag-reordering is fiddly. Always recomputes `dayStops(activeDay)`
+  fresh at click time and swaps the adjacent pair in that filtered (hotel-free) array, then
+  writes the whole thing back to `plans[day]` — the same "replace with just the reordered
+  editable stops" contract `commitDragOrder` already uses, so the two reordering paths can't
+  drift out of sync with each other.
   Each day's tab (and the route panel's day label, and the printable itinerary) shows the
   day's date via `formatDayDate` (e.g. "Sun, Aug 16") next to the day number — `DAY_DATES` was
   already parsed from the KML, it just wasn't surfaced anywhere but one export string before.

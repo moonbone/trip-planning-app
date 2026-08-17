@@ -877,6 +877,16 @@
     border:none;background:none;color:var(--rust);
     cursor:pointer;font-size:16px;line-height:1;padding:2px 4px;
   }
+  .reorder-btns{
+    display:flex;flex-direction:column;
+    gap:1px;
+  }
+  .reorder-btn{
+    border:none;background:none;color:var(--ink-soft);
+    cursor:pointer;font-size:10px;line-height:1;padding:1px 3px;
+  }
+  .reorder-btn:disabled{opacity:0.25;cursor:default;}
+  .reorder-btn:not(:disabled):hover{color:var(--accent-dark);}
   .calc-btn{
     width:100%;
     padding:12px;
@@ -3116,6 +3126,21 @@ function flipMove(container, mutate){
   });
 }
 
+// Keyboard/tap-friendly alternative to drag-and-drop reordering — the ▲/▼
+// buttons on each route-item row. Always recomputes dayStops() fresh rather
+// than trusting a closured index, so a stale click (e.g. after some other
+// change re-rendered the list) can't swap the wrong pair; a no-op past
+// either end is silently ignored rather than wrapping around.
+function moveStopInDay(day, idx, delta){
+  const stops = dayStops(day);
+  const j = idx + delta;
+  if(j < 0 || j >= stops.length) return;
+  [stops[idx], stops[j]] = [stops[j], stops[idx]];
+  plans[day] = stops;
+  saveState();
+  renderAll();
+}
+
 // Persist whatever order the drag preview left the DOM in.
 function commitDragOrder(){
   if(!dragRow) return;
@@ -3259,6 +3284,31 @@ function renderRouteList(){
     row.appendChild(suffix);
     row.appendChild(segmentNavLink(id));
     prevId = id;
+    // Keyboard/tap-friendly alternative to drag-and-drop — real <button>
+    // elements are focusable and Enter/Space-operable, unlike a draggable
+    // div, which needs a pointer. `stopIdx` is this row's position among
+    // dayStops(activeDay) — same order the drag reorder produces (`pos`
+    // above is 1-based over that same sequence).
+    const stopIdx = pos - 1;
+    const reorderBtns = document.createElement('div');
+    reorderBtns.className = 'reorder-btns';
+    const upBtn = document.createElement('button');
+    upBtn.className = 'reorder-btn';
+    upBtn.textContent = '▲';
+    upBtn.title = `Move "${p.name}" earlier`;
+    upBtn.setAttribute('aria-label', `Move ${p.name} earlier in Day ${activeDay}`);
+    upBtn.disabled = stopIdx === 0;
+    upBtn.onclick = ()=>moveStopInDay(activeDay, stopIdx, -1);
+    const downBtn = document.createElement('button');
+    downBtn.className = 'reorder-btn';
+    downBtn.textContent = '▼';
+    downBtn.title = `Move "${p.name}" later`;
+    downBtn.setAttribute('aria-label', `Move ${p.name} later in Day ${activeDay}`);
+    downBtn.disabled = stopIdx === stops.length - 1;
+    downBtn.onclick = ()=>moveStopInDay(activeDay, stopIdx, 1);
+    reorderBtns.appendChild(upBtn);
+    reorderBtns.appendChild(downBtn);
+    row.appendChild(reorderBtns);
     const rm = document.createElement('button');
     rm.className = 'remove-btn';
     rm.textContent = '×';
