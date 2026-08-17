@@ -3,6 +3,115 @@
 A running log of what each scheduled nightly session built on `beta`, so
 future runs don't duplicate or contradict prior work. Newest entry first.
 
+## 2026-08-17
+
+`beta` was at 3d51e7a going in (last night's four features: optimize order,
+undo toast, trip driving total, duplicate trip) — one commit ahead of the
+last promotion to `master` (five nights of nightly work were merged to
+production via PR #7 earlier). Fetched the real feature-request backlog
+from mainline (`GET /tickets`): of 11 tickets, one was actionable
+(`msw6fddzu25mte`, "Search function confirmation", `new`) — everything
+else already `done`. Four changes tonight, each committed and pushed
+separately, each verified against the local dev-server with Playwright
+(a fresh chromium + stubbed `window.L` + stubbed external APIs, per prior
+nights' approach) before pushing, then spot-checked against the live beta
+URL after each deploy:
+
+1. **Mainline ticket `msw6fddzu25mte` ("Search function confirmation").**
+   `searchPlaceByName` used to geocode a typed name/address and save
+   Nominatim's single top match straight away — no way to see what was
+   about to be added, or to pick between similarly-named places. Now asks
+   Nominatim for up to 5 matches (`geocodeCandidates`) and opens a confirm
+   modal (`openSearchResultsModal`) before saving anything: a clickable
+   list when there's more than one candidate, and for whichever is
+   selected — always, even for a single match, since the ticket asked for
+   confirmation as the core behavior, not just a picker — a small Leaflet
+   preview map, the full address, an editable name field, and a
+   best-effort photo pulled from Wikipedia's public REST summary API when
+   OSM tagged the place with a `wikipedia` tag. **Marked `in_beta` on
+   mainline** once pushed and confirmed live. Left the Maps-link import's
+   own geocoding fallback (`geocodeAddress`) untouched — that path already
+   has an exact redirect URL behind it before it ever needs to geocode a
+   bare title, so it doesn't have the same "which one did you mean"
+   problem this ticket was about.
+
+2. **▲/▼ buttons to reorder a day's stops, alongside drag-and-drop.**
+   Reordering was drag-only — fine with a mouse, unreachable by keyboard
+   and fiddly on touch. Added real `<button>` elements per row
+   (`moveStopInDay`) that swap a stop with its neighbor, always
+   recomputing `dayStops()` fresh rather than trusting a closured index so
+   a stale click can't swap the wrong pair. Reuses `commitDragOrder`'s
+   existing "write the filtered stop list straight back to `plans[day]`"
+   contract, so the two reordering paths can't drift apart.
+
+3. **Estimated fuel cost as a one-click budget line.** The fuel settings
+   (⛽) already computed a whole-trip cost estimate for the trip overview
+   panel, but the budget tracker had no way to know about it short of the
+   user re-typing the number by hand — an easy way for the budget total to
+   silently miss its largest line. The budget modal now shows that
+   estimate with an "add to budget" action that writes a `Transport`-
+   category line item under a fixed label, so a later change (a route
+   recalculated, fuel settings edited) offers "update the logged estimate"
+   instead of piling up duplicates.
+
+4. **Nearby fuel/food/parking/restroom lookup per stop, via Overpass.**
+   The biggest piece tonight, and a new external dependency: every
+   route-item row (stops and pinned hotels) got a 🔎 button that queries
+   Overpass (OSM's public, keyless, CORS-enabled query API — same no-auth
+   trust model as Nominatim/Open-Meteo already used elsewhere) for named
+   fuel, restaurant, cafe, fast food, parking, restroom, and supermarket
+   nodes within 1.5km. Results sort nearest-first, cap at 15, and each has
+   a "+ Add" that drops it into the day as a custom place with its exact
+   OSM coordinates. Confirmed the query/response shape once against the
+   live API (real data back from central Bergen) before building the
+   parsing logic against it — but the public instance turned out
+   noticeably flakier than Nominatim under repeated quick requests (hit a
+   406 and a 504 retrying from this shell later in the session), so the
+   modal's error path got real attention: a failed or slow lookup shows an
+   inline message rather than affecting anything else on the page, and
+   that path is covered by an explicit Playwright test (a stubbed 503),
+   not just reasoned about.
+
+All four verified locally against the file-based dev-server
+(`AUTH_DEV_FAKE=1`) with Playwright, each in its own throwaway test script
+(candidate picker + photo/map preview + validation + Escape-to-close for
+the search confirm modal, 17 checks; up/down boundary behavior + reload
+persistence + hotel rows correctly excluded for the reorder buttons, 9
+checks; add/update/already-logged/remove-brings-back-the-offer for the
+budget-fuel link, 11 checks; query scoping + unnamed-node filtering +
+nearest-first sort + m/km distance formatting + add-to-day + the Overpass
+failure and empty-result paths + Escape for the nearby lookup, 16 checks)
+— 53 checks total, all passing, with each new feature's test re-run after
+every later change tonight to catch cross-feature regressions before
+pushing (none surfaced). Also re-learned the dev-server gotcha from
+CLAUDE.md the hard way once: it copies `index.html` into memory at
+startup, so a Playwright run against edits made after the server was
+already up silently tested stale markup (buttons "not found" with no
+console error) until the server was restarted — no code issue, just a
+reminder for future nights to restart after every edit, not just once
+per session. Confirmed all four commits deployed successfully via
+`deploy-beta.yml` and spot-checked the live beta HTML for each feature's
+new element IDs (`searchResultsModal`, `reorder-btns`, `budgetFuelSuggestion`,
+`nearby-btn`) after the last push.
+
+**Decided not to do, and why:**
+- **A fifth feature.** One ticket plus three independent features — one of
+  them (Overpass) a genuinely new external dependency that deserved a real
+  look at its failure modes rather than being rushed to fit in a fifth —
+  felt like the right scope for tonight.
+- **A dedicated mobile screenshot pass for the new 🔎 button.** Route-item
+  rows already absorb varying button counts via `.name{flex:1}` with
+  every button `flex-shrink:0`, the same layout that already coexists with
+  the nav button, stay-input, reorder buttons, and remove button on the
+  same row — one more 22×22 icon button is a marginal addition to an
+  already-proven layout, not the kind of first-time color-role audit the
+  dark-mode work needed a full screenshot pass for.
+- **A category filter or radius control on the nearby-amenities modal.**
+  A fixed 1.5km / 7-type search covers the realistic "I'm about to leave
+  this stop, what's nearby" case without adding UI just to configure a
+  lookup most people will run as-is; can revisit if real usage shows the
+  fixed radius is wrong for some places.
+
 ## 2026-08-16
 
 `beta` was at d0534da going in — one commit ahead of the last nightly log
