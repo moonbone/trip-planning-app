@@ -783,7 +783,8 @@
     border:3px solid #fff;
     box-shadow:0 0 0 2px rgba(42,111,214,0.35), 0 1px 3px rgba(0,0,0,0.35);
   }
-  .nav-btn{
+  .nav-btn,
+  .nearby-btn{
     text-decoration:none;
     color:var(--accent-dark);
     border:1px solid var(--accent);
@@ -792,8 +793,32 @@
     display:flex;align-items:center;justify-content:center;
     font-size:11px;
     flex-shrink:0;
+    background:none;
+    cursor:pointer;
   }
-  .nav-btn:hover{background:var(--accent-light);}
+  .nav-btn:hover,
+  .nearby-btn:hover{background:var(--accent-light);}
+  .nearby-item{
+    display:flex;
+    align-items:center;
+    gap:8px;
+    padding:7px 2px;
+    border-bottom:1px solid var(--border);
+    font-size:13px;
+  }
+  .nearby-item .nearby-icon{flex-shrink:0;font-size:15px;}
+  .nearby-item .nearby-name{flex:1;word-break:break-word;}
+  .nearby-item .nearby-dist{
+    flex-shrink:0;
+    font-family:'IBM Plex Mono',monospace;
+    font-size:11px;
+    color:var(--ink-soft);
+  }
+  .nearby-add-btn{
+    flex-shrink:0;
+    padding:4px 8px;
+    font-size:12px;
+  }
   .nav-btn-row{
     display:flex;
     gap:8px;
@@ -1393,6 +1418,15 @@
       <button class="reset-btn" id="budgetAddBtn">Add</button>
     </div>
     <div class="error-note" id="budgetError"></div>
+  </div>
+</div>
+
+<div class="info-modal-overlay" id="nearbyModal" style="display:none;">
+  <div class="info-modal">
+    <button class="info-close" id="nearbyModalClose" title="Close">×</button>
+    <h2 id="nearbyTitle">Nearby</h2>
+    <div id="nearbyList"></div>
+    <div class="error-note" id="nearbyError"></div>
   </div>
 </div>
 
@@ -2178,6 +2212,7 @@ document.getElementById('dialogInput').addEventListener('keydown', (e)=>{
 document.addEventListener('keydown', (e)=>{
   if(e.key === 'Escape' && dialogResolve) closeDialog(null);
   if(e.key === 'Escape' && document.getElementById('searchResultsModal').style.display !== 'none') closeSearchResultsModal();
+  if(e.key === 'Escape' && document.getElementById('nearbyModal').style.display !== 'none') closeNearbyModal();
 });
 
 // ---- Custom places (ticket #9) ----
@@ -3261,8 +3296,130 @@ function hotelRow(hotelId, label){
   row.innerHTML = `<span class="idx hotel-idx">⌂</span><span class="name">${escapeHtml(byId[hotelId].name)}</span><span class="hotel-tag">${label}</span>`;
   wireInfoClick(row, hotelId);
   row.appendChild(segmentNavLink(hotelId));
+  row.appendChild(nearbyLink(hotelId));
   return row;
 }
+
+// ---- Nearby amenities (fuel/food/parking/restrooms) via Overpass ----
+// Overpass API (overpass-api.de) is OSM's public query endpoint — keyless,
+// CORS-enabled (Access-Control-Allow-Origin: *), same no-auth
+// client-side-callable spirit as Nominatim/Open-Meteo already used
+// elsewhere in this app. Curated to the handful of amenity types actually
+// useful mid-road-trip, not a general POI browser.
+const NEARBY_AMENITY_ICONS = {
+  fuel: '⛽', restaurant: '🍽️', cafe: '☕', fast_food: '🍔',
+  parking: '🅿️', toilets: '🚻', supermarket: '🛒',
+};
+const NEARBY_RADIUS_M = 1500;
+const NEARBY_RESULT_CAP = 15;
+
+function nearbyLink(placeId){
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.className = 'nearby-btn';
+  btn.title = `Find nearby fuel, food, parking, or restrooms near ${byId[placeId].name}`;
+  btn.setAttribute('aria-label', `Find places near ${byId[placeId].name}`);
+  btn.textContent = '🔎';
+  btn.addEventListener('click', (e)=>{ e.stopPropagation(); openNearbyModal(placeId); });
+  return btn;
+}
+
+async function fetchNearbyAmenities(lat, lon){
+  const types = Object.keys(NEARBY_AMENITY_ICONS).join('|');
+  const query = `[out:json][timeout:12];node(around:${NEARBY_RADIUS_M},${lat},${lon})`
+    + `[amenity~"^(${types})$"];out ${NEARBY_RESULT_CAP * 3};`;
+  const res = await fetch('https://overpass-api.de/api/interpreter', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+    body: 'data=' + encodeURIComponent(query),
+  });
+  if(!res.ok) throw new Error('Overpass HTTP ' + res.status);
+  const data = await res.json();
+  const origin = {lat, lon};
+  return (data.elements || [])
+    // Unnamed amenities (a huge share of OSM parking/toilets nodes) aren't
+    // worth surfacing — nothing to show the user or save as a place name.
+    .filter(el => el.tags && el.tags.name && el.lat != null && el.lon != null)
+    .map(el => ({
+      name: el.tags.name,
+      lat: el.lat, lon: el.lon,
+      amenity: el.tags.amenity,
+      distanceKm: haversineKm(origin, {lat: el.lat, lon: el.lon}),
+    }))
+    .sort((a,b)=>a.distanceKm - b.distanceKm)
+    .slice(0, NEARBY_RESULT_CAP);
+}
+
+let nearbyResults = [];
+async function openNearbyModal(placeId){
+  const p = byId[placeId];
+  if(!p) return;
+  document.getElementById('nearbyTitle').textContent = `Nearby ${p.name}`;
+  document.getElementById('nearbyError').textContent = '';
+  document.getElementById('nearbyList').innerHTML = '<div class="empty-note">Searching…</div>';
+  document.getElementById('nearbyModal').style.display = '';
+  let results;
+  try{
+    results = await fetchNearbyAmenities(p.lat, p.lon);
+  }catch(e){
+    document.getElementById('nearbyList').innerHTML = '';
+    document.getElementById('nearbyError').textContent = 'Could not look up nearby places (' + e.message + ').';
+    return;
+  }
+  nearbyResults = results;
+  renderNearbyList();
+}
+function renderNearbyList(){
+  const el = document.getElementById('nearbyList');
+  if(!nearbyResults.length){
+    el.innerHTML = `<div class="empty-note">No named fuel, food, parking, or restroom spots found within ${NEARBY_RADIUS_M}m.</div>`;
+    return;
+  }
+  el.innerHTML = '';
+  nearbyResults.forEach(r=>{
+    const row = document.createElement('div');
+    row.className = 'nearby-item';
+    const meters = Math.round(r.distanceKm * 1000);
+    const distText = meters < 1000 ? `${meters} m` : `${r.distanceKm.toFixed(1)} km`;
+    const icon = document.createElement('span');
+    icon.className = 'nearby-icon';
+    icon.textContent = NEARBY_AMENITY_ICONS[r.amenity] || '📍';
+    const name = document.createElement('span');
+    name.className = 'nearby-name';
+    name.textContent = r.name;
+    const dist = document.createElement('span');
+    dist.className = 'nearby-dist';
+    dist.textContent = distText;
+    const addBtn = document.createElement('button');
+    addBtn.className = 'reset-btn nearby-add-btn';
+    addBtn.textContent = '+ Add';
+    addBtn.title = `Add "${r.name}" to Day ${activeDay}`;
+    addBtn.onclick = ()=>addNearbyAsPlace(r);
+    row.appendChild(icon);
+    row.appendChild(name);
+    row.appendChild(dist);
+    row.appendChild(addBtn);
+    el.appendChild(row);
+  });
+}
+function addNearbyAsPlace(r){
+  if(!activeTrip()) return;
+  const p = {id: 'c' + newId(), name: r.name, lat: r.lat, lon: r.lon, custom: true};
+  customPlaces.push(p);
+  rebuildById();
+  if(!plans[activeDay]) plans[activeDay] = [];
+  plans[activeDay].push(p.id);
+  saveVariant();
+  renderAll();
+  closeNearbyModal();
+}
+function closeNearbyModal(){
+  document.getElementById('nearbyModal').style.display = 'none';
+}
+document.getElementById('nearbyModalClose').addEventListener('click', closeNearbyModal);
+document.getElementById('nearbyModal').addEventListener('click', (e)=>{
+  if(e.target === e.currentTarget) closeNearbyModal();
+});
 
 // Every place name opens the place modal (info when imported, comments
 // always). The dotted underline marks places with imported info; a 💬
@@ -3351,6 +3508,7 @@ function renderRouteList(){
     suffix.textContent = 'min';
     row.appendChild(suffix);
     row.appendChild(segmentNavLink(id));
+    row.appendChild(nearbyLink(id));
     prevId = id;
     // Keyboard/tap-friendly alternative to drag-and-drop — real <button>
     // elements are focusable and Enter/Space-operable, unlike a draggable

@@ -114,6 +114,20 @@ The user's own real trip currently loaded into the app is a Norway road trip, Au
   calculated, or the fuel settings themselves were edited), and reports "already logged"
   once the two match. Purely a convenience — the line item is a normal, editable, removable
   budget row after it's added, not a synced/computed field.
+  Every route-item row (stops and pinned hotels alike) has a small "🔎" button
+  (`nearbyLink`/`openNearbyModal`) that looks up nearby fuel stations, restaurants, cafes,
+  fast food, parking, restrooms, and supermarkets — the amenity types actually relevant
+  mid-road-trip, not a general POI browser — within 1.5km of that stop, via Overpass
+  (`overpass-api.de`, OSM's public query API: keyless, `Access-Control-Allow-Origin: *`,
+  same no-auth client-side-callable trust model as Nominatim/Open-Meteo already used
+  elsewhere in this app). Results are sorted nearest-first, capped at 15, and unnamed nodes
+  (a large share of OSM parking/toilets data) are filtered out since there'd be nothing to
+  show or save. Each result has a "+ Add" button that adds it as a custom place to the
+  active day using its exact OSM coordinates — same `customPlaces.push` + `plans[day].push`
+  pattern every other "add a place" path in this app already uses. A failed/slow Overpass
+  call (the free public instance is noticeably less reliable than Nominatim — occasional
+  406/504s under load, confirmed against the live API while building this) shows an inline
+  error in the modal rather than breaking anything else on the page.
   An AI "Summarize day" button (signed-in UI, server-gated
   to one account) posts a text rendition of the day to `/api/ai/summarize-day`, which calls
   Claude on Bedrock via `aws/ai.mjs` (SDK bundled in Lambda runtime only — locally it 502s).
