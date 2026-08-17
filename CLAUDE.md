@@ -103,7 +103,17 @@ The user's own real trip currently loaded into the app is a Norway road trip, Au
   `PUT /api/trips/:id/budget` (editor+, whole-array replace, sanitized/capped at 300 items,
   amount clamped to `[0, 1e8]`, empty-label items dropped). Displays each amount with the
   fuel settings' currency label rather than a second currency input, since that's already
-  "the currency for this trip's costs" in spirit.
+  "the currency for this trip's costs" in spirit. The budget modal also shows a computed
+  whole-trip fuel estimate (`estimatedFuelCost`, reusing the same `dayDriveEstimate()`-
+  across-`DAYS` sum the trip overview panel's driving total already computes) with a
+  one-click "add to budget" action (`addOrUpdateFuelBudgetItem`) that writes it as a
+  `Transport`-category line item labeled `"Estimated fuel (whole trip)"` — so a filled-in
+  fuel settings row doesn't leave the budget total silently missing its largest line.
+  Detects that item by that exact label to offer "update the logged estimate" instead of
+  adding a duplicate whenever the figure has since changed (a different day's route was
+  calculated, or the fuel settings themselves were edited), and reports "already logged"
+  once the two match. Purely a convenience — the line item is a normal, editable, removable
+  budget row after it's added, not a synced/computed field.
   An AI "Summarize day" button (signed-in UI, server-gated
   to one account) posts a text rendition of the day to `/api/ai/summarize-day`, which calls
   Claude on Bedrock via `aws/ai.mjs` (SDK bundled in Lambda runtime only — locally it 502s).
