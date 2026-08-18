@@ -222,6 +222,33 @@
     color:var(--ink-soft);
     margin:0 0 10px;
   }
+  .section-label-row{
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    gap:8px;
+  }
+  .section-label-row .section-label{margin:0 0 10px;}
+  .units-toggle{
+    display:flex;
+    gap:2px;
+    margin-bottom:8px;
+  }
+  .unit-btn{
+    font-family:'IBM Plex Mono',monospace;
+    font-size:10px;
+    padding:2px 7px;
+    border:1px solid var(--border);
+    background:var(--panel);
+    color:var(--ink-soft);
+    cursor:pointer;
+    border-radius:4px;
+  }
+  .unit-btn.active{
+    background:var(--accent);
+    color:#fff;
+    border-color:var(--accent);
+  }
   .kml-panel{
     display:flex;
     flex-direction:column;
@@ -1307,7 +1334,13 @@
   </div>
 
   <div class="col col-right">
-    <p class="section-label">Trip overview</p>
+    <div class="section-label-row">
+      <p class="section-label">Trip overview</p>
+      <div class="units-toggle" id="unitsToggle" title="Distance unit — a personal preference, saved in this browser, applies to every trip">
+        <button type="button" class="unit-btn" data-unit="km">km</button>
+        <button type="button" class="unit-btn" data-unit="mi">mi</button>
+      </div>
+    </div>
     <div id="tripOverview"></div>
     <div id="weatherPanel"></div>
     <p class="section-label">Drive summary</p>
@@ -2151,6 +2184,33 @@ function fuelCostText(distanceKm, settings){
   const cost = distanceKm * (s.consumption/100) * s.price;
   const rounded = cost >= 100 ? Math.round(cost) : Math.round(cost*10)/10;
   return ` · ≈ ${rounded}${s.currency ? ' ' + escapeHtml(s.currency) : ''} fuel`;
+}
+
+// Distance unit (km/mi): a personal preference, not trip data, so it's one
+// plain localStorage key applying across every trip — same pattern as fuel
+// settings and dark mode. Every internal calculation (routing, fuel cost,
+// haversine distances, near-duplicate detection) stays in km always; this
+// is purely a display-formatting layer, so nothing upstream needs to change
+// when the unit is switched. Deliberately doesn't touch the fuel-consumption
+// field (still always L/100km) — an mpg-equivalent fuel input is a genuinely
+// different unit system (not just a display conversion) and a bigger scope
+// than a distance-display toggle; left for a future session if it's wanted.
+const KM_TO_MI = 0.621371;
+function loadDistanceUnit(){
+  return localStorage.getItem('tripplan-distance-unit') === 'mi' ? 'mi' : 'km';
+}
+function saveDistanceUnit(u){
+  try{ localStorage.setItem('tripplan-distance-unit', u); }
+  catch(e){ console.error('save failed', e); }
+}
+// `km` is always a plain number here (never a pre-rounded string) so this is
+// the only place distances get rounded for display, for both units.
+function formatDistanceKm(km, decimals){
+  if(km == null || !isFinite(km)) return '';
+  const unit = loadDistanceUnit();
+  const value = unit === 'mi' ? km * KM_TO_MI : km;
+  const d = decimals != null ? decimals : (value < 10 ? 1 : 0);
+  return value.toFixed(d) + ' ' + unit;
 }
 
 // Dark mode: an explicit tripplan-theme ('light'|'dark') in localStorage
@@ -3275,7 +3335,7 @@ function optimizeDayOrder(){
     return;
   }
   if(!confirm(`Reorder ${stops.length} stops to shorten the estimated straight-line route from `
-    + `${beforeKm.toFixed(1)} km to ${afterKm.toFixed(1)} km?\n\nThis is a straight-line estimate, `
+    + `${formatDistanceKm(beforeKm, 1)} to ${formatDistanceKm(afterKm, 1)}?\n\nThis is a straight-line estimate, `
     + `not real driving distance — recalculate driving times afterward to see the actual effect.`)) return;
   plans[activeDay] = newIds;
   saveState();
@@ -3451,7 +3511,11 @@ function renderNearbyList(){
     const row = document.createElement('div');
     row.className = 'nearby-item';
     const meters = Math.round(r.distanceKm * 1000);
-    const distText = meters < 1000 ? `${meters} m` : `${r.distanceKm.toFixed(1)} km`;
+    // Sub-1km distances stay in meters regardless of the unit toggle — this
+    // lookup is a fixed 1.5km radius, and nobody thinks in fractional miles
+    // at that scale; only the (rare, at this radius) km-and-up case respects
+    // the user's chosen unit.
+    const distText = meters < 1000 ? `${meters} m` : formatDistanceKm(r.distanceKm, 1);
     const icon = document.createElement('span');
     icon.className = 'nearby-icon';
     icon.textContent = NEARBY_AMENITY_ICONS[r.amenity] || '📍';
@@ -3539,7 +3603,7 @@ function renderRouteList(){
     if(!leg) return;
     const div = document.createElement('div');
     div.className = 'route-leg-info';
-    div.textContent = `↓ ${Math.round(leg.duration/60)} min · ${(leg.distance/1000).toFixed(0)} km`;
+    div.textContent = `↓ ${Math.round(leg.duration/60)} min · ${formatDistanceKm(leg.distance/1000)}`;
     el.appendChild(div);
   };
   if(wake) el.appendChild(hotelRow(wake, 'Start'));
@@ -3723,7 +3787,7 @@ function renderTripOverview(){
     const totalKm = driveEstimates.reduce((s,e)=>s+e.km,0);
     const approx = driveEstimates.some(e=>!e.exact);
     const hrs = Math.floor(totalMin/60), mins = totalMin%60;
-    totalDriveLine = `<p class="stats-sub">${approx ? '≈ ' : ''}${hrs}h ${mins}m driving · ${totalKm.toFixed(0)} km total across the trip`
+    totalDriveLine = `<p class="stats-sub">${approx ? '≈ ' : ''}${hrs}h ${mins}m driving · ${formatDistanceKm(totalKm)} total across the trip`
       + `${approx ? ` (${driveEstimates.filter(e=>e.exact).length}/${driveEstimates.length} days calculated exactly, rest estimated)` : ''}</p>`;
   }
   el.innerHTML = `
@@ -3753,8 +3817,8 @@ function renderStats(){
     if(i > 0){
       const leg = route.legs[i-1];
       const lm = Math.round(leg.duration/60);
-      const lk = (leg.distance/1000).toFixed(0);
-      rows += `<div class="leg drive-leg"><span>drive</span><span class="leg-time">${lm} min · ${lk} km</span></div>`;
+      const lk = leg.distance/1000;
+      rows += `<div class="leg drive-leg"><span>drive</span><span class="leg-time">${lm} min · ${formatDistanceKm(lk)}</span></div>`;
       t += lm;
     }
     const stay = stayMinutes(activeDay, id);
@@ -3762,7 +3826,7 @@ function renderStats(){
     stayTotal += stay;
     t += stay;
   });
-  const totalKm = (route.distance/1000).toFixed(0);
+  const totalKm = route.distance/1000;
   const driveMin = Math.round(route.duration/60);
   const hrs = Math.floor(driveMin/60), mins = driveMin%60;
   const sh = Math.floor(stayTotal/60), sm = stayTotal%60;
@@ -3772,7 +3836,7 @@ function renderStats(){
     ? '<p class="stats-warn">⛴ This day includes a ferry crossing — check schedules and reservations ahead of time.</p>' : '';
   statsEl.innerHTML = `
     <p class="stats-total">${meta.start} → ${fmtClock(t)}</p>
-    <p class="stats-sub">${hrs}h ${mins}m driving · ${sh}h ${sm}m at stops · ${totalKm} km${isLoopDay(activeDay) ? ' · loops back to hotel' : ''}${fuelCostText(Number(totalKm))}</p>
+    <p class="stats-sub">${hrs}h ${mins}m driving · ${sh}h ${sm}m at stops · ${formatDistanceKm(totalKm)}${isLoopDay(activeDay) ? ' · loops back to hotel' : ''}${fuelCostText(totalKm)}</p>
     ${nowBanner(ids, route, meta)}
     ${longWarn}
     ${ferryWarn}
@@ -4169,7 +4233,7 @@ async function buildDayItinerary(day){
     if(i > 0 && route){
       const leg = route.legs[i-1];
       legMin = Math.round(leg.duration/60);
-      legKm = (leg.distance/1000).toFixed(0);
+      legKm = leg.distance/1000; // raw km — formatted for display at each call site, per the active unit
       t += legMin;
     }
     const stay = stayMinutes(day, id);
@@ -4178,7 +4242,7 @@ async function buildDayItinerary(day){
   });
   if(route){
     result.routed = true;
-    result.distanceKm = (route.distance/1000).toFixed(0);
+    result.distanceKm = route.distance/1000; // raw km, same reasoning as legKm above
     result.driveMin = Math.round(route.duration/60);
     result.end = fmtClock(t);
   }
@@ -4188,7 +4252,7 @@ async function buildDayItinerary(day){
 
 function renderPrintableItinerary(trip, days){
   const routedDays = days.filter(d=>d.routed);
-  const totalKm = routedDays.reduce((s,d)=> s + Number(d.distanceKm), 0);
+  const totalKm = routedDays.reduce((s,d)=> s + d.distanceKm, 0);
   const totalMin = routedDays.reduce((s,d)=> s + d.driveMin, 0);
   const unrouted = days.filter(d=>!d.routed && d.needsRoute).length;
   const hrs = Math.floor(totalMin/60), mins = totalMin%60;
@@ -4203,14 +4267,14 @@ function renderPrintableItinerary(trip, days){
       // stop i+1 (it's the drive that got you there), not on stop i.
       const next = d.stops[i+1];
       const legRow = next
-        ? `<tr class="t-leg"><td></td><td>${next.legMin != null ? `↓ drive ${next.legMin} min · ${next.legKm} km` : '↓ drive (time unavailable)'}</td></tr>`
+        ? `<tr class="t-leg"><td></td><td>${next.legMin != null ? `↓ drive ${next.legMin} min · ${formatDistanceKm(next.legKm)}` : '↓ drive (time unavailable)'}</td></tr>`
         : '';
       return stopRow + legRow;
     }).join('');
     const notesHtml = d.notes.length
       ? `<div class="t-notes"><b>Notes:</b> ${d.notes.map(n=>escapeHtml(n)).join(' · ')}</div>` : '';
     const totalsHtml = d.routed
-      ? `<p class="t-total">${d.start} → ${d.end} · ${Math.floor(d.driveMin/60)}h ${d.driveMin%60}m driving · ${d.distanceKm} km${d.loop ? ' · loops back to hotel' : ''}${fuelCostText(Number(d.distanceKm), fuel)}</p>${d.driveMin >= LONG_DRIVE_WARN_MIN ? '<p class="t-total t-warn">⚠️ Long driving day</p>' : ''}`
+      ? `<p class="t-total">${d.start} → ${d.end} · ${Math.floor(d.driveMin/60)}h ${d.driveMin%60}m driving · ${formatDistanceKm(d.distanceKm)}${d.loop ? ' · loops back to hotel' : ''}${fuelCostText(d.distanceKm, fuel)}</p>${d.driveMin >= LONG_DRIVE_WARN_MIN ? '<p class="t-total t-warn">⚠️ Long driving day</p>' : ''}`
       : d.needsRoute
         ? '<p class="t-total t-warn">Driving times unavailable for this day — showing stop order only.</p>'
         : '<p class="t-total">No driving this day.</p>';
@@ -4248,7 +4312,7 @@ function renderPrintableItinerary(trip, days){
   <h1>${escapeHtml(trip.name)}</h1>
   <p class="t-sub">${days.length} days${trip.tripStart ? ` · starting ${trip.tripStart}` : ''}</p>
   <div class="t-summary">
-    ${totalKm ? `<b>${totalKm} km</b> total driving · <b>${hrs}h ${mins}m</b> total driving time${fuelCostText(totalKm, fuel)}` : 'Driving totals unavailable'}
+    ${totalKm ? `<b>${formatDistanceKm(totalKm)}</b> total driving · <b>${hrs}h ${mins}m</b> total driving time${fuelCostText(totalKm, fuel)}` : 'Driving totals unavailable'}
     ${unrouted ? ` · ${unrouted} day${unrouted>1?'s':''} without routing data` : ''}
   </div>
   ${dayHtml}
@@ -4406,7 +4470,7 @@ function buildTripIcs(days){
     const endTime = d.routed && d.end ? d.end : fmtClock(parseClock(d.start) + ICS_DEFAULT_DAY_HOURS * 60);
     const dtend = icsDateTime(d.date, endTime);
     const descParts = [d.stops.map(s=>(s.overnight ? '🏨 ' : '') + s.name).join('\n')];
-    if(d.routed) descParts.push(`${Math.floor(d.driveMin/60)}h ${d.driveMin%60}m driving \u00b7 ${d.distanceKm} km`);
+    if(d.routed) descParts.push(`${Math.floor(d.driveMin/60)}h ${d.driveMin%60}m driving \u00b7 ${formatDistanceKm(d.distanceKm)}`);
     if(d.notes.length) descParts.push('Notes: ' + d.notes.join('; '));
     return [
       'BEGIN:VEVENT',
@@ -4878,7 +4942,7 @@ function dayDescriptionText(){
     if(!p) return;
     if(i > 0 && legMatch){
       const leg = lastRoute.route.legs[i-1];
-      lines.push(`  (drive ${Math.round(leg.duration/60)} min, ${(leg.distance/1000).toFixed(0)} km)`);
+      lines.push(`  (drive ${Math.round(leg.duration/60)} min, ${formatDistanceKm(leg.distance/1000)})`);
     }
     const stay = stayMinutes(activeDay, id);
     const info = placeInfo[id];
@@ -5025,6 +5089,20 @@ document.getElementById('dayFerryInput').addEventListener('change', (e)=>{
     saveFuelSettings(fuelSettingsFromInputs());
     renderStats();
   });
+});
+
+function syncUnitsToggle(){
+  const unit = loadDistanceUnit();
+  document.querySelectorAll('#unitsToggle .unit-btn').forEach(btn=>{
+    btn.classList.toggle('active', btn.dataset.unit === unit);
+  });
+}
+document.getElementById('unitsToggle').addEventListener('click', (e)=>{
+  const btn = e.target.closest('.unit-btn');
+  if(!btn) return;
+  saveDistanceUnit(btn.dataset.unit);
+  syncUnitsToggle();
+  renderAll();
 });
 
 document.getElementById('themeToggleBtn').addEventListener('click', toggleTheme);
@@ -5561,6 +5639,7 @@ if('serviceWorker' in navigator){
   initMap();
   watchLocation();
   applyFuelSettingsToInputs(loadFuelSettings());
+  syncUnitsToggle();
   applyTheme(localStorage.getItem('tripplan-theme'));
   // Same trip-loading logic as switching trips (parse KML, load enrichment/
   // comments/packing/variant, render) — used to be duplicated here with

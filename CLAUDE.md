@@ -196,6 +196,22 @@ The user's own real trip currently loaded into the app is a Norway road trip, Au
   — and appends "≈ N <currency> fuel" to the active day's drive stats and to both the
   per-day and whole-trip totals in the printable itinerary (`fuelCostText`, reused by both
   call sites). Omitted entirely whenever consumption or price is unset/zero.
+  A km/mi distance-unit toggle (small `km`/`mi` button pair next to the "Trip overview"
+  header) is the same kind of personal-not-trip setting as fuel settings and dark mode —
+  one plain `tripplan-distance-unit` localStorage key, applying across every trip.
+  Deliberately a *display-only* layer: every internal calculation (routing, fuel cost,
+  haversine distances, near-duplicate detection, the map's route-arrow spacing) stays in
+  km always: `formatDistanceKm(km, decimals?)` is the one place a km number ever gets
+  rounded and unit-suffixed for display, called from the drive summary, trip overview,
+  route-list leg info, the optimize-order confirm dialog, the printable itinerary, the ICS
+  export description, and the copy-day-plan/AI-summary text. Two things deliberately don't
+  go through it: the near-duplicate-place badge and sub-1km entries in the nearby-amenities
+  lookup stay in meters regardless of the toggle (nobody thinks in fractional miles at
+  that scale), and the fuel-consumption field stays L/100km always — an mpg-equivalent
+  input is a genuinely different unit system, not just a display conversion, and a bigger
+  scope than this toggle; left for a future session if it's wanted. `buildDayItinerary`'s
+  `distanceKm`/`legKm` fields hold raw km numbers (not pre-rounded strings) specifically so
+  every consumer can format them per the active unit at render time.
   A "🗺️ Export GPX" button (col-left, next to Print itinerary) downloads the whole trip
   as a single `.gpx` file for GPS devices/apps (Garmin, OsmAnd, Google Earth…):
   `buildTripGpx` emits a `<wpt>` per unique stop across every day (deduped like `PLACES`
