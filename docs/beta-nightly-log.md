@@ -3,6 +3,137 @@
 A running log of what each scheduled nightly session built on `beta`, so
 future runs don't duplicate or contradict prior work. Newest entry first.
 
+## 2026-08-18
+
+`beta` was at ad02de1 going in (last night's four features: search confirm,
+reorder buttons, fuel-budget link, nearby amenities). Fetched the real
+feature-request backlog from mainline (`GET /tickets`): of 12 tickets, one
+was actionable (`mswuwmi5itojje`, "Search function", `new`) — everything
+else already `done` or `in_beta`. A notably productive session — five
+commits, each tested and pushed separately, each deploy confirmed green via
+`deploy-beta.yml` before moving on:
+
+1. **Mainline ticket `mswuwmi5itojje` ("Search function").** The user's
+   report: searching for a supermarket chain name while in Norway returned
+   branches from the UK and Hungary — the "🔍 Search" flow's Nominatim call
+   had no locality bias at all. `searchAnchorPoint()` now resolves to the
+   active day's overnight hotel (falling back to that day's wake hotel,
+   then its last real stop, then any place in the trip — literally "current
+   end of day's hotel" per the ticket), and `nominatimSearchBiased` tries a
+   `viewbox`/`bounded=1` Nominatim search around it first (`viewboxAround`,
+   ~1.5° of latitude widened in longitude by `1/cos(lat)` so the box stays
+   roughly square in real distance this far north), falling back to a plain
+   unbounded search only when nothing turns up nearby — so a place
+   genuinely outside today's area still resolves. **Marked `in_beta`** on
+   mainline once pushed and confirmed live. Left `geocodeAddress` (the
+   Maps-link import's title fallback) unbiased and unchanged, per the
+   existing reasoning that path already has an exact redirect URL behind it.
+
+2. **Trip countdown banner + a per-day ferry flag.** Two small, independent
+   additions bundled into one commit since both touch the same small area
+   (trip overview panel / day tabs) and were developed together. The trip
+   overview now opens with "trip starts in N days" / "day N of M — today" /
+   "trip ended N days ago" (`tripCountdownLine`) — a quick answer to "how
+   close is this trip" without doing date math by hand. A "⛴ Ferry"
+   checkbox next to each day's start-time input flags a day as including a
+   ferry crossing — deliberately manual, not inferred (detecting "this road
+   segment is a ferry" would need road-type data OpenRouteService doesn't
+   expose here) — with a badge on the day tab, a reminder line in the drive
+   summary and printable itinerary, and a count in the trip overview,
+   mirroring the long-driving-day warning's existing pattern. Motivated
+   directly by CLAUDE.md's own flagged concern that Day 7 of the user's
+   trip "possibly involves a ferry" — this handles that day and any other
+   road trip with a ferry leg, without hardcoding anything trip-specific.
+
+3. **Native share sheet for "📋 Copy day plan".** The button's whole point
+   is getting today's plan to travel companions — `navigator.share` (where
+   supported, mostly phones) now offers the native share sheet
+   (WhatsApp/SMS/Email/etc.) in one tap instead of "copy, switch app,
+   paste". Falls straight through to the existing clipboard-copy behavior
+   on desktop (where `navigator.share` mostly isn't implemented) or on any
+   share failure; a cancelled share sheet (`AbortError`) is left alone
+   rather than falling back to clipboard, matching how a cancelled native
+   share normally behaves.
+
+4. **A km/mi distance-unit toggle.** Flagged twice in this log before as "a
+   full session's own scope" — genuinely useful for a general-purpose (not
+   Norway-specific) planner, but distance text was scattered across roughly
+   ten display sites. Tonight had the headroom to do it properly.
+   `formatDistanceKm(km, decimals?)` is now the single place a km number
+   ever gets rounded and unit-suffixed for display — every internal
+   calculation (routing, fuel cost, haversine, near-duplicate detection,
+   the map's route-arrow spacing) stays in km always, so this is purely a
+   display layer. Wired into the drive summary, trip overview, route-list
+   leg info, the optimize-order confirm dialog, the printable itinerary,
+   the ICS export, and the copy-day-plan text. `buildDayItinerary`'s
+   `distanceKm`/`legKm` fields now hold raw km numbers instead of
+   pre-rounded strings specifically so every consumer can format per the
+   active unit rather than being locked into whatever was baked in at
+   build time. Deliberately scoped down from "full unit system": the
+   fuel-consumption field stays L/100km always (mpg is a genuinely
+   different convention, not just a display conversion), and sub-1km
+   distances (near-duplicate badge, close-range nearby-amenities results)
+   stay in meters regardless of the toggle, since nobody thinks in
+   fractional miles at that scale.
+
+5. **A whole-trip weather strip.** The existing weather panel only ever
+   showed the active day's forecast — useful, but spotting a rainy stretch
+   meant clicking through every day one at a time. `renderTripWeatherStrip`
+   adds a compact per-day chip row (icon + high/low) above it for every day
+   within Open-Meteo's ~16-day horizon. Reuses `fetchWeather`'s exact same
+   call/cache as the single-day panel (no duplicate fetching either way),
+   sequential rather than parallel fetches to stay polite to a keyless
+   public API. Each chip's reference point is that day's *starting*
+   location (`getRouteIds(day)[0]`, the previous night's hotel) — same
+   convention the single-day panel already uses, so e.g. day 2's forecast
+   reflects where day 2 begins that morning, not day 2's own destination. A
+   day whose fetch fails is silently omitted rather than shown broken.
+
+All five verified locally against the file-based dev-server
+(`AUTH_DEV_FAKE=1`) with Playwright, each in its own throwaway test script:
+the search-bias fix against a two-day KML fixture (anchor resolution, a
+stubbed Nominatim confirming the anchored box is actually sent and actually
+filters results, the anchor moving with the active day, and the
+anchored-empty→unbounded-fallback path — 6 checks); the countdown banner
+and ferry flag together (a pinned browser clock so "today" is deterministic
+regardless of when the test runs, all three countdown branches, the ferry
+badge/checkbox/count round-tripping through real clicks and re-renders — 10
+checks, plus 1 more for the future-trip countdown branch specifically);
+native share across three real scenarios — share available, share
+unavailable (clipboard fallback), and a cancelled share sheet not falling
+back — 8 checks; the units toggle against a stubbed OpenRouteService
+response with a hand-computable 42km/26mi conversion, exercised through the
+real toggle-button click (not direct state mutation), surviving a page
+reload, and round-tripping back to km with no drift, plus separate checks
+for the printable itinerary, ICS export, and `formatDistanceKm`'s edge
+cases (null/NaN/zero) — 24 checks total; the weather strip against a
+four-day fixture with one stubbed forecast failure, confirming the failed
+day is omitted without breaking the others, the active-day chip highlight,
+and that switching to an already-fetched day doesn't re-hit the API — 9
+checks. 57 checks total, all passing. Caught one real test-authoring
+mistake along the way (not an app bug): the weather-strip test initially
+assumed each day's forecast reflects *that day's own* destination, and
+failed until re-checked against `getRouteIds(day)[0]`'s actual semantics
+(the day's *starting* point) — the app's behavior was correct and
+consistent with the pre-existing single-day panel throughout; the test's
+mental model was wrong. Re-ran the full existing test suite (all prior
+nights' throwaway scripts still on disk) after the final change to confirm
+no cross-feature regressions — 61 checks, all passing. Confirmed all five
+commits deployed successfully via `deploy-beta.yml`, and spot-checked the
+live beta HTML for new element IDs/function names (`unitsToggle`,
+`dayFerryInput`, `formatDistanceKm`, `searchAnchorPoint`, `navigator.share`)
+after pushing.
+
+**Decided not to do, and why:**
+- **A full mpg fuel-consumption unit** to go with the km/mi toggle. A
+  genuinely different convention from L/100km, not just a display
+  conversion — bigger scope than a distance-display toggle; left for a
+  future session if it's wanted.
+- **Converting the near-duplicate-place badge or close-range
+  nearby-amenities results to miles.** Both operate at sub-1km scale
+  (~50m and up to 1.5km respectively) where nobody thinks in fractional
+  miles — left in meters regardless of the unit toggle.
+
 ## 2026-08-17
 
 `beta` was at 3d51e7a going in (last night's four features: optimize order,
