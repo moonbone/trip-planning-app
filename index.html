@@ -713,6 +713,16 @@
     background:var(--panel);
     color:var(--ink);
   }
+  .ferry-label{
+    display:flex;
+    align-items:center;
+    gap:4px;
+    font-size:11px;
+    font-weight:600;
+    color:var(--ink-soft);
+    cursor:pointer;
+  }
+  .ferry-label input{margin:0;}
   .stay-input{
     width:52px;
     border:1px solid var(--border);
@@ -1276,6 +1286,9 @@
           <button class="remove-btn" id="variantDeleteBtn" title="Delete variant">×</button>
         </span>
         <label class="start-label">Start <input type="time" id="dayStartInput"></label>
+        <label class="ferry-label" title="Flag this day as including a ferry crossing — shows a reminder on the tab, in the drive summary, and in the printable itinerary">
+          <input type="checkbox" id="dayFerryInput"> ⛴ Ferry
+        </label>
         <button class="reset-btn" id="addPlaceBtn" title="Add your own place (e.g. a laundromat) by clicking the map">＋ Place</button>
         <button class="reset-btn" id="addPlaceFromMapsBtn" title="Import a place by pasting a Google Maps link or coordinates">📍 From Maps</button>
         <button class="reset-btn" id="searchPlaceBtn" title="Add a place by searching its name or address">🔍 Search</button>
@@ -1614,6 +1627,18 @@ function longDriveBadgeHtml(day){
   const hrs = Math.floor(est.min/60), mins = est.min%60;
   const title = `Long driving day — ${est.exact ? '' : 'approx. '}${hrs}h ${mins}m of driving. Consider splitting stops across another day.`;
   return `<span class="dupe-badge" title="${escapeHtml(title)}">⚠️</span>`;
+}
+
+// A manual per-day flag (dayMeta[day].ferry) for road trips where part of
+// the route is a ferry crossing — genuinely common on coastal/fjord/island
+// routes and worth surfacing since ferries run on fixed schedules and often
+// need advance booking, unlike driving. Deliberately not inferred from the
+// route (detecting "this road segment is a ferry" would need routing-API
+// road-type data OpenRouteService doesn't expose here) — a simple checkbox
+// the traveler sets themselves.
+function ferryBadgeHtml(day){
+  if(!getDayMeta(day).ferry) return '';
+  return `<span class="dupe-badge" title="This day includes a ferry crossing — check schedules and reservations ahead of time.">⛴</span>`;
 }
 
 let plans = {};
@@ -2996,7 +3021,7 @@ function renderTabs(){
     const t = document.createElement('div');
     t.className = 'tab' + (d===activeDay ? ' active':'');
     const dateHtml = DAY_DATES[d] ? `<div class="tab-date">${formatDayDate(DAY_DATES[d])}</div>` : '';
-    t.innerHTML = `<span class="num">${d}</span>Day ${d}${longDriveBadgeHtml(d)}${dateHtml}`;
+    t.innerHTML = `<span class="num">${d}</span>Day ${d}${longDriveBadgeHtml(d)}${ferryBadgeHtml(d)}${dateHtml}`;
     t.onclick = ()=>{ activeDay=d; renderAll(); };
     el.appendChild(t);
   });
@@ -3658,9 +3683,28 @@ function setMobileSection(section){
   if(section === 'route' && map) map.invalidateSize();
 }
 
-// Day timeline: departure at the chosen start time, each stop's arrival
-// clock time from the driving legs, plus the minutes spent per stop.
-// Hidden when the plan no longer matches what was last calculated.
+// "Trip starts in N days" / "Day N of M — today" / "Trip ended N days ago",
+// shown at the top of the overview panel — a quick at-a-glance answer to
+// "how close is this trip" without doing the date math in your head. String
+// comparison is enough for the before/after checks since DAY_DATES/TRIP_START
+// are always plain ISO 'YYYY-MM-DD', which sorts lexicographically the same
+// as chronologically; only the day-count math needs real Date objects.
+function tripCountdownLine(){
+  if(!TRIP_START || !DAYS.length) return '';
+  const today = todayStr();
+  const lastDate = DAY_DATES[DAYS[DAYS.length - 1]] || TRIP_START;
+  if(today < TRIP_START){
+    const days = Math.round((new Date(TRIP_START) - new Date(today)) / 86400000);
+    return `<p class="stats-total">🗓️ Trip starts in ${days} day${days===1?'':'s'} (${formatDayDate(TRIP_START)})</p>`;
+  }
+  if(today > lastDate){
+    const days = Math.round((new Date(today) - new Date(lastDate)) / 86400000);
+    return `<p class="stats-sub">Trip ended ${days} day${days===1?'':'s'} ago</p>`;
+  }
+  const dayNum = DAYS.find(d=>DAY_DATES[d] === today);
+  return dayNum ? `<p class="stats-total">🗓️ Day ${dayNum} of ${DAYS.length} — today</p>` : '';
+}
+
 function renderTripOverview(){
   const el = document.getElementById('tripOverview');
   if(!PLACES.length){
@@ -3672,6 +3716,7 @@ function renderTripOverview(){
   const incompleteDays = DAYS.filter(d=>getRouteIds(d).length < 2).length;
   const driveEstimates = DAYS.map(d=>dayDriveEstimate(d)).filter(Boolean);
   const longDays = driveEstimates.filter(est=>est.min >= LONG_DRIVE_WARN_MIN).length;
+  const ferryDays = DAYS.filter(d=>getDayMeta(d).ferry).length;
   let totalDriveLine = '';
   if(driveEstimates.length){
     const totalMin = driveEstimates.reduce((s,e)=>s+e.min,0);
@@ -3682,12 +3727,16 @@ function renderTripOverview(){
       + `${approx ? ` (${driveEstimates.filter(e=>e.exact).length}/${driveEstimates.length} days calculated exactly, rest estimated)` : ''}</p>`;
   }
   el.innerHTML = `
+    ${tripCountdownLine()}
     <p class="stats-total">${DAYS.length} day${DAYS.length===1?'':'s'}${TRIP_START ? ` · starts ${TRIP_START}` : ''}</p>
-    <p class="stats-sub">${totalPlaces} place${totalPlaces===1?'':'s'} · ${hotelIds.size} overnight stop${hotelIds.size===1?'':'s'}${incompleteDays ? ` · ${incompleteDays} day${incompleteDays===1?'':'s'} need${incompleteDays===1?'s':''} at least one stop` : ''}${longDays ? ` · ⚠️ ${longDays} long driving day${longDays===1?'':'s'}` : ''}</p>
+    <p class="stats-sub">${totalPlaces} place${totalPlaces===1?'':'s'} · ${hotelIds.size} overnight stop${hotelIds.size===1?'':'s'}${incompleteDays ? ` · ${incompleteDays} day${incompleteDays===1?'':'s'} need${incompleteDays===1?'s':''} at least one stop` : ''}${longDays ? ` · ⚠️ ${longDays} long driving day${longDays===1?'':'s'}` : ''}${ferryDays ? ` · ⛴ ${ferryDays} ferry day${ferryDays===1?'':'s'}` : ''}</p>
     ${totalDriveLine}
   `;
 }
 
+// Day timeline: departure at the chosen start time, each stop's arrival
+// clock time from the driving legs, plus the minutes spent per stop.
+// Hidden when the plan no longer matches what was last calculated.
 function renderStats(){
   const statsEl = document.getElementById('statsPanel');
   if(!lastRoute || lastRoute.day !== activeDay
@@ -3719,11 +3768,14 @@ function renderStats(){
   const sh = Math.floor(stayTotal/60), sm = stayTotal%60;
   const longWarn = driveMin >= LONG_DRIVE_WARN_MIN
     ? '<p class="stats-warn">⚠️ Long driving day — consider splitting stops across another day.</p>' : '';
+  const ferryWarn = meta.ferry
+    ? '<p class="stats-warn">⛴ This day includes a ferry crossing — check schedules and reservations ahead of time.</p>' : '';
   statsEl.innerHTML = `
     <p class="stats-total">${meta.start} → ${fmtClock(t)}</p>
     <p class="stats-sub">${hrs}h ${mins}m driving · ${sh}h ${sm}m at stops · ${totalKm} km${isLoopDay(activeDay) ? ' · loops back to hotel' : ''}${fuelCostText(Number(totalKm))}</p>
     ${nowBanner(ids, route, meta)}
     ${longWarn}
+    ${ferryWarn}
     ${rows}
   `;
 }
@@ -3738,6 +3790,7 @@ function renderAll(){
   renderRouteList();
   renderMapMarkers();
   document.getElementById('dayStartInput').value = getDayMeta(activeDay).start;
+  document.getElementById('dayFerryInput').checked = !!getDayMeta(activeDay).ferry;
   renderStats();
   renderTripOverview();
   renderWeather();
@@ -4101,7 +4154,7 @@ async function buildDayItinerary(day){
   const result = {
     day, date: DAY_DATES[day] || null, start: meta.start,
     loop: isLoopDay(day), stops: [], notes: [], routed: false, needsRoute: ids.length >= 2,
-    distanceKm: null, driveMin: null, end: null,
+    distanceKm: null, driveMin: null, end: null, ferry: !!meta.ferry,
   };
   let route = null;
   if(ids.length >= 2){
@@ -4162,9 +4215,10 @@ function renderPrintableItinerary(trip, days){
         ? '<p class="t-total t-warn">Driving times unavailable for this day — showing stop order only.</p>'
         : '<p class="t-total">No driving this day.</p>';
     return `<div class="day-block">
-      <h2>Day ${d.day}${d.date ? ` — ${formatDayDate(d.date)}` : ''}</h2>
+      <h2>Day ${d.day}${d.date ? ` — ${formatDayDate(d.date)}` : ''}${d.ferry ? ' ⛴' : ''}</h2>
       <table>${rows}</table>
       ${totalsHtml}
+      ${d.ferry ? '<p class="t-total t-warn">⛴ This day includes a ferry crossing — check schedules and reservations ahead of time.</p>' : ''}
       ${notesHtml}
     </div>`;
   }).join('');
@@ -4941,6 +4995,13 @@ document.getElementById('dayStartInput').addEventListener('change', (e)=>{
   getDayMeta(activeDay).start = e.target.value || '09:00';
   saveMeta();
   renderStats();
+});
+document.getElementById('dayFerryInput').addEventListener('change', (e)=>{
+  getDayMeta(activeDay).ferry = e.target.checked;
+  saveMeta();
+  renderTabs();
+  renderStats();
+  renderTripOverview();
 });
 
 ['fuelConsumption', 'fuelPrice', 'fuelCurrency'].forEach(id=>{
