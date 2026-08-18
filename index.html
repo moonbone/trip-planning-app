@@ -4900,6 +4900,22 @@ document.getElementById('copyDayBtn').addEventListener('click', async ()=>{
     return;
   }
   const text = dayDescriptionText();
+  const title = `Day ${activeDay}` + (DAY_DATES[activeDay] ? ` — ${formatDayDate(DAY_DATES[activeDay])}` : '');
+  // On a phone, the whole point of this button is texting today's plan to
+  // travel companions — the native share sheet (WhatsApp/SMS/Email/etc.)
+  // gets there in one tap instead of "copy, then switch app, then paste".
+  // Desktop browsers mostly don't implement navigator.share at all, so this
+  // silently falls through to the existing clipboard behavior there.
+  if(navigator.share){
+    try{
+      await navigator.share({title, text});
+      return; // share sheet handled delivery; no "Copied" confirmation needed
+    }catch(e){
+      if(e.name === 'AbortError') return; // user closed the share sheet — not an error
+      // any other share failure (e.g. unsupported on this exact call) falls
+      // through to the clipboard path below rather than leaving the user stuck
+    }
+  }
   try{
     await navigator.clipboard.writeText(text);
     btn.textContent = '✓ Copied';
