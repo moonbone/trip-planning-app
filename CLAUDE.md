@@ -158,7 +158,18 @@ The user's own real trip currently loaded into the app is a Norway road trip, Au
   Open-Meteo) when Nominatim's `extratags` carries an OSM `wikipedia` tag for that place —
   silently omitted otherwise, never blocking the confirm step. Switching candidates while a
   photo fetch is in flight discards the stale response (`searchSelectedIdx !== i` guard),
-  same request-token pattern the weather panel uses.
+  same request-token pattern the weather panel uses. `geocodeCandidates` also biases results
+  toward the trip's current area (ticket `mswuwmi5itojje`: a generic query like a supermarket
+  chain name used to match branches worldwide with no locality bias) — `searchAnchorPoint()`
+  resolves to the active day's overnight hotel (falling back to that day's wake hotel, then
+  its last real stop, then any place in the trip) and `nominatimSearchBiased` first asks
+  Nominatim for matches inside a `viewbox`/`bounded=1` box around it (`viewboxAround`, ~1.5°
+  of latitude widened in longitude by `1/cos(lat)` so the box stays roughly square in real
+  distance this far north, where longitude degrees compress a lot) before falling back to a
+  plain unbounded search if nothing turns up nearby — so a place that's genuinely outside
+  today's area still resolves instead of reporting "no match". `geocodeAddress` (the
+  Maps-link import's title fallback) is deliberately left unbiased/unchanged, per the
+  reasoning two paragraphs up.
   Each day's route-item row also has small ▲/▼ buttons (`moveStopInDay`) alongside the
   existing drag-and-drop reordering — real `<button>` elements, so unlike a `draggable` row
   they're reachable by Tab and operable with Enter/Space, for anyone on a keyboard or a

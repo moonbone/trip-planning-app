@@ -2341,17 +2341,63 @@ async function geocodeAddress(query){
 // retry as geocodeAddress; asks Nominatim for up to `limit` matches and
 // `extratags` (carries an OSM `wikipedia` tag when the place has one, used
 // below for a best-effort photo).
-async function nominatimSearchMulti(q, limit){
-  const res = await fetch(
-    'https://nominatim.openstreetmap.org/search?format=jsonv2&extratags=1&limit=' + limit + '&q=' + encodeURIComponent(q)
-  );
+async function nominatimSearchMulti(q, limit, anchor){
+  let url = 'https://nominatim.openstreetmap.org/search?format=jsonv2&extratags=1&limit=' + limit + '&q=' + encodeURIComponent(q);
+  if(anchor) url += '&viewbox=' + viewboxAround(anchor) + '&bounded=1';
+  const res = await fetch(url);
   if(!res.ok) throw new Error('geocoding HTTP ' + res.status);
   return res.json();
 }
+
+// Ticket mswuwmi5itojje ("Search function"): a generic query (a supermarket
+// chain name, say) matches branches worldwide with no locality bias, so
+// searching mid-trip could surface a result from another continent above
+// the one actually nearby. Anchors the search on the active day's overnight
+// destination — the best proxy for "roughly where I am today" without
+// asking for live geolocation, and literally "current end of day's hotel"
+// per the ticket. Falls back to wherever real place data exists (an
+// earlier stop, then any place in the trip) so it still helps before a
+// hotel's assigned, and to a plain unbounded search when no trip is
+// loaded — same worldwide behavior as before for that case.
+function searchAnchorPoint(){
+  if(!activeTrip()) return null;
+  const anchor = byId[sleepHotelId(activeDay)] || byId[wakeHotelId(activeDay)];
+  if(anchor) return anchor;
+  const stops = dayStops(activeDay);
+  for(let i = stops.length - 1; i >= 0; i--){
+    if(byId[stops[i]]) return byId[stops[i]];
+  }
+  return PLACES[0] || null;
+}
+
+// A box of roughly latDeg° of latitude (~1.5° ≈ 165km), widened in
+// longitude by 1/cos(lat) so it stays roughly square in real distance —
+// longitude degrees compress a lot this far north, and a naive fixed-degree
+// box would be a much narrower true search radius in Norway than nearer
+// the equator.
+function viewboxAround(anchor, latDeg){
+  latDeg = latDeg || 1.5;
+  const lonDeg = Math.min(10, latDeg / Math.max(0.1, Math.cos(anchor.lat * Math.PI / 180)));
+  return `${anchor.lon - lonDeg},${anchor.lat + latDeg},${anchor.lon + lonDeg},${anchor.lat - latDeg}`;
+}
+
+// Tries the anchored (nearby-biased) search first; only falls back to an
+// unbounded worldwide search if nothing turned up in the area, so a
+// genuine "there's nothing like that near here" case still finds the place
+// instead of reporting no match.
+async function nominatimSearchBiased(q, limit, anchor){
+  if(anchor){
+    const near = await nominatimSearchMulti(q, limit, anchor);
+    if(near.length) return near;
+  }
+  return nominatimSearchMulti(q, limit);
+}
+
 async function geocodeCandidates(query){
-  let results = await nominatimSearchMulti(query, 5);
+  const anchor = searchAnchorPoint();
+  let results = await nominatimSearchBiased(query, 5, anchor);
   if(!results.length && query.includes(',')){
-    results = await nominatimSearchMulti(query.slice(query.indexOf(',') + 1).trim(), 5);
+    results = await nominatimSearchBiased(query.slice(query.indexOf(',') + 1).trim(), 5, anchor);
   }
   if(!results.length) throw new Error('no match found for "' + query + '"');
   return results.map(r => ({
