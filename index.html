@@ -249,6 +249,34 @@
     color:#fff;
     border-color:var(--accent);
   }
+  .weather-strip-row{
+    display:flex;
+    gap:6px;
+    overflow-x:auto;
+    padding-bottom:4px;
+    margin-bottom:8px;
+  }
+  .weather-chip{
+    flex-shrink:0;
+    display:flex;
+    flex-direction:column;
+    align-items:center;
+    gap:2px;
+    padding:5px 8px;
+    border:1px solid var(--border);
+    border-radius:6px;
+    background:var(--panel);
+    font-size:11px;
+    color:var(--ink-soft);
+    cursor:default;
+  }
+  .weather-chip.active{
+    border-color:var(--accent);
+    background:var(--accent-light);
+    color:var(--accent-dark);
+  }
+  .weather-chip .wc-day{font-weight:600;}
+  .weather-chip .wc-icon{font-size:15px;}
   .kml-panel{
     display:flex;
     flex-direction:column;
@@ -1342,6 +1370,7 @@
       </div>
     </div>
     <div id="tripOverview"></div>
+    <div id="weatherStrip"></div>
     <div id="weatherPanel"></div>
     <p class="section-label">Drive summary</p>
     <div class="fuel-settings" id="fuelSettings" title="Set your car's fuel consumption and price to see an estimated cost — saved in this browser, applies to every trip">
@@ -3858,6 +3887,7 @@ function renderAll(){
   renderStats();
   renderTripOverview();
   renderWeather();
+  renderTripWeatherStrip();
   renderTripUi();
   updateKmlStatus();
   saveLastVisit();
@@ -3931,6 +3961,47 @@ async function renderWeather(){
   const sunText = forecast.sunrise && forecast.sunset
     ? ` · 🌅 ${forecast.sunrise} 🌇 ${forecast.sunset}` : '';
   el.innerHTML = `<p class="stats-sub">${label} ${forecast.tMax}° / ${forecast.tMin}°C${precipText}${sunText}</p>`;
+}
+
+// Whole-trip weather strip: a compact per-day forecast row in the trip
+// overview — genuinely useful for spotting a rainy day (or checking
+// conditions on a day already flagged long-driving or ferry) before you're
+// on the road, rather than checking one day at a time. Reuses the exact
+// same fetchWeather() call/cache as the single-day panel above (so once a
+// day's forecast is fetched here, switching to it doesn't re-fetch), and
+// fetches sequentially rather than all at once — a keyless public API is
+// worth being gentle with, same reasoning as the printable itinerary's
+// sequential per-day routing fetches.
+let weatherStripToken = 0;
+async function renderTripWeatherStrip(){
+  const el = document.getElementById('weatherStrip');
+  if(!el) return;
+  el.innerHTML = '';
+  if(!DAYS.length) return;
+  // Same ~16-day Open-Meteo horizon and "today" reference as renderWeather().
+  const eligibleDays = DAYS.filter(d=>{
+    const date = DAY_DATES[d];
+    if(!date) return false;
+    const diffDays = Math.round((new Date(date + 'T00:00:00') - new Date(new Date().toDateString())) / 86400000);
+    return diffDays >= 0 && diffDays <= 15;
+  });
+  if(!eligibleDays.length) return;
+  const token = ++weatherStripToken;
+  const chips = [];
+  for(const d of eligibleDays){
+    const ids = getRouteIds(d);
+    const ref = ids.length ? byId[ids[0]] : null;
+    if(!ref) continue;
+    const forecast = await fetchWeather(ref.lat, ref.lon, DAY_DATES[d]);
+    if(token !== weatherStripToken) return; // trip/day changed mid-fetch — discard
+    if(!forecast) continue;
+    const icon = (WEATHER_CODE_LABELS[forecast.code] || '🌡️').split(' ')[0];
+    const title = `Day ${d}${forecast.precip > 0 ? ` — ${forecast.precip}mm rain expected` : ''}`;
+    chips.push(`<div class="weather-chip${d===activeDay?' active':''}" title="${escapeHtml(title)}">`
+      + `<span class="wc-day">D${d}</span><span class="wc-icon">${icon}</span><span class="wc-temp">${forecast.tMax}°/${forecast.tMin}°</span></div>`);
+  }
+  if(token !== weatherStripToken) return;
+  el.innerHTML = chips.length ? `<div class="weather-strip-row">${chips.join('')}</div>` : '';
 }
 
 async function fetchFromProxy(ids){

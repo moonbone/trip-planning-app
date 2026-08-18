@@ -277,6 +277,20 @@ The user's own real trip currently loaded into the app is a Norway road trip, Au
   the user has already switched to a different day. Results are cached in memory per
   `lat,lon,date` for the session (`weatherCache`) — switching back to an already-fetched
   day doesn't re-hit the API.
+  A whole-trip weather strip (`renderTripWeatherStrip`, its own `#weatherStrip` row between
+  "Trip overview" and the single-day weather line) shows one compact chip per day within
+  Open-Meteo's forecast horizon — icon plus high/low — so a rainy day (or a day already
+  flagged long-driving or ferry) is visible before you're on the road, not just checked one
+  day at a time. Reuses `fetchWeather`'s exact same call/cache as the single-day panel (a
+  day fetched here isn't re-fetched when you switch to it, and vice versa), fetched
+  sequentially day-by-day rather than all at once — a keyless public API is worth being
+  gentle with. Each day's reference point is `getRouteIds(day)[0]`, i.e. that day's
+  *starting* location (the previous night's hotel) — the same convention the single-day
+  panel already uses, so e.g. day 2's forecast reflects where day 2 begins that morning
+  (day 1's hotel), not day 2's own destination. A day whose forecast fetch fails is
+  silently omitted from the strip rather than shown broken; the active day's chip is
+  highlighted. Guarded by its own request token (`weatherStripToken`), same pattern as
+  `weatherRequestToken`, so a trip/day switch mid-fetch discards the stale in-flight result.
   A "🔀 Optimize order" button (route header, next to "Reset day") reorders a day's editable
   stops to shorten the route between the pinned wake/sleep hotel(s) — nearest-neighbor
   construction plus 2-opt refinement (`optimizeDayOrder`) over straight-line (`haversineKm`)
