@@ -3,6 +3,117 @@
 A running log of what each scheduled nightly session built on `beta`, so
 future runs don't duplicate or contradict prior work. Newest entry first.
 
+## 2026-08-19
+
+`beta` was at 147d0cb going in (last night's five features: search bias,
+countdown/ferry, native share, km/mi toggle, weather strip — plus a merge
+bringing the `in_beta` ticket status back in from `master`). Fetched the
+real feature-request backlog from mainline (`GET /tickets`): of 12 tickets,
+zero were actionable — everything is already `done` or `in_beta` (the two
+most recent, `mswuwmi5itojje` "Search function" and `msw6fddzu25mte`
+"Search function confirmation", were marked `in_beta` by the last two
+nights' sessions). No mainline ticket work tonight; all five changes below
+are own-initiative picks. Each committed and pushed separately, each
+verified against the local dev-server with Playwright (fresh chromium,
+stubbed `window.L`, stubbed every external API this sandbox can't reach
+from a browser — same approach every prior night has used) before pushing,
+then spot-checked against the live beta URL after the final push:
+
+1. **Live distance/ETA to the next stop from an actual GPS fix.** The day
+   timeline already had a *planned* "driving to X, arriving ~HH:MM" banner,
+   but nothing compared that plan to where you actually are — useful on a
+   real road trip when you're running early/late or took a detour.
+   `lastPos` (already tracked via `watchLocation()` for the "you are here"
+   map marker and the existing Google Maps nav buttons — geolocation
+   support turned out to already be wired up from an earlier ticket, not
+   something to build from scratch) now also feeds a `liveNextStopLine()`
+   under the now-banner: straight-line distance/ETA via the same haversine
+   + flat-speed estimate the long-drive tab badges already use, so it costs
+   no extra routing API call. Targets whichever stop the plan says is
+   "next" in all three now-banner states (before start → first stop, at a
+   stop → the following stop, driving → the current leg's destination).
+   Omitted entirely without a valid fix. Verified against a two-day KML
+   fixture with a mocked geolocation position and a fixed clock, driven
+   through all four banner states plus the no-permission case — 12 checks.
+
+2. **Weather forecast in the printable itinerary and ICS calendar export.**
+   The in-app weather panel and trip-wide strip (added two nights ago) only
+   ever showed up on screen. `buildDayItinerary()` — the shared per-day
+   data source for both exports — now fetches the same forecast
+   `renderWeather()` would, reusing `fetchWeather()`'s existing cache (no
+   new API calls beyond what a same-session in-app visit already makes).
+   Pulled `weatherSummaryText()` and `weatherWithinHorizon()` out as shared
+   helpers so the in-app panel, the trip strip, and both exports render/gate
+   identically instead of three near-copies of the same formatting and
+   date-window logic. Verified both exports show a stubbed forecast
+   correctly (printable HTML, the downloaded ICS file's `DESCRIPTION`), and
+   confirmed no regression in the in-app panel/strip after the refactor —
+   4 checks.
+
+3. **Live currency conversion for the trip budget total.** Budget items are
+   logged in whatever currency the fuel settings say (e.g. NOK for a Norway
+   trip), but international travelers often want their home currency too.
+   An optional "Show total in" code input in the budget modal converts via
+   `api.frankfurter.dev` (free, keyless, CORS-enabled — same trust model as
+   Nominatim/Open-Meteo/Overpass already used client-side elsewhere),
+   cached per base/target pair for the session. Both currencies need to
+   look like a 3-letter ISO code — the fuel-currency field has never been
+   validated as one, so a non-code value shows guidance instead of a doomed
+   request, and a failed lookup degrades to a plain message rather than
+   breaking the always-correct-regardless total. The chosen target currency
+   is a personal display preference, not trip data — one plain
+   `tripplan-budget-convert-currency` localStorage key, restored on reopen,
+   matching the fuel settings' own non-trip-scoped pattern. Verified via a
+   stubbed frankfurter.dev response: happy path, invalid fuel currency,
+   failing/unknown target, and the empty/same-as-base no-op cases — 9 checks.
+
+4. **Pharmacy and hospital added to the nearby-amenities lookup.** The
+   existing "🔎 nearby" button (fuel/food/parking/restrooms/supermarkets
+   around a stop, via Overpass) was a natural fit for "where's the nearest
+   pharmacy or hospital" too — OSM's own `amenity=pharmacy`/`hospital` tags
+   slotted straight into the existing query regex with no special-casing.
+   Small, but genuinely useful mid-road-trip. Verified with a stubbed
+   Overpass response mixing new and existing amenity types — both render
+   with correct icons alongside each other, and the query string includes
+   both new types.
+
+5. **CSV export for the budget tracker.** No way existed to get logged
+   costs out of the app except reading them off the modal — useful to drop
+   into a spreadsheet for an expense report or to split costs with travel
+   companions. A "⬇️ CSV" button in the budget modal header
+   (`exportBudgetCsv`/`buildBudgetCsv`) downloads every item as a CSV file,
+   same client-side blob-download pattern GPX/ICS/backup export already
+   use. `csvField()` quotes a label/category only when it actually needs it
+   (comma, quote, newline) rather than assuming costs are always
+   comma-safe. Verified the empty-budget case (friendly message, no broken
+   download), a real export with a comma-containing and an
+   embedded-quote-containing label (correct escaping round-tripped through
+   the downloaded file), and — since this one touched the modal header
+   layout — a screenshot confirming the new button doesn't crowd the
+   existing × close button.
+
+37 checks total across the five features, all passing. Confirmed all five commits deployed
+successfully via `deploy-beta.yml`, and confirmed the live beta URL serves
+each feature's new element IDs/function names (`budgetCsvBtn`, `pharmacy`,
+`liveNextStopLine`, `weatherSummaryText`) after the final push.
+
+**Decided not to do, and why:**
+- **Deduplicating the GPX/ICS/backup export's repeated 6-line
+  blob-download block** into a shared helper when adding the budget CSV
+  export (a fourth near-identical copy). Would have touched three already-
+  deployed, working export paths purely for DRY — kept the new CSV export
+  self-contained instead, to keep tonight's diff minimal and the risk of
+  regressing something already live at zero.
+- **A full mpg fuel-consumption unit.** Still flagged from two nights ago
+  as a genuinely different convention from L/100km, not just a display
+  conversion — still out of scope for a session already carrying five
+  other changes.
+- **A dedicated "emergency info" feature** (embassy contacts, country-
+  specific emergency numbers) instead of just adding pharmacy/hospital to
+  the existing nearby-amenities lookup. Hardcoded per-country data would
+  cut against this app's KML-driven, nothing-hardcoded design — the
+  amenity-lookup extension gets most of the real value with none of that.
+
 ## 2026-08-18
 
 `beta` was at ad02de1 going in (last night's four features: search confirm,
