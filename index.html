@@ -3573,15 +3573,20 @@ function hotelRow(hotelId, label){
   return row;
 }
 
-// ---- Nearby amenities (fuel/food/parking/restrooms) via Overpass ----
+// ---- Nearby amenities (fuel/food/parking/restrooms/pharmacy/hospital) via Overpass ----
 // Overpass API (overpass-api.de) is OSM's public query endpoint — keyless,
 // CORS-enabled (Access-Control-Allow-Origin: *), same no-auth
 // client-side-callable spirit as Nominatim/Open-Meteo already used
 // elsewhere in this app. Curated to the handful of amenity types actually
-// useful mid-road-trip, not a general POI browser.
+// useful mid-road-trip, not a general POI browser. Pharmacy/hospital are
+// in here for the same reason as everything else — genuinely useful to
+// find quickly from wherever today's stop is — not a dedicated "emergency
+// info" feature; OSM's own amenity=pharmacy/hospital tags slot straight
+// into the existing query with no special-casing needed.
 const NEARBY_AMENITY_ICONS = {
   fuel: '⛽', restaurant: '🍽️', cafe: '☕', fast_food: '🍔',
   parking: '🅿️', toilets: '🚻', supermarket: '🛒',
+  pharmacy: '💊', hospital: '🏥',
 };
 const NEARBY_RADIUS_M = 1500;
 const NEARBY_RESULT_CAP = 15;
@@ -3590,7 +3595,7 @@ function nearbyLink(placeId){
   const btn = document.createElement('button');
   btn.type = 'button';
   btn.className = 'nearby-btn';
-  btn.title = `Find nearby fuel, food, parking, or restrooms near ${byId[placeId].name}`;
+  btn.title = `Find nearby fuel, food, parking, restrooms, or a pharmacy/hospital near ${byId[placeId].name}`;
   btn.setAttribute('aria-label', `Find places near ${byId[placeId].name}`);
   btn.textContent = '🔎';
   btn.addEventListener('click', (e)=>{ e.stopPropagation(); openNearbyModal(placeId); });
