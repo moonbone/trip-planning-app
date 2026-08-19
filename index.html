@@ -3968,6 +3968,16 @@ async function fetchWeather(lat, lon, date){
     return null;
   }
 }
+// Plain-text "☀️ Clear · 18°/9°C · 3mm rain" summary — no sunrise/sunset
+// (those stay HTML-only in the in-app panel), so this is reusable anywhere
+// a forecast needs to show up as plain text: the printable itinerary and
+// the ICS event description, alongside the in-app weather panel itself.
+function weatherSummaryText(forecast){
+  if(!forecast) return '';
+  const label = WEATHER_CODE_LABELS[forecast.code] || '🌡️';
+  const precipText = forecast.precip > 0 ? ` · ${forecast.precip}mm rain` : '';
+  return `${label} · ${forecast.tMax}°/${forecast.tMin}°C${precipText}`;
+}
 async function renderWeather(){
   const el = document.getElementById('weatherPanel');
   if(!el) return;
@@ -3975,18 +3985,15 @@ async function renderWeather(){
   const ids = getRouteIds(activeDay);
   const ref = ids.length ? byId[ids[0]] : null;
   el.innerHTML = '';
-  if(!date || !ref) return;
-  const diffDays = Math.round((new Date(date + 'T00:00:00') - new Date(new Date().toDateString())) / 86400000);
-  if(diffDays < 0 || diffDays > 15) return;
+  if(!date || !ref || !weatherWithinHorizon(date)) return;
   const token = ++weatherRequestToken;
   const forecast = await fetchWeather(ref.lat, ref.lon, date);
   if(token !== weatherRequestToken) return; // a newer day was selected meanwhile
   if(!forecast) return;
-  const label = WEATHER_CODE_LABELS[forecast.code] || '🌡️';
-  const precipText = forecast.precip > 0 ? ` · ${forecast.precip}mm rain` : '';
+  const summary = weatherSummaryText(forecast);
   const sunText = forecast.sunrise && forecast.sunset
     ? ` · 🌅 ${forecast.sunrise} 🌇 ${forecast.sunset}` : '';
-  el.innerHTML = `<p class="stats-sub">${label} ${forecast.tMax}° / ${forecast.tMin}°C${precipText}${sunText}</p>`;
+  el.innerHTML = `<p class="stats-sub">${summary}${sunText}</p>`;
 }
 
 // Whole-trip weather strip: a compact per-day forecast row in the trip
@@ -4004,13 +4011,7 @@ async function renderTripWeatherStrip(){
   if(!el) return;
   el.innerHTML = '';
   if(!DAYS.length) return;
-  // Same ~16-day Open-Meteo horizon and "today" reference as renderWeather().
-  const eligibleDays = DAYS.filter(d=>{
-    const date = DAY_DATES[d];
-    if(!date) return false;
-    const diffDays = Math.round((new Date(date + 'T00:00:00') - new Date(new Date().toDateString())) / 86400000);
-    return diffDays >= 0 && diffDays <= 15;
-  });
+  const eligibleDays = DAYS.filter(d=>weatherWithinHorizon(DAY_DATES[d]));
   if(!eligibleDays.length) return;
   const token = ++weatherStripToken;
   const chips = [];
@@ -4309,14 +4310,27 @@ async function calculateRoute(){
 // in lastRoute. Days that can't be routed (offline, API down, rate limit)
 // still return a stop list — just without arrival times or leg distances —
 // so the export degrades gracefully instead of failing outright.
+// Same ~16-day Open-Meteo horizon and "day's starting point" reference as
+// renderWeather()/renderTripWeatherStrip() — factored out so buildDayItinerary
+// (feeding the printable itinerary and ICS export) can reuse the exact same
+// eligibility check instead of duplicating the date-diff math a third time.
+function weatherWithinHorizon(date){
+  if(!date) return false;
+  const diffDays = Math.round((new Date(date + 'T00:00:00') - new Date(new Date().toDateString())) / 86400000);
+  return diffDays >= 0 && diffDays <= 15;
+}
 async function buildDayItinerary(day){
   const ids = getRouteIds(day);
   const meta = getDayMeta(day);
   const result = {
     day, date: DAY_DATES[day] || null, start: meta.start,
     loop: isLoopDay(day), stops: [], notes: [], routed: false, needsRoute: ids.length >= 2,
-    distanceKm: null, driveMin: null, end: null, ferry: !!meta.ferry,
+    distanceKm: null, driveMin: null, end: null, ferry: !!meta.ferry, weather: null,
   };
+  const wref = ids.length ? byId[ids[0]] : null;
+  if(wref && weatherWithinHorizon(result.date)){
+    result.weather = await fetchWeather(wref.lat, wref.lon, result.date);
+  }
   let route = null;
   if(ids.length >= 2){
     try{ route = await fetchFromProxy(ids); }
@@ -4375,8 +4389,10 @@ function renderPrintableItinerary(trip, days){
       : d.needsRoute
         ? '<p class="t-total t-warn">Driving times unavailable for this day — showing stop order only.</p>'
         : '<p class="t-total">No driving this day.</p>';
+    const weatherHtml = d.weather ? `<p class="t-total t-weather">${weatherSummaryText(d.weather)}</p>` : '';
     return `<div class="day-block">
       <h2>Day ${d.day}${d.date ? ` — ${formatDayDate(d.date)}` : ''}${d.ferry ? ' ⛴' : ''}</h2>
+      ${weatherHtml}
       <table>${rows}</table>
       ${totalsHtml}
       ${d.ferry ? '<p class="t-total t-warn">⛴ This day includes a ferry crossing — check schedules and reservations ahead of time.</p>' : ''}
@@ -4399,6 +4415,7 @@ function renderPrintableItinerary(trip, days){
   .t-stay{color:#777;font-size:0.85em;}
   tr.t-leg td{color:#888;font-size:0.85em;padding-left:4.5em;}
   .t-total{color:#555;font-size:0.9rem;margin:0.4rem 0 0;}
+  .t-weather{margin:0.2rem 0 0.6rem;}
   .t-warn{color:#a05a00;}
   .t-notes{font-size:0.9rem;color:#555;margin-top:0.3rem;}
   .print-btn{position:fixed;top:1rem;right:1rem;padding:0.5rem 1rem;border-radius:6px;border:none;background:#C0552E;color:#fff;cursor:pointer;font-size:0.95rem;}
@@ -4568,6 +4585,7 @@ function buildTripIcs(days){
     const dtend = icsDateTime(d.date, endTime);
     const descParts = [d.stops.map(s=>(s.overnight ? '🏨 ' : '') + s.name).join('\n')];
     if(d.routed) descParts.push(`${Math.floor(d.driveMin/60)}h ${d.driveMin%60}m driving \u00b7 ${formatDistanceKm(d.distanceKm)}`);
+    if(d.weather) descParts.push('Forecast: ' + weatherSummaryText(d.weather));
     if(d.notes.length) descParts.push('Notes: ' + d.notes.join('; '));
     return [
       'BEGIN:VEVENT',
