@@ -126,6 +126,10 @@ The user's own real trip currently loaded into the app is a Norway road trip, Au
   the trip's own currency regardless. The chosen target currency is a personal display
   preference like the fuel settings themselves — one plain, non-trip-scoped
   `tripplan-budget-convert-currency` localStorage key, restored the next time the modal opens.
+  A "⬇️ CSV" button in the budget modal's header (`exportBudgetCsv`/`buildBudgetCsv`) downloads
+  every logged item (category, label, amount, the fuel-settings currency) as a spreadsheet-ready
+  CSV file — RFC 4180-ish quoting (`csvField`) for labels that contain a comma or quote, since
+  those are free text. Same client-side blob-download pattern as GPX/ICS/backup export.
   Every route-item row (stops and pinned hotels alike) has a small "🔎" button
   (`nearbyLink`/`openNearbyModal`) that looks up nearby fuel stations, restaurants, cafes,
   fast food, parking, restrooms, supermarkets, pharmacies, and hospitals — the amenity types

@@ -683,6 +683,11 @@
     font-weight:600;
     color:var(--accent-dark);
   }
+  .budget-csv-btn{
+    font-size:12px;
+    font-weight:500;
+    float:right;
+  }
   .fuel-icon{
     flex-shrink:0;
   }
@@ -1512,7 +1517,7 @@
 <div class="info-modal-overlay" id="budgetModal" style="display:none;">
   <div class="info-modal">
     <button class="info-close" id="budgetModalClose" title="Close">×</button>
-    <h2>💰 Trip budget</h2>
+    <h2>💰 Trip budget <button class="link-btn budget-csv-btn" id="budgetCsvBtn" title="Download all logged costs as a spreadsheet-ready CSV file">⬇️ CSV</button></h2>
     <p class="budget-total" id="budgetTotal"></p>
     <div class="budget-convert-row">
       <label for="budgetConvertCurrency">Show total in</label>
@@ -3063,6 +3068,36 @@ function addBudgetItem(){
   labelInput.value = '';
   amountInput.value = '';
   commitBudgetItems([...budgetItems, {id: 'b' + newId(), category: catInput.value, label, amount}]);
+}
+// RFC 4180-ish: quote a field only when it needs it (contains a comma,
+// quote, or newline), doubling any embedded quotes — labels/categories are
+// free text, so this can't just assume they're comma-safe.
+function csvField(v){
+  const s = String(v == null ? '' : v);
+  return /[",\r\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+}
+function buildBudgetCsv(items, currency){
+  const rows = [['Category', 'Label', 'Amount', 'Currency']]
+    .concat(items.map(it => [it.category, it.label, it.amount.toFixed(2), currency]));
+  return rows.map(r => r.map(csvField).join(',')).join('\r\n') + '\r\n';
+}
+function exportBudgetCsv(){
+  const trip = activeTrip();
+  const errEl = document.getElementById('budgetError');
+  if(!trip){ errEl.textContent = 'Load a trip first.'; return; }
+  if(!budgetItems.length){ errEl.textContent = 'No costs logged yet — nothing to export.'; return; }
+  errEl.textContent = '';
+  const currency = (loadFuelSettings().currency || '').trim();
+  const csv = buildBudgetCsv(budgetItems, currency);
+  const blob = new Blob([csv], {type: 'text/csv'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `${(trip.name || 'trip').replace(/[^\w\- ]+/g, '').trim() || 'trip'}-budget.csv`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
 }
 function openBudgetModal(){
   if(!activeTrip()){
@@ -5134,6 +5169,7 @@ document.getElementById('budgetConvertCurrency').addEventListener('change', (e)=
   saveBudgetConvertCurrency(normalized);
   renderBudgetConversion();
 });
+document.getElementById('budgetCsvBtn').addEventListener('click', exportBudgetCsv);
 document.getElementById('dayNotesBtn').addEventListener('click', ()=>{
   if(!activeTrip()) return;
   openModal({scope:'day', day: activeDay}, `Day ${activeDay} — notes`);
