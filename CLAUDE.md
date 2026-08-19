@@ -114,6 +114,18 @@ The user's own real trip currently loaded into the app is a Norway road trip, Au
   calculated, or the fuel settings themselves were edited), and reports "already logged"
   once the two match. Purely a convenience — the line item is a normal, editable, removable
   budget row after it's added, not a synced/computed field.
+  The budget modal also has an optional "Show total in" currency-code input: a live conversion
+  of the running total via `api.frankfurter.dev` (free, keyless, CORS-enabled — same trust
+  model as Nominatim/Open-Meteo/Overpass, all already called client-side elsewhere in this
+  app), cached in memory per `base:target` pair for the session. Requires both the fuel
+  settings' currency and the typed target to look like a 3-letter ISO 4217 code
+  (`ISO_CURRENCY_RE`) — the fuel currency field is free text with no such validation
+  elsewhere in the app, so an unrecognized one (e.g. "kr") shows a guidance message instead
+  of a failed request. A failed lookup (unknown code, network error) shows "Could not fetch
+  exchange rate" rather than breaking the total, which is always still shown correctly in
+  the trip's own currency regardless. The chosen target currency is a personal display
+  preference like the fuel settings themselves — one plain, non-trip-scoped
+  `tripplan-budget-convert-currency` localStorage key, restored the next time the modal opens.
   Every route-item row (stops and pinned hotels alike) has a small "🔎" button
   (`nearbyLink`/`openNearbyModal`) that looks up nearby fuel stations, restaurants, cafes,
   fast food, parking, restrooms, and supermarkets — the amenity types actually relevant

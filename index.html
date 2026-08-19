@@ -660,6 +660,29 @@
     display:flex;
     justify-content:space-between;
   }
+  .budget-convert-row{
+    display:flex;
+    align-items:center;
+    gap:6px;
+    font-size:12px;
+    color:var(--ink-soft);
+    margin:-6px 0 10px;
+  }
+  .budget-convert-row input{
+    width:5em;
+    text-transform:uppercase;
+    border:1px solid var(--border-strong);
+    border-radius:5px;
+    padding:4px 6px;
+    font:inherit;
+    font-size:12px;
+    background:var(--panel);
+    color:var(--ink);
+  }
+  .budget-convert-row .budget-converted{
+    font-weight:600;
+    color:var(--accent-dark);
+  }
   .fuel-icon{
     flex-shrink:0;
   }
@@ -1491,6 +1514,11 @@
     <button class="info-close" id="budgetModalClose" title="Close">×</button>
     <h2>💰 Trip budget</h2>
     <p class="budget-total" id="budgetTotal"></p>
+    <div class="budget-convert-row">
+      <label for="budgetConvertCurrency">Show total in</label>
+      <input type="text" id="budgetConvertCurrency" maxlength="6" placeholder="e.g. USD">
+      <span class="budget-converted" id="budgetConvertedTotal"></span>
+    </div>
     <div id="budgetFuelSuggestion" class="budget-fuel-suggestion"></div>
     <div id="budgetListEl"></div>
     <div class="budget-add-row">
@@ -2932,6 +2960,63 @@ async function commitBudgetItems(newList){
   renderBudgetList();
   return true;
 }
+// Live currency conversion for the budget total — a personal display
+// preference like the fuel settings, not trip data, so it's one plain
+// localStorage key shared across every trip rather than trip-scoped.
+function loadBudgetConvertCurrency(){
+  try{ return localStorage.getItem('tripplan-budget-convert-currency') || ''; }
+  catch(e){ return ''; }
+}
+function saveBudgetConvertCurrency(code){
+  try{ localStorage.setItem('tripplan-budget-convert-currency', code); }
+  catch(e){ console.error('save failed', e); }
+}
+const ISO_CURRENCY_RE = /^[A-Za-z]{3}$/;
+let exchangeRateCache = {};
+async function fetchExchangeRate(base, target){
+  const key = `${base}:${target}`;
+  if(key in exchangeRateCache) return exchangeRateCache[key];
+  try{
+    const url = `https://api.frankfurter.dev/v1/latest?base=${encodeURIComponent(base)}&symbols=${encodeURIComponent(target)}`;
+    const res = await fetch(url);
+    if(!res.ok) throw new Error('HTTP ' + res.status);
+    const data = await res.json();
+    const rate = data.rates && data.rates[target];
+    exchangeRateCache[key] = Number.isFinite(rate) ? rate : null;
+  }catch(e){
+    exchangeRateCache[key] = null;
+  }
+  return exchangeRateCache[key];
+}
+let budgetConvertToken = 0;
+// Deliberately opt-in and best-effort: an invalid/unrecognized currency
+// code (the fuel-settings currency is free text, not validated as ISO
+// 4217) or a failed lookup just clears the converted line rather than
+// showing an error — this is a nice-to-have on top of the budget total,
+// which always still shows correctly in the trip's own currency.
+async function renderBudgetConversion(){
+  const el = document.getElementById('budgetConvertedTotal');
+  if(!el) return;
+  el.textContent = '';
+  const base = (loadFuelSettings().currency || '').trim();
+  const target = document.getElementById('budgetConvertCurrency').value.trim();
+  if(!ISO_CURRENCY_RE.test(target)) return;
+  if(!ISO_CURRENCY_RE.test(base)){
+    el.textContent = 'Set a 3-letter fuel currency code (e.g. NOK) to convert.';
+    return;
+  }
+  const baseUpper = base.toUpperCase(), targetUpper = target.toUpperCase();
+  if(baseUpper === targetUpper) return;
+  const total = budgetItems.reduce((s,it)=>s+it.amount, 0);
+  if(!total) return;
+  const token = ++budgetConvertToken;
+  el.textContent = 'Converting…';
+  const rate = await fetchExchangeRate(baseUpper, targetUpper);
+  if(token !== budgetConvertToken) return; // input/total changed meanwhile
+  el.textContent = rate != null
+    ? `≈ ${(total * rate).toFixed(2)} ${targetUpper}`
+    : 'Could not fetch exchange rate.';
+}
 function renderBudgetList(){
   const listEl = document.getElementById('budgetListEl');
   const totalEl = document.getElementById('budgetTotal');
@@ -2941,6 +3026,7 @@ function renderBudgetList(){
   totalEl.innerHTML = budgetItems.length
     ? `<span>Total</span><span>${total.toFixed(2)}${suffix}</span>` : '';
   renderBudgetFuelSuggestion();
+  renderBudgetConversion();
   listEl.innerHTML = budgetItems.length ? '' :
     '<div class="empty-note">No costs logged yet — add accommodation, activities, or anything else you\'re budgeting for.</div>';
   budgetItems.forEach(item=>{
@@ -2984,6 +3070,7 @@ function openBudgetModal(){
     return;
   }
   document.getElementById('budgetError').textContent = '';
+  document.getElementById('budgetConvertCurrency').value = loadBudgetConvertCurrency();
   renderBudgetList();
   document.getElementById('budgetModal').style.display = '';
 }
@@ -5035,6 +5122,12 @@ document.getElementById('budgetLabel').addEventListener('keydown', (e)=>{
 });
 document.getElementById('budgetAmount').addEventListener('keydown', (e)=>{
   if(e.key === 'Enter') addBudgetItem();
+});
+document.getElementById('budgetConvertCurrency').addEventListener('change', (e)=>{
+  const normalized = e.target.value.trim().toUpperCase();
+  e.target.value = normalized;
+  saveBudgetConvertCurrency(normalized);
+  renderBudgetConversion();
 });
 document.getElementById('dayNotesBtn').addEventListener('click', ()=>{
   if(!activeTrip()) return;
