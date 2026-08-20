@@ -249,6 +249,11 @@
     color:#fff;
     border-color:var(--accent);
   }
+  .fuel-unit-toggle{
+    display:flex;
+    gap:2px;
+    margin-bottom:4px;
+  }
   .weather-strip-row{
     display:flex;
     gap:6px;
@@ -1414,6 +1419,10 @@
     <div id="weatherStrip"></div>
     <div id="weatherPanel"></div>
     <p class="section-label">Drive summary</p>
+    <div class="fuel-unit-toggle" id="fuelUnitToggle" title="Fuel consumption unit — a personal preference, saved in this browser, applies to every trip">
+      <button type="button" class="unit-btn" data-funit="l100km">L/100km</button>
+      <button type="button" class="unit-btn" data-funit="mpg">mpg</button>
+    </div>
     <div class="fuel-settings" id="fuelSettings" title="Set your car's fuel consumption and price to see an estimated cost — saved in this browser, applies to every trip">
       <span class="fuel-icon">⛽</span>
       <input type="number" id="fuelConsumption" min="0" step="0.1" placeholder="L/100km">
@@ -2245,8 +2254,14 @@ function fmtClock(mins){
 // plain localStorage key shared across every trip rather than anything
 // synced or trip-scoped.
 function loadFuelSettings(){
-  try{ return JSON.parse(localStorage.getItem('tripplan-fuel-settings')) || {}; }
-  catch(e){ return {}; }
+  let s;
+  try{ s = JSON.parse(localStorage.getItem('tripplan-fuel-settings')) || {}; }
+  catch(e){ s = {}; }
+  // Normalized here (not just at the point of use) so every reader — the
+  // inputs, fuelCostText, estimatedFuelCost — agrees on a valid unit even
+  // for settings saved before the mpg toggle existed.
+  s.unit = s.unit === 'mpg' ? 'mpg' : 'l100km';
+  return s;
 }
 function saveFuelSettings(s){
   try{ localStorage.setItem('tripplan-fuel-settings', JSON.stringify(s)); }
@@ -2257,21 +2272,49 @@ function fuelSettingsFromInputs(){
     consumption: parseFloat(document.getElementById('fuelConsumption').value) || 0,
     price: parseFloat(document.getElementById('fuelPrice').value) || 0,
     currency: document.getElementById('fuelCurrency').value.trim(),
+    // Unit changes via its own toggle, not these inputs — carry forward
+    // whatever's already stored rather than defaulting it back to l100km
+    // on every keystroke in the other fields.
+    unit: loadFuelSettings().unit,
   };
 }
 function applyFuelSettingsToInputs(s){
   document.getElementById('fuelConsumption').value = s.consumption || '';
   document.getElementById('fuelPrice').value = s.price || '';
   document.getElementById('fuelCurrency').value = s.currency || '';
+  syncFuelUnitToggle(s.unit);
+}
+// Raw fuel cost in the trip's own currency for a km distance, given a
+// {consumption, price, unit} settings object — shared by fuelCostText (per-
+// leg/day/trip display strings) and estimatedFuelCost (the whole-trip budget
+// suggestion) so the two unit branches can't drift apart. Returns null when
+// consumption/price aren't both set.
+function fuelCost(distanceKm, settings){
+  const s = settings || loadFuelSettings();
+  if(!s.consumption || !s.price) return null;
+  if(s.unit === 'mpg'){
+    const miles = distanceKm * KM_TO_MI;
+    const gallons = miles / s.consumption;
+    return gallons * s.price;
+  }
+  return distanceKm * (s.consumption/100) * s.price;
 }
 // Returns '' when consumption/price aren't both set — callers append this
 // directly, so an empty string just omits the cost cleanly.
 function fuelCostText(distanceKm, settings){
+  const cost = fuelCost(distanceKm, settings);
+  if(cost == null) return '';
   const s = settings || loadFuelSettings();
-  if(!s.consumption || !s.price) return '';
-  const cost = distanceKm * (s.consumption/100) * s.price;
   const rounded = cost >= 100 ? Math.round(cost) : Math.round(cost*10)/10;
   return ` · ≈ ${rounded}${s.currency ? ' ' + escapeHtml(s.currency) : ''} fuel`;
+}
+function syncFuelUnitToggle(unit){
+  unit = unit === 'mpg' ? 'mpg' : 'l100km';
+  document.querySelectorAll('#fuelUnitToggle .unit-btn').forEach(btn=>{
+    btn.classList.toggle('active', btn.dataset.funit === unit);
+  });
+  document.getElementById('fuelConsumption').placeholder = unit === 'mpg' ? 'mpg (US)' : 'L/100km';
+  document.getElementById('fuelPrice').placeholder = unit === 'mpg' ? 'price/gal' : 'price/L';
 }
 
 // Distance unit (km/mi): a personal preference, not trip data, so it's one
@@ -2279,10 +2322,9 @@ function fuelCostText(distanceKm, settings){
 // settings and dark mode. Every internal calculation (routing, fuel cost,
 // haversine distances, near-duplicate detection) stays in km always; this
 // is purely a display-formatting layer, so nothing upstream needs to change
-// when the unit is switched. Deliberately doesn't touch the fuel-consumption
-// field (still always L/100km) — an mpg-equivalent fuel input is a genuinely
-// different unit system (not just a display conversion) and a bigger scope
-// than a distance-display toggle; left for a future session if it's wanted.
+// when the unit is switched. Independent of the fuel-consumption unit toggle
+// above — a US-mpg driver isn't necessarily also a miles-for-distance
+// reader, and vice versa, so the two aren't coupled.
 const KM_TO_MI = 0.621371;
 function loadDistanceUnit(){
   return localStorage.getItem('tripplan-distance-unit') === 'mi' ? 'mi' : 'km';
@@ -2915,7 +2957,7 @@ function estimatedFuelCost(){
   if(!estimates.length) return null;
   const totalKm = estimates.reduce((s,e)=>s+e.km, 0);
   const approx = estimates.some(e=>!e.exact);
-  return {cost: totalKm * (settings.consumption/100) * settings.price, approx, currency: settings.currency};
+  return {cost: fuelCost(totalKm, settings), approx, currency: settings.currency};
 }
 function renderBudgetFuelSuggestion(){
   const el = document.getElementById('budgetFuelSuggestion');
@@ -5338,6 +5380,17 @@ document.getElementById('dayFerryInput').addEventListener('change', (e)=>{
     saveFuelSettings(fuelSettingsFromInputs());
     renderStats();
   });
+});
+document.getElementById('fuelUnitToggle').addEventListener('click', (e)=>{
+  const btn = e.target.closest('.unit-btn');
+  if(!btn) return;
+  const unit = btn.dataset.funit === 'mpg' ? 'mpg' : 'l100km';
+  const s = loadFuelSettings();
+  s.unit = unit;
+  saveFuelSettings(s);
+  syncFuelUnitToggle(unit);
+  renderStats();
+  renderTripOverview();
 });
 
 function syncUnitsToggle(){

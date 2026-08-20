@@ -211,7 +211,20 @@ The user's own real trip currently loaded into the app is a Norway road trip, Au
   localStorage key, deliberately *not* trip-scoped or synced (it's the car, not the trip)
   — and appends "≈ N <currency> fuel" to the active day's drive stats and to both the
   per-day and whole-trip totals in the printable itinerary (`fuelCostText`, reused by both
-  call sites). Omitted entirely whenever consumption or price is unset/zero.
+  call sites). Omitted entirely whenever consumption or price is unset/zero. A small
+  `L/100km`/`mpg` toggle above the fuel-settings row (`#fuelUnitToggle`, styled and behaving
+  like the km/mi distance toggle, but a separate, independent setting — a US-mpg driver
+  isn't necessarily also reading distances in miles) switches which unit the consumption/
+  price fields mean; the `unit` field lives on the same `tripplan-fuel-settings` object
+  (normalized to `'l100km'` by `loadFuelSettings()` for settings saved before this toggle
+  existed) rather than as its own key, since it's meaningless without the two numbers next
+  to it. Switching units deliberately doesn't clear or convert the typed numbers — they're
+  just reinterpreted, so the user re-enters them for the new unit; placeholders
+  (`syncFuelUnitToggle`) change to `mpg (US)` / `price/gal` to make that obvious. The actual
+  cost math is centralized in one `fuelCost(distanceKm, settings)` helper (US gallon: miles
+  ÷ mpg × price/gal) shared by `fuelCostText` (every per-leg/day/trip display string) and
+  `estimatedFuelCost` (the whole-trip budget-tracker suggestion), so the two unit branches
+  can't drift out of sync between the two call sites.
   A km/mi distance-unit toggle (small `km`/`mi` button pair next to the "Trip overview"
   header) is the same kind of personal-not-trip setting as fuel settings and dark mode —
   one plain `tripplan-distance-unit` localStorage key, applying across every trip.
