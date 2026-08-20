@@ -3,6 +3,97 @@
 A running log of what each scheduled nightly session built on `beta`, so
 future runs don't duplicate or contradict prior work. Newest entry first.
 
+## 2026-08-20
+
+`beta` was at 1cd2d7d going in (last night's five features: live position,
+weather in exports, budget currency/CSV, nearby amenities). Fetched the real
+feature-request backlog from mainline (`GET /tickets`): of 12 tickets, zero
+were actionable — everything is already `done` or `in_beta` from prior
+nights. No mainline ticket work tonight; all four changes below are
+own-initiative picks. Each committed and pushed separately, each verified
+against the local dev-server with Playwright (fresh chromium, stubbed
+`window.L`, stubbed Open-Meteo/Overpass — same approach every prior night has
+used) before pushing:
+
+1. **An mpg fuel-consumption unit, alongside L/100km.** Flagged twice in
+   prior sessions' "decided not to do" notes as a genuinely different unit
+   system from the km/mi distance toggle, not just a display conversion —
+   tonight scoped it properly. A small toggle above the fuel-settings row
+   (`#fuelUnitToggle`) switches what the consumption/price fields mean
+   (L/100km + price/L, or US mpg + price/gallon); the `unit` lives on the
+   same `tripplan-fuel-settings` object rather than a separate key, since
+   it's meaningless without the two numbers next to it. Switching units
+   deliberately doesn't clear or convert the typed numbers — placeholders
+   change to make clear they need re-entering. Centralized the actual cost
+   math in one `fuelCost()` helper shared by every display string
+   (`fuelCostText`) and the whole-trip budget suggestion
+   (`estimatedFuelCost`), which previously each had their own copy of the
+   L/100km formula — so the two unit branches can't drift apart between
+   them. Verified: default unit, toggle switching (placeholders, persisted
+   values not cleared), reload persistence, and the cost math itself for
+   both units (100km at 8 L/100km/20-per-L → 160; 100km at 30mpg/3.5-per-gal
+   → ≈7.25) plus the null-when-unset case — 6 checks, screenshotted in both
+   light and dark.
+
+2. **EV charging stations in the nearby-amenities lookup.** Same reasoning
+   as last night's pharmacy/hospital addition: OSM's `amenity=charging_station`
+   tag slots straight into the existing Overpass query with no
+   special-casing, and it's a real gap for anyone road-tripping in an EV.
+   Verified with a stubbed Overpass response mixing a named charging station,
+   a pharmacy, and an unnamed charging station (correctly filtered out) —
+   confirmed the query string requests the new type and the modal renders it
+   with the right icon.
+
+3. **Split the trip budget total between N travelers.** A "Split between"
+   row right under the existing currency-conversion row divides the running
+   total by a traveler count and shows "≈ N per person" — same
+   personal-display-preference, non-trip-scoped-localStorage pattern as the
+   currency conversion above it (`tripplan-budget-travelers`), since how
+   many people are splitting a trip's costs isn't really trip data any more
+   than which currency you want the total shown in is. Hidden at the
+   default of 1 traveler or an empty budget, same as the conversion line
+   hides when nothing's configured. Verified: empty-budget and
+   single-traveler no-op states, the split math itself (1500 ÷ 3 = 500),
+   and persistence across closing/reopening the modal — 5 checks,
+   screenshotted.
+
+4. **Max wind speed in the day weather forecast panel.** Genuinely relevant
+   context for mountain passes and ferry crossings, not just
+   temperature/precipitation — Open-Meteo's `windspeed_10m_max` was one more
+   field on the same daily forecast call already being made (no new API
+   call or key). Reused the km/mi distance-unit toggle for display via a new
+   `formatSpeedKmh()` (the km-to-mile ratio converts km/h to mph exactly the
+   same way it converts km to miles, so this just reuses `KM_TO_MI` rather
+   than a separate constant). Kept HTML-only in the single-day panel, same
+   as sunrise/sunset — not added to the terse plain-text summary the
+   exports and trip-wide weather strip reuse, matching that existing
+   precedent. Verified with a stubbed Open-Meteo response: correct km/h
+   figure, and correct mph conversion after toggling the distance unit — 2
+   checks, screenshotted.
+
+18 checks total across the four features, all passing, plus a final
+integration pass loading a two-day KML fixture and exercising all four
+features together in one session (mpg toggle, nearby-with-EV-in-the-query,
+budget split, day-switch weather) with zero console/page errors. Confirmed
+all four commits deployed successfully via `deploy-beta.yml`.
+
+**Decided not to do, and why:**
+- **A fifth feature.** Four independent, individually-tested changes felt
+  like the right scope for tonight — the mpg toggle in particular deserved
+  care given it was explicitly flagged twice before as needing more than a
+  quick pass.
+- **Climate-normal weather for days beyond Open-Meteo's ~16-day forecast
+  horizon** (averaging past years' data for the same calendar date via the
+  archive API). Considered as a bigger fourth/fifth feature — genuinely
+  useful for trips planned months ahead — but multiple archive-API calls per
+  out-of-horizon day (one per year averaged) is real complexity for a first
+  pass; left for a future session with room to build and test it properly
+  rather than rushing a partial version in.
+- **Extending wind speed to the printable itinerary/ICS export.** Kept
+  consistent with the existing sunrise/sunset precedent (HTML-only, not in
+  the plain-text summary the exports share) rather than special-casing just
+  the new field into a wider surface.
+
 ## 2026-08-19
 
 `beta` was at 147d0cb going in (last night's five features: search bias,
