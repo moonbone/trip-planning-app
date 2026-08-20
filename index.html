@@ -2347,6 +2347,16 @@ function formatDistanceKm(km, decimals){
   const d = decimals != null ? decimals : (value < 10 ? 1 : 0);
   return value.toFixed(d) + ' ' + unit;
 }
+// Same km/mi preference as formatDistanceKm, applied to a speed instead of a
+// distance — the km-to-mile ratio converts km/h to mph exactly the same way
+// it converts km to miles, so this just reuses KM_TO_MI rather than a
+// separate constant.
+function formatSpeedKmh(kmh){
+  if(kmh == null || !isFinite(kmh)) return '';
+  const unit = loadDistanceUnit();
+  const value = unit === 'mi' ? kmh * KM_TO_MI : kmh;
+  return Math.round(value) + ' ' + unit + '/h';
+}
 
 // Dark mode: an explicit tripplan-theme ('light'|'dark') in localStorage
 // wins; otherwise the CSS itself follows prefers-color-scheme (see the
@@ -4150,7 +4160,7 @@ async function fetchWeather(lat, lon, date){
   if(key in weatherCache) return weatherCache[key];
   try{
     const url = 'https://api.open-meteo.com/v1/forecast?latitude=' + lat + '&longitude=' + lon +
-      '&daily=temperature_2m_max,temperature_2m_min,precipitation_sum,weathercode,sunrise,sunset' +
+      '&daily=temperature_2m_max,temperature_2m_min,precipitation_sum,weathercode,sunrise,sunset,windspeed_10m_max' +
       '&timezone=auto&start_date=' + date + '&end_date=' + date;
     const res = await fetch(url);
     if(!res.ok) throw new Error('HTTP ' + res.status);
@@ -4164,6 +4174,9 @@ async function fetchWeather(lat, lon, date){
       tMax: Math.round(d.temperature_2m_max[0]), tMin: Math.round(d.temperature_2m_min[0]),
       precip: d.precipitation_sum[0], code: d.weathercode[0],
       sunrise: clockOf(d.sunrise && d.sunrise[0]), sunset: clockOf(d.sunset && d.sunset[0]),
+      // Open-Meteo's default windspeed unit is already km/h — no conversion
+      // needed here, formatSpeedKmh() handles km/mi display at render time.
+      windMax: d.windspeed_10m_max ? d.windspeed_10m_max[0] : null,
     };
     weatherCache[key] = result;
     return result;
@@ -4197,7 +4210,13 @@ async function renderWeather(){
   const summary = weatherSummaryText(forecast);
   const sunText = forecast.sunrise && forecast.sunset
     ? ` · 🌅 ${forecast.sunrise} 🌇 ${forecast.sunset}` : '';
-  el.innerHTML = `<p class="stats-sub">${summary}${sunText}</p>`;
+  // Wind stays HTML-only in the in-app panel, same as sunrise/sunset above —
+  // genuinely useful context for mountain passes and ferry crossings, but
+  // not essential enough to widen the terse plain-text summary reused by
+  // the exports.
+  const windText = forecast.windMax != null
+    ? ` · 💨 ${formatSpeedKmh(forecast.windMax)} max wind` : '';
+  el.innerHTML = `<p class="stats-sub">${summary}${sunText}${windText}</p>`;
 }
 
 // Whole-trip weather strip: a compact per-day forecast row in the trip

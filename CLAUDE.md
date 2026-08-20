@@ -305,7 +305,8 @@ The user's own real trip currently loaded into the app is a Norway road trip, Au
   current wall clock. Only shown once a route is calculated for that day (arrival times
   come from `lastRoute`, same guard `renderStats` already uses). A weather forecast line (col-right, between
   "Trip overview" and "Drive summary") shows the active day's forecast — high/low temp,
-  precipitation, sunrise/sunset, a condition icon — for whichever place is first in that day's route
+  precipitation, sunrise/sunset, max wind speed, a condition icon — for whichever place is
+  first in that day's route
   (`renderWeather`, called from `renderAll`). Calls Open-Meteo directly from the browser
   (`api.open-meteo.com`, no key, CORS-enabled for client-side use — same trust model as
   the Nominatim geocoding already called client-side elsewhere in this app), so it needs
@@ -314,7 +315,12 @@ The user's own real trip currently loaded into the app is a Norway road trip, Au
   request-token guard (`weatherRequestToken`) discards a slow response that resolves after
   the user has already switched to a different day. Results are cached in memory per
   `lat,lon,date` for the session (`weatherCache`) — switching back to an already-fetched
-  day doesn't re-hit the API.
+  day doesn't re-hit the API. Max wind speed (Open-Meteo's `windspeed_10m_max`, already
+  km/h by default) is shown alongside sunrise/sunset — genuinely relevant context for
+  mountain passes and ferry crossings — via the same `formatSpeedKmh()` km/mi-aware
+  formatter as distances, reusing `KM_TO_MI` since the conversion ratio is identical.
+  Deliberately kept HTML-only in the single-day panel (same as sunrise/sunset), not added
+  to the terse plain-text `weatherSummaryText()` the exports and trip-wide strip reuse.
   A whole-trip weather strip (`renderTripWeatherStrip`, its own `#weatherStrip` row between
   "Trip overview" and the single-day weather line) shows one compact chip per day within
   Open-Meteo's forecast horizon — icon plus high/low — so a rainy day (or a day already
