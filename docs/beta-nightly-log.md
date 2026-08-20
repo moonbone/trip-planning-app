@@ -3,6 +3,569 @@
 A running log of what each scheduled nightly session built on `beta`, so
 future runs don't duplicate or contradict prior work. Newest entry first.
 
+## 2026-08-20
+
+`beta` was at 1cd2d7d going in (last night's five features: live position,
+weather in exports, budget currency/CSV, nearby amenities). Fetched the real
+feature-request backlog from mainline (`GET /tickets`): of 12 tickets, zero
+were actionable — everything is already `done` or `in_beta` from prior
+nights. No mainline ticket work tonight; all four changes below are
+own-initiative picks. Each committed and pushed separately, each verified
+against the local dev-server with Playwright (fresh chromium, stubbed
+`window.L`, stubbed Open-Meteo/Overpass — same approach every prior night has
+used) before pushing:
+
+1. **An mpg fuel-consumption unit, alongside L/100km.** Flagged twice in
+   prior sessions' "decided not to do" notes as a genuinely different unit
+   system from the km/mi distance toggle, not just a display conversion —
+   tonight scoped it properly. A small toggle above the fuel-settings row
+   (`#fuelUnitToggle`) switches what the consumption/price fields mean
+   (L/100km + price/L, or US mpg + price/gallon); the `unit` lives on the
+   same `tripplan-fuel-settings` object rather than a separate key, since
+   it's meaningless without the two numbers next to it. Switching units
+   deliberately doesn't clear or convert the typed numbers — placeholders
+   change to make clear they need re-entering. Centralized the actual cost
+   math in one `fuelCost()` helper shared by every display string
+   (`fuelCostText`) and the whole-trip budget suggestion
+   (`estimatedFuelCost`), which previously each had their own copy of the
+   L/100km formula — so the two unit branches can't drift apart between
+   them. Verified: default unit, toggle switching (placeholders, persisted
+   values not cleared), reload persistence, and the cost math itself for
+   both units (100km at 8 L/100km/20-per-L → 160; 100km at 30mpg/3.5-per-gal
+   → ≈7.25) plus the null-when-unset case — 6 checks, screenshotted in both
+   light and dark.
+
+2. **EV charging stations in the nearby-amenities lookup.** Same reasoning
+   as last night's pharmacy/hospital addition: OSM's `amenity=charging_station`
+   tag slots straight into the existing Overpass query with no
+   special-casing, and it's a real gap for anyone road-tripping in an EV.
+   Verified with a stubbed Overpass response mixing a named charging station,
+   a pharmacy, and an unnamed charging station (correctly filtered out) —
+   confirmed the query string requests the new type and the modal renders it
+   with the right icon.
+
+3. **Split the trip budget total between N travelers.** A "Split between"
+   row right under the existing currency-conversion row divides the running
+   total by a traveler count and shows "≈ N per person" — same
+   personal-display-preference, non-trip-scoped-localStorage pattern as the
+   currency conversion above it (`tripplan-budget-travelers`), since how
+   many people are splitting a trip's costs isn't really trip data any more
+   than which currency you want the total shown in is. Hidden at the
+   default of 1 traveler or an empty budget, same as the conversion line
+   hides when nothing's configured. Verified: empty-budget and
+   single-traveler no-op states, the split math itself (1500 ÷ 3 = 500),
+   and persistence across closing/reopening the modal — 5 checks,
+   screenshotted.
+
+4. **Max wind speed in the day weather forecast panel.** Genuinely relevant
+   context for mountain passes and ferry crossings, not just
+   temperature/precipitation — Open-Meteo's `windspeed_10m_max` was one more
+   field on the same daily forecast call already being made (no new API
+   call or key). Reused the km/mi distance-unit toggle for display via a new
+   `formatSpeedKmh()` (the km-to-mile ratio converts km/h to mph exactly the
+   same way it converts km to miles, so this just reuses `KM_TO_MI` rather
+   than a separate constant). Kept HTML-only in the single-day panel, same
+   as sunrise/sunset — not added to the terse plain-text summary the
+   exports and trip-wide weather strip reuse, matching that existing
+   precedent. Verified with a stubbed Open-Meteo response: correct km/h
+   figure, and correct mph conversion after toggling the distance unit — 2
+   checks, screenshotted.
+
+18 checks total across the four features, all passing, plus a final
+integration pass loading a two-day KML fixture and exercising all four
+features together in one session (mpg toggle, nearby-with-EV-in-the-query,
+budget split, day-switch weather) with zero console/page errors. Confirmed
+all four commits deployed successfully via `deploy-beta.yml`.
+
+**Decided not to do, and why:**
+- **A fifth feature.** Four independent, individually-tested changes felt
+  like the right scope for tonight — the mpg toggle in particular deserved
+  care given it was explicitly flagged twice before as needing more than a
+  quick pass.
+- **Climate-normal weather for days beyond Open-Meteo's ~16-day forecast
+  horizon** (averaging past years' data for the same calendar date via the
+  archive API). Considered as a bigger fourth/fifth feature — genuinely
+  useful for trips planned months ahead — but multiple archive-API calls per
+  out-of-horizon day (one per year averaged) is real complexity for a first
+  pass; left for a future session with room to build and test it properly
+  rather than rushing a partial version in.
+- **Extending wind speed to the printable itinerary/ICS export.** Kept
+  consistent with the existing sunrise/sunset precedent (HTML-only, not in
+  the plain-text summary the exports share) rather than special-casing just
+  the new field into a wider surface.
+
+## 2026-08-19
+
+`beta` was at 147d0cb going in (last night's five features: search bias,
+countdown/ferry, native share, km/mi toggle, weather strip — plus a merge
+bringing the `in_beta` ticket status back in from `master`). Fetched the
+real feature-request backlog from mainline (`GET /tickets`): of 12 tickets,
+zero were actionable — everything is already `done` or `in_beta` (the two
+most recent, `mswuwmi5itojje` "Search function" and `msw6fddzu25mte`
+"Search function confirmation", were marked `in_beta` by the last two
+nights' sessions). No mainline ticket work tonight; all five changes below
+are own-initiative picks. Each committed and pushed separately, each
+verified against the local dev-server with Playwright (fresh chromium,
+stubbed `window.L`, stubbed every external API this sandbox can't reach
+from a browser — same approach every prior night has used) before pushing,
+then spot-checked against the live beta URL after the final push:
+
+1. **Live distance/ETA to the next stop from an actual GPS fix.** The day
+   timeline already had a *planned* "driving to X, arriving ~HH:MM" banner,
+   but nothing compared that plan to where you actually are — useful on a
+   real road trip when you're running early/late or took a detour.
+   `lastPos` (already tracked via `watchLocation()` for the "you are here"
+   map marker and the existing Google Maps nav buttons — geolocation
+   support turned out to already be wired up from an earlier ticket, not
+   something to build from scratch) now also feeds a `liveNextStopLine()`
+   under the now-banner: straight-line distance/ETA via the same haversine
+   + flat-speed estimate the long-drive tab badges already use, so it costs
+   no extra routing API call. Targets whichever stop the plan says is
+   "next" in all three now-banner states (before start → first stop, at a
+   stop → the following stop, driving → the current leg's destination).
+   Omitted entirely without a valid fix. Verified against a two-day KML
+   fixture with a mocked geolocation position and a fixed clock, driven
+   through all four banner states plus the no-permission case — 12 checks.
+
+2. **Weather forecast in the printable itinerary and ICS calendar export.**
+   The in-app weather panel and trip-wide strip (added two nights ago) only
+   ever showed up on screen. `buildDayItinerary()` — the shared per-day
+   data source for both exports — now fetches the same forecast
+   `renderWeather()` would, reusing `fetchWeather()`'s existing cache (no
+   new API calls beyond what a same-session in-app visit already makes).
+   Pulled `weatherSummaryText()` and `weatherWithinHorizon()` out as shared
+   helpers so the in-app panel, the trip strip, and both exports render/gate
+   identically instead of three near-copies of the same formatting and
+   date-window logic. Verified both exports show a stubbed forecast
+   correctly (printable HTML, the downloaded ICS file's `DESCRIPTION`), and
+   confirmed no regression in the in-app panel/strip after the refactor —
+   4 checks.
+
+3. **Live currency conversion for the trip budget total.** Budget items are
+   logged in whatever currency the fuel settings say (e.g. NOK for a Norway
+   trip), but international travelers often want their home currency too.
+   An optional "Show total in" code input in the budget modal converts via
+   `api.frankfurter.dev` (free, keyless, CORS-enabled — same trust model as
+   Nominatim/Open-Meteo/Overpass already used client-side elsewhere),
+   cached per base/target pair for the session. Both currencies need to
+   look like a 3-letter ISO code — the fuel-currency field has never been
+   validated as one, so a non-code value shows guidance instead of a doomed
+   request, and a failed lookup degrades to a plain message rather than
+   breaking the always-correct-regardless total. The chosen target currency
+   is a personal display preference, not trip data — one plain
+   `tripplan-budget-convert-currency` localStorage key, restored on reopen,
+   matching the fuel settings' own non-trip-scoped pattern. Verified via a
+   stubbed frankfurter.dev response: happy path, invalid fuel currency,
+   failing/unknown target, and the empty/same-as-base no-op cases — 9 checks.
+
+4. **Pharmacy and hospital added to the nearby-amenities lookup.** The
+   existing "🔎 nearby" button (fuel/food/parking/restrooms/supermarkets
+   around a stop, via Overpass) was a natural fit for "where's the nearest
+   pharmacy or hospital" too — OSM's own `amenity=pharmacy`/`hospital` tags
+   slotted straight into the existing query regex with no special-casing.
+   Small, but genuinely useful mid-road-trip. Verified with a stubbed
+   Overpass response mixing new and existing amenity types — both render
+   with correct icons alongside each other, and the query string includes
+   both new types.
+
+5. **CSV export for the budget tracker.** No way existed to get logged
+   costs out of the app except reading them off the modal — useful to drop
+   into a spreadsheet for an expense report or to split costs with travel
+   companions. A "⬇️ CSV" button in the budget modal header
+   (`exportBudgetCsv`/`buildBudgetCsv`) downloads every item as a CSV file,
+   same client-side blob-download pattern GPX/ICS/backup export already
+   use. `csvField()` quotes a label/category only when it actually needs it
+   (comma, quote, newline) rather than assuming costs are always
+   comma-safe. Verified the empty-budget case (friendly message, no broken
+   download), a real export with a comma-containing and an
+   embedded-quote-containing label (correct escaping round-tripped through
+   the downloaded file), and — since this one touched the modal header
+   layout — a screenshot confirming the new button doesn't crowd the
+   existing × close button.
+
+37 checks total across the five features, all passing. Confirmed all five commits deployed
+successfully via `deploy-beta.yml`, and confirmed the live beta URL serves
+each feature's new element IDs/function names (`budgetCsvBtn`, `pharmacy`,
+`liveNextStopLine`, `weatherSummaryText`) after the final push.
+
+**Decided not to do, and why:**
+- **Deduplicating the GPX/ICS/backup export's repeated 6-line
+  blob-download block** into a shared helper when adding the budget CSV
+  export (a fourth near-identical copy). Would have touched three already-
+  deployed, working export paths purely for DRY — kept the new CSV export
+  self-contained instead, to keep tonight's diff minimal and the risk of
+  regressing something already live at zero.
+- **A full mpg fuel-consumption unit.** Still flagged from two nights ago
+  as a genuinely different convention from L/100km, not just a display
+  conversion — still out of scope for a session already carrying five
+  other changes.
+- **A dedicated "emergency info" feature** (embassy contacts, country-
+  specific emergency numbers) instead of just adding pharmacy/hospital to
+  the existing nearby-amenities lookup. Hardcoded per-country data would
+  cut against this app's KML-driven, nothing-hardcoded design — the
+  amenity-lookup extension gets most of the real value with none of that.
+
+## 2026-08-18
+
+`beta` was at ad02de1 going in (last night's four features: search confirm,
+reorder buttons, fuel-budget link, nearby amenities). Fetched the real
+feature-request backlog from mainline (`GET /tickets`): of 12 tickets, one
+was actionable (`mswuwmi5itojje`, "Search function", `new`) — everything
+else already `done` or `in_beta`. A notably productive session — five
+commits, each tested and pushed separately, each deploy confirmed green via
+`deploy-beta.yml` before moving on:
+
+1. **Mainline ticket `mswuwmi5itojje` ("Search function").** The user's
+   report: searching for a supermarket chain name while in Norway returned
+   branches from the UK and Hungary — the "🔍 Search" flow's Nominatim call
+   had no locality bias at all. `searchAnchorPoint()` now resolves to the
+   active day's overnight hotel (falling back to that day's wake hotel,
+   then its last real stop, then any place in the trip — literally "current
+   end of day's hotel" per the ticket), and `nominatimSearchBiased` tries a
+   `viewbox`/`bounded=1` Nominatim search around it first (`viewboxAround`,
+   ~1.5° of latitude widened in longitude by `1/cos(lat)` so the box stays
+   roughly square in real distance this far north), falling back to a plain
+   unbounded search only when nothing turns up nearby — so a place
+   genuinely outside today's area still resolves. **Marked `in_beta`** on
+   mainline once pushed and confirmed live. Left `geocodeAddress` (the
+   Maps-link import's title fallback) unbiased and unchanged, per the
+   existing reasoning that path already has an exact redirect URL behind it.
+
+2. **Trip countdown banner + a per-day ferry flag.** Two small, independent
+   additions bundled into one commit since both touch the same small area
+   (trip overview panel / day tabs) and were developed together. The trip
+   overview now opens with "trip starts in N days" / "day N of M — today" /
+   "trip ended N days ago" (`tripCountdownLine`) — a quick answer to "how
+   close is this trip" without doing date math by hand. A "⛴ Ferry"
+   checkbox next to each day's start-time input flags a day as including a
+   ferry crossing — deliberately manual, not inferred (detecting "this road
+   segment is a ferry" would need road-type data OpenRouteService doesn't
+   expose here) — with a badge on the day tab, a reminder line in the drive
+   summary and printable itinerary, and a count in the trip overview,
+   mirroring the long-driving-day warning's existing pattern. Motivated
+   directly by CLAUDE.md's own flagged concern that Day 7 of the user's
+   trip "possibly involves a ferry" — this handles that day and any other
+   road trip with a ferry leg, without hardcoding anything trip-specific.
+
+3. **Native share sheet for "📋 Copy day plan".** The button's whole point
+   is getting today's plan to travel companions — `navigator.share` (where
+   supported, mostly phones) now offers the native share sheet
+   (WhatsApp/SMS/Email/etc.) in one tap instead of "copy, switch app,
+   paste". Falls straight through to the existing clipboard-copy behavior
+   on desktop (where `navigator.share` mostly isn't implemented) or on any
+   share failure; a cancelled share sheet (`AbortError`) is left alone
+   rather than falling back to clipboard, matching how a cancelled native
+   share normally behaves.
+
+4. **A km/mi distance-unit toggle.** Flagged twice in this log before as "a
+   full session's own scope" — genuinely useful for a general-purpose (not
+   Norway-specific) planner, but distance text was scattered across roughly
+   ten display sites. Tonight had the headroom to do it properly.
+   `formatDistanceKm(km, decimals?)` is now the single place a km number
+   ever gets rounded and unit-suffixed for display — every internal
+   calculation (routing, fuel cost, haversine, near-duplicate detection,
+   the map's route-arrow spacing) stays in km always, so this is purely a
+   display layer. Wired into the drive summary, trip overview, route-list
+   leg info, the optimize-order confirm dialog, the printable itinerary,
+   the ICS export, and the copy-day-plan text. `buildDayItinerary`'s
+   `distanceKm`/`legKm` fields now hold raw km numbers instead of
+   pre-rounded strings specifically so every consumer can format per the
+   active unit rather than being locked into whatever was baked in at
+   build time. Deliberately scoped down from "full unit system": the
+   fuel-consumption field stays L/100km always (mpg is a genuinely
+   different convention, not just a display conversion), and sub-1km
+   distances (near-duplicate badge, close-range nearby-amenities results)
+   stay in meters regardless of the toggle, since nobody thinks in
+   fractional miles at that scale.
+
+5. **A whole-trip weather strip.** The existing weather panel only ever
+   showed the active day's forecast — useful, but spotting a rainy stretch
+   meant clicking through every day one at a time. `renderTripWeatherStrip`
+   adds a compact per-day chip row (icon + high/low) above it for every day
+   within Open-Meteo's ~16-day horizon. Reuses `fetchWeather`'s exact same
+   call/cache as the single-day panel (no duplicate fetching either way),
+   sequential rather than parallel fetches to stay polite to a keyless
+   public API. Each chip's reference point is that day's *starting*
+   location (`getRouteIds(day)[0]`, the previous night's hotel) — same
+   convention the single-day panel already uses, so e.g. day 2's forecast
+   reflects where day 2 begins that morning, not day 2's own destination. A
+   day whose fetch fails is silently omitted rather than shown broken.
+
+All five verified locally against the file-based dev-server
+(`AUTH_DEV_FAKE=1`) with Playwright, each in its own throwaway test script:
+the search-bias fix against a two-day KML fixture (anchor resolution, a
+stubbed Nominatim confirming the anchored box is actually sent and actually
+filters results, the anchor moving with the active day, and the
+anchored-empty→unbounded-fallback path — 6 checks); the countdown banner
+and ferry flag together (a pinned browser clock so "today" is deterministic
+regardless of when the test runs, all three countdown branches, the ferry
+badge/checkbox/count round-tripping through real clicks and re-renders — 10
+checks, plus 1 more for the future-trip countdown branch specifically);
+native share across three real scenarios — share available, share
+unavailable (clipboard fallback), and a cancelled share sheet not falling
+back — 8 checks; the units toggle against a stubbed OpenRouteService
+response with a hand-computable 42km/26mi conversion, exercised through the
+real toggle-button click (not direct state mutation), surviving a page
+reload, and round-tripping back to km with no drift, plus separate checks
+for the printable itinerary, ICS export, and `formatDistanceKm`'s edge
+cases (null/NaN/zero) — 24 checks total; the weather strip against a
+four-day fixture with one stubbed forecast failure, confirming the failed
+day is omitted without breaking the others, the active-day chip highlight,
+and that switching to an already-fetched day doesn't re-hit the API — 9
+checks. 57 checks total, all passing. Caught one real test-authoring
+mistake along the way (not an app bug): the weather-strip test initially
+assumed each day's forecast reflects *that day's own* destination, and
+failed until re-checked against `getRouteIds(day)[0]`'s actual semantics
+(the day's *starting* point) — the app's behavior was correct and
+consistent with the pre-existing single-day panel throughout; the test's
+mental model was wrong. Re-ran the full existing test suite (all prior
+nights' throwaway scripts still on disk) after the final change to confirm
+no cross-feature regressions — 61 checks, all passing. Confirmed all five
+commits deployed successfully via `deploy-beta.yml`, and spot-checked the
+live beta HTML for new element IDs/function names (`unitsToggle`,
+`dayFerryInput`, `formatDistanceKm`, `searchAnchorPoint`, `navigator.share`)
+after pushing.
+
+**Decided not to do, and why:**
+- **A full mpg fuel-consumption unit** to go with the km/mi toggle. A
+  genuinely different convention from L/100km, not just a display
+  conversion — bigger scope than a distance-display toggle; left for a
+  future session if it's wanted.
+- **Converting the near-duplicate-place badge or close-range
+  nearby-amenities results to miles.** Both operate at sub-1km scale
+  (~50m and up to 1.5km respectively) where nobody thinks in fractional
+  miles — left in meters regardless of the unit toggle.
+
+## 2026-08-17
+
+`beta` was at 3d51e7a going in (last night's four features: optimize order,
+undo toast, trip driving total, duplicate trip) — one commit ahead of the
+last promotion to `master` (five nights of nightly work were merged to
+production via PR #7 earlier). Fetched the real feature-request backlog
+from mainline (`GET /tickets`): of 11 tickets, one was actionable
+(`msw6fddzu25mte`, "Search function confirmation", `new`) — everything
+else already `done`. Four changes tonight, each committed and pushed
+separately, each verified against the local dev-server with Playwright
+(a fresh chromium + stubbed `window.L` + stubbed external APIs, per prior
+nights' approach) before pushing, then spot-checked against the live beta
+URL after each deploy:
+
+1. **Mainline ticket `msw6fddzu25mte` ("Search function confirmation").**
+   `searchPlaceByName` used to geocode a typed name/address and save
+   Nominatim's single top match straight away — no way to see what was
+   about to be added, or to pick between similarly-named places. Now asks
+   Nominatim for up to 5 matches (`geocodeCandidates`) and opens a confirm
+   modal (`openSearchResultsModal`) before saving anything: a clickable
+   list when there's more than one candidate, and for whichever is
+   selected — always, even for a single match, since the ticket asked for
+   confirmation as the core behavior, not just a picker — a small Leaflet
+   preview map, the full address, an editable name field, and a
+   best-effort photo pulled from Wikipedia's public REST summary API when
+   OSM tagged the place with a `wikipedia` tag. **Marked `in_beta` on
+   mainline** once pushed and confirmed live. Left the Maps-link import's
+   own geocoding fallback (`geocodeAddress`) untouched — that path already
+   has an exact redirect URL behind it before it ever needs to geocode a
+   bare title, so it doesn't have the same "which one did you mean"
+   problem this ticket was about.
+
+2. **▲/▼ buttons to reorder a day's stops, alongside drag-and-drop.**
+   Reordering was drag-only — fine with a mouse, unreachable by keyboard
+   and fiddly on touch. Added real `<button>` elements per row
+   (`moveStopInDay`) that swap a stop with its neighbor, always
+   recomputing `dayStops()` fresh rather than trusting a closured index so
+   a stale click can't swap the wrong pair. Reuses `commitDragOrder`'s
+   existing "write the filtered stop list straight back to `plans[day]`"
+   contract, so the two reordering paths can't drift apart.
+
+3. **Estimated fuel cost as a one-click budget line.** The fuel settings
+   (⛽) already computed a whole-trip cost estimate for the trip overview
+   panel, but the budget tracker had no way to know about it short of the
+   user re-typing the number by hand — an easy way for the budget total to
+   silently miss its largest line. The budget modal now shows that
+   estimate with an "add to budget" action that writes a `Transport`-
+   category line item under a fixed label, so a later change (a route
+   recalculated, fuel settings edited) offers "update the logged estimate"
+   instead of piling up duplicates.
+
+4. **Nearby fuel/food/parking/restroom lookup per stop, via Overpass.**
+   The biggest piece tonight, and a new external dependency: every
+   route-item row (stops and pinned hotels) got a 🔎 button that queries
+   Overpass (OSM's public, keyless, CORS-enabled query API — same no-auth
+   trust model as Nominatim/Open-Meteo already used elsewhere) for named
+   fuel, restaurant, cafe, fast food, parking, restroom, and supermarket
+   nodes within 1.5km. Results sort nearest-first, cap at 15, and each has
+   a "+ Add" that drops it into the day as a custom place with its exact
+   OSM coordinates. Confirmed the query/response shape once against the
+   live API (real data back from central Bergen) before building the
+   parsing logic against it — but the public instance turned out
+   noticeably flakier than Nominatim under repeated quick requests (hit a
+   406 and a 504 retrying from this shell later in the session), so the
+   modal's error path got real attention: a failed or slow lookup shows an
+   inline message rather than affecting anything else on the page, and
+   that path is covered by an explicit Playwright test (a stubbed 503),
+   not just reasoned about.
+
+All four verified locally against the file-based dev-server
+(`AUTH_DEV_FAKE=1`) with Playwright, each in its own throwaway test script
+(candidate picker + photo/map preview + validation + Escape-to-close for
+the search confirm modal, 17 checks; up/down boundary behavior + reload
+persistence + hotel rows correctly excluded for the reorder buttons, 9
+checks; add/update/already-logged/remove-brings-back-the-offer for the
+budget-fuel link, 11 checks; query scoping + unnamed-node filtering +
+nearest-first sort + m/km distance formatting + add-to-day + the Overpass
+failure and empty-result paths + Escape for the nearby lookup, 16 checks)
+— 53 checks total, all passing, with each new feature's test re-run after
+every later change tonight to catch cross-feature regressions before
+pushing (none surfaced). Also re-learned the dev-server gotcha from
+CLAUDE.md the hard way once: it copies `index.html` into memory at
+startup, so a Playwright run against edits made after the server was
+already up silently tested stale markup (buttons "not found" with no
+console error) until the server was restarted — no code issue, just a
+reminder for future nights to restart after every edit, not just once
+per session. Confirmed all four commits deployed successfully via
+`deploy-beta.yml` and spot-checked the live beta HTML for each feature's
+new element IDs (`searchResultsModal`, `reorder-btns`, `budgetFuelSuggestion`,
+`nearby-btn`) after the last push.
+
+**Decided not to do, and why:**
+- **A fifth feature.** One ticket plus three independent features — one of
+  them (Overpass) a genuinely new external dependency that deserved a real
+  look at its failure modes rather than being rushed to fit in a fifth —
+  felt like the right scope for tonight.
+- **A dedicated mobile screenshot pass for the new 🔎 button.** Route-item
+  rows already absorb varying button counts via `.name{flex:1}` with
+  every button `flex-shrink:0`, the same layout that already coexists with
+  the nav button, stay-input, reorder buttons, and remove button on the
+  same row — one more 22×22 icon button is a marginal addition to an
+  already-proven layout, not the kind of first-time color-role audit the
+  dark-mode work needed a full screenshot pass for.
+- **A category filter or radius control on the nearby-amenities modal.**
+  A fixed 1.5km / 7-type search covers the realistic "I'm about to leave
+  this stop, what's nearby" case without adding UI just to configure a
+  lookup most people will run as-is; can revisit if real usage shows the
+  fixed radius is wrong for some places.
+
+## 2026-08-16
+
+`beta` was at d0534da going in — one commit ahead of the last nightly log
+entry (56535ae): an interactive same-day session (not a nightly run, no log
+entry, hence not otherwise mentioned here) had already landed "Navigate
+per-item from current location, not the previous stop in the list" earlier
+that evening. Fetched the real feature-request backlog from mainline
+(`GET /tickets`): of 10 tickets, none were `new`/`in_progress` — the one
+actionable ticket from a few nights ago (`mst440x8g0duze`, "Dates") is
+already `in_beta`, and everything else is `done`. No mainline work to do
+tonight, so all four changes below are this session's own picks. Each
+committed and pushed separately, each verified against the local
+dev-server with Playwright before pushing:
+
+1. **"🔀 Optimize order" — reorder a day's stops for a shorter route.**
+   Every stop so far has been ordered by hand (drag-and-drop, or whatever
+   order Google My Maps happened to export). With a dozen KML-derived
+   places this easily zig-zags without anyone noticing. `optimizeDayOrder`
+   runs a nearest-neighbor construction plus 2-opt refinement over
+   straight-line (`haversineKm`) distance — client-side only, no routing-
+   API calls (scoring every candidate ordering against OpenRouteService
+   would mean one request per candidate). The pinned wake/sleep hotel(s)
+   anchor the path and are never among the reordered stops; loop days
+   (same hotel both nights) anchor both ends to the same place. Framed
+   explicitly as a heuristic starting point in its confirm dialog (shows
+   the straight-line before/after distance), not a claim of true
+   optimality — nudges the user to recalculate real driving times
+   afterward. A day that's already optimal, or has fewer than two
+   reorderable stops, gets an explanatory alert instead of the confirm.
+
+2. **"Removed X · Undo" toast for the day's quick-remove actions.**
+   Unchecking a place in the master list, or hitting the route list's ×
+   button, is a single accidental click with no confirmation (correctly
+   so — they're common, low-stakes actions and a confirm dialog on every
+   one would be worse) but previously the only way back was re-finding the
+   place in the master list. `showUndoToast` (bottom-center, auto-hides
+   after 6s) re-splices the removed place back at its exact original
+   index. The custom-place *permanent* delete already confirms before
+   deleting, so it's deliberately left without a toast — doesn't need
+   both safety nets. A second removal before undoing the first replaces
+   the toast rather than stacking; only the most recent removal is
+   undoable, matching a single-slot Ctrl+Z.
+
+3. **Whole-trip driving total in the trip overview panel.** The overview
+   showed day/place/overnight counts and flagged long driving days
+   individually, but never totalled the trip's actual driving — a
+   reasonable thing to want to know before committing to a multi-day
+   route. Sums `dayDriveEstimate` (already used per-day for the long-drive
+   badge) across every day: exact for any day matching the last-calculated
+   route, straight-line-estimated otherwise, "≈"-prefixed with an
+   "N/M days calculated exactly" note whenever some days are still
+   estimates. `dayDriveEstimate` now also returns `.km` alongside its
+   existing `.min`/`.exact`, so this reuses the exact same
+   routed-vs-estimated branch rather than duplicating it.
+
+   Caught and fixed one real gap while testing, before it reached `beta`:
+   `calculateRoute()` only ever refreshed the route list and the active
+   day's stats panel, never the trip overview — so this new total went
+   stale (kept showing the pre-calculation estimate) right after
+   calculating a day, until some unrelated action forced a full
+   re-render. Now `calculateRoute()` also calls `renderTripOverview()` on
+   success.
+
+4. **"📑 Duplicate trip."** Trying an alternate stop order or an extra
+   what-if day meant either mutating the only copy of a trip, or a
+   backup-file-then-restore round-trip through the filesystem for what
+   should be one click. `duplicateTrip()` doesn't reimplement any backup/
+   restore logic: it calls the existing `buildTripBackup()`, wraps the
+   result as an in-memory `File`, and hands it to `restoreTripBackup`
+   exactly as if it had been picked from disk via "📥 Restore backup" —
+   same validation, same "always creates new, never overwrites"
+   guarantee, same local/remote dual-driver path. Named "<original>
+   (copy)"; since restore already switches to whatever it just created,
+   duplicating lands you directly on the new copy.
+
+All four verified locally against the file-based dev-server
+(`AUTH_DEV_FAKE=1`) with Playwright. The known sandbox limitation from
+every prior night (no outbound browser access to the Leaflet CDN, so
+`renderMapMarkers` throws on `L is not defined`) applied again, and this
+time actually mattered for testing, not just as background noise: since
+`calculateRoute()`/`activateCurrentTrip()` call `renderAll()` — which
+calls `renderMapMarkers()` — any *unhandled* exception there aborts the
+rest of that call chain, silently skipping code that runs after it (this
+session's own `showUndoToast()` calls, for instance, sit after
+`renderAll()` inside their click handlers). Worked around this properly,
+not just around it, by stubbing a minimal `window.L` (`map`, `tileLayer`,
+`layerGroup`, `marker`, `polyline`, `geoJSON`, `divIcon`, `icon`,
+`latLngBounds`) via `page.addInitScript` before navigation, so the real
+render path runs to completion and every downstream effect (toasts,
+`renderTripOverview()` calls, DOM state) could be tested for real instead
+of inferred. This also caught the `calculateRoute()`/trip-overview
+staleness bug above — invisible without a working map stub, since
+`calculateRoute()` never got far enough to reach the totals-affecting code
+without one. Optimize-order was verified against hand-built zig-zag
+coordinate sets (confirmed the algorithm actually shortens the path, that
+a second click on an already-optimal day is a no-op, and both the loop-day
+and no-anchor edge cases anchor correctly); the undo toast against single
+and rapid-double removals from both the route list and the master list,
+plus the 6s auto-hide timer; the trip-overview total against a stubbed
+`/route` response distinguishing the exact-vs-estimated branch; duplicate
+trip against a full round-trip including a custom place and a packing
+item, plus confirming cancel is a true no-op. Confirmed all four commits
+deployed successfully via `deploy-beta.yml`.
+
+**Mainline tickets:** none open/actionable — nothing to mark `in_beta`
+tonight.
+
+**Decided not to do, and why:**
+- **A km/mi + L/100km↔mpg units toggle.** Genuinely useful for a
+  general-purpose (not Norway-specific) trip planner, but "km" is baked
+  into ~60 places across the file (distance displays, fuel math, GPX/ICS/
+  print text) and fuel efficiency has two incompatible conventions
+  (L/100km vs. mpg) to get right, not just a display-unit swap. Doing it
+  properly is a full session's own scope, not a fourth item alongside
+  three others.
+- **Nearby POI search (gas stations, restaurants) via the free/keyless
+  Overpass API.** Same trust model as Nominatim/Open-Meteo already used
+  here, and plausible for a future night, but needs its own result-list
+  UI and add-as-custom-place flow — more surface than felt right to add
+  as a fourth thing alongside tonight's other three.
+
 ## 2026-08-15
 
 `beta` was at 8fcdb2e going in (last night's four features: now indicator,
