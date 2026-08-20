@@ -3650,7 +3650,7 @@ function hotelRow(hotelId, label){
   return row;
 }
 
-// ---- Nearby amenities (fuel/food/parking/restrooms/pharmacy/hospital) via Overpass ----
+// ---- Nearby amenities (fuel/food/parking/restrooms/pharmacy/hospital/EV) via Overpass ----
 // Overpass API (overpass-api.de) is OSM's public query endpoint — keyless,
 // CORS-enabled (Access-Control-Allow-Origin: *), same no-auth
 // client-side-callable spirit as Nominatim/Open-Meteo already used
@@ -3659,11 +3659,14 @@ function hotelRow(hotelId, label){
 // in here for the same reason as everything else — genuinely useful to
 // find quickly from wherever today's stop is — not a dedicated "emergency
 // info" feature; OSM's own amenity=pharmacy/hospital tags slot straight
-// into the existing query with no special-casing needed.
+// into the existing query with no special-casing needed. EV charging
+// (amenity=charging_station) slots in the same way — a real gap for an EV
+// road-tripper, and this app already knows where "nearby" means for every
+// stop; no special-casing beyond the icon needed there either.
 const NEARBY_AMENITY_ICONS = {
   fuel: '⛽', restaurant: '🍽️', cafe: '☕', fast_food: '🍔',
   parking: '🅿️', toilets: '🚻', supermarket: '🛒',
-  pharmacy: '💊', hospital: '🏥',
+  pharmacy: '💊', hospital: '🏥', charging_station: '🔌',
 };
 const NEARBY_RADIUS_M = 1500;
 const NEARBY_RESULT_CAP = 15;
@@ -3672,7 +3675,7 @@ function nearbyLink(placeId){
   const btn = document.createElement('button');
   btn.type = 'button';
   btn.className = 'nearby-btn';
-  btn.title = `Find nearby fuel, food, parking, restrooms, or a pharmacy/hospital near ${byId[placeId].name}`;
+  btn.title = `Find nearby fuel, food, parking, restrooms, EV charging, or a pharmacy/hospital near ${byId[placeId].name}`;
   btn.setAttribute('aria-label', `Find places near ${byId[placeId].name}`);
   btn.textContent = '🔎';
   btn.addEventListener('click', (e)=>{ e.stopPropagation(); openNearbyModal(placeId); });

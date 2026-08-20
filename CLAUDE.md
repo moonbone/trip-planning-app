@@ -132,8 +132,9 @@ The user's own real trip currently loaded into the app is a Norway road trip, Au
   those are free text. Same client-side blob-download pattern as GPX/ICS/backup export.
   Every route-item row (stops and pinned hotels alike) has a small "🔎" button
   (`nearbyLink`/`openNearbyModal`) that looks up nearby fuel stations, restaurants, cafes,
-  fast food, parking, restrooms, supermarkets, pharmacies, and hospitals — the amenity types
-  actually relevant mid-road-trip, not a general POI browser — within 1.5km of that stop, via Overpass
+  fast food, parking, restrooms, supermarkets, pharmacies, hospitals, and EV charging
+  stations — the amenity types actually relevant mid-road-trip, not a general POI browser —
+  within 1.5km of that stop, via Overpass
   (`overpass-api.de`, OSM's public query API: keyless, `Access-Control-Allow-Origin: *`,
   same no-auth client-side-callable trust model as Nominatim/Open-Meteo already used
   elsewhere in this app). Results are sorted nearest-first, capped at 15, and unnamed nodes
