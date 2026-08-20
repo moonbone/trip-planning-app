@@ -222,6 +222,66 @@
     color:var(--ink-soft);
     margin:0 0 10px;
   }
+  .section-label-row{
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    gap:8px;
+  }
+  .section-label-row .section-label{margin:0 0 10px;}
+  .units-toggle{
+    display:flex;
+    gap:2px;
+    margin-bottom:8px;
+  }
+  .unit-btn{
+    font-family:'IBM Plex Mono',monospace;
+    font-size:10px;
+    padding:2px 7px;
+    border:1px solid var(--border);
+    background:var(--panel);
+    color:var(--ink-soft);
+    cursor:pointer;
+    border-radius:4px;
+  }
+  .unit-btn.active{
+    background:var(--accent);
+    color:#fff;
+    border-color:var(--accent);
+  }
+  .fuel-unit-toggle{
+    display:flex;
+    gap:2px;
+    margin-bottom:4px;
+  }
+  .weather-strip-row{
+    display:flex;
+    gap:6px;
+    overflow-x:auto;
+    padding-bottom:4px;
+    margin-bottom:8px;
+  }
+  .weather-chip{
+    flex-shrink:0;
+    display:flex;
+    flex-direction:column;
+    align-items:center;
+    gap:2px;
+    padding:5px 8px;
+    border:1px solid var(--border);
+    border-radius:6px;
+    background:var(--panel);
+    font-size:11px;
+    color:var(--ink-soft);
+    cursor:default;
+  }
+  .weather-chip.active{
+    border-color:var(--accent);
+    background:var(--accent-light);
+    color:var(--accent-dark);
+  }
+  .weather-chip .wc-day{font-weight:600;}
+  .weather-chip .wc-icon{font-size:15px;}
   .kml-panel{
     display:flex;
     flex-direction:column;
@@ -355,6 +415,44 @@
     color:var(--ink-soft);
     cursor:pointer;
   }
+  .search-results-modal{max-width:460px;}
+  .search-results-list{
+    display:flex;flex-direction:column;gap:6px;
+    margin-bottom:12px;
+    max-height:180px;
+    overflow-y:auto;
+  }
+  .search-result-item{
+    display:flex;flex-direction:column;align-items:flex-start;
+    gap:2px;
+    border:1px solid var(--border-strong);
+    border-radius:8px;
+    padding:8px 10px;
+    cursor:pointer;
+    background:var(--panel);
+    color:var(--ink);
+    text-align:left;
+    font:inherit;
+    width:100%;
+    box-sizing:border-box;
+  }
+  .search-result-item .srn{font-weight:600;font-size:13.5px;}
+  .search-result-item .sra{font-size:12px;color:var(--ink-soft);}
+  .search-result-item.selected{border-color:var(--accent);background:var(--accent-light);}
+  .search-result-map{
+    height:160px;
+    border-radius:8px;
+    margin-bottom:10px;
+  }
+  .search-result-photo{width:100%;border-radius:8px;margin-bottom:10px;}
+  .search-result-address{font-size:12.5px;color:var(--ink-soft);margin:0 0 12px;}
+  .search-result-name-label{
+    display:block;
+    font-size:12.5px;
+    color:var(--ink-soft);
+    margin-bottom:12px;
+  }
+  .search-result-name-label input{margin-top:4px;}
   .dialog-overlay{
     position:fixed;inset:0;
     background:rgba(30,42,50,0.45);
@@ -516,6 +614,24 @@
   .budget-item .remove-btn{
     flex-shrink:0;
   }
+  .budget-fuel-suggestion{
+    font-size:12px;
+    color:var(--ink-soft);
+    background:var(--bg);
+    border:1px solid var(--border);
+    border-radius:6px;
+    padding:7px 9px;
+    margin-bottom:10px;
+  }
+  .budget-fuel-suggestion:empty{display:none;}
+  .link-btn{
+    border:none;background:none;
+    color:var(--accent-dark);
+    text-decoration:underline;
+    cursor:pointer;
+    font:inherit;font-size:inherit;
+    padding:0;
+  }
   .budget-add-row{
     display:flex;
     gap:6px;
@@ -548,6 +664,34 @@
     margin:0 0 10px;
     display:flex;
     justify-content:space-between;
+  }
+  .budget-convert-row{
+    display:flex;
+    align-items:center;
+    gap:6px;
+    font-size:12px;
+    color:var(--ink-soft);
+    margin:-6px 0 10px;
+  }
+  .budget-convert-row input{
+    width:5em;
+    text-transform:uppercase;
+    border:1px solid var(--border-strong);
+    border-radius:5px;
+    padding:4px 6px;
+    font:inherit;
+    font-size:12px;
+    background:var(--panel);
+    color:var(--ink);
+  }
+  .budget-convert-row .budget-converted{
+    font-weight:600;
+    color:var(--accent-dark);
+  }
+  .budget-csv-btn{
+    font-size:12px;
+    font-weight:500;
+    float:right;
   }
   .fuel-icon{
     flex-shrink:0;
@@ -657,6 +801,16 @@
     background:var(--panel);
     color:var(--ink);
   }
+  .ferry-label{
+    display:flex;
+    align-items:center;
+    gap:4px;
+    font-size:11px;
+    font-weight:600;
+    color:var(--ink-soft);
+    cursor:pointer;
+  }
+  .ferry-label input{margin:0;}
   .stay-input{
     width:52px;
     border:1px solid var(--border);
@@ -727,7 +881,8 @@
     border:3px solid #fff;
     box-shadow:0 0 0 2px rgba(42,111,214,0.35), 0 1px 3px rgba(0,0,0,0.35);
   }
-  .nav-btn{
+  .nav-btn,
+  .nearby-btn{
     text-decoration:none;
     color:var(--accent-dark);
     border:1px solid var(--accent);
@@ -736,8 +891,32 @@
     display:flex;align-items:center;justify-content:center;
     font-size:11px;
     flex-shrink:0;
+    background:none;
+    cursor:pointer;
   }
-  .nav-btn:hover{background:var(--accent-light);}
+  .nav-btn:hover,
+  .nearby-btn:hover{background:var(--accent-light);}
+  .nearby-item{
+    display:flex;
+    align-items:center;
+    gap:8px;
+    padding:7px 2px;
+    border-bottom:1px solid var(--border);
+    font-size:13px;
+  }
+  .nearby-item .nearby-icon{flex-shrink:0;font-size:15px;}
+  .nearby-item .nearby-name{flex:1;word-break:break-word;}
+  .nearby-item .nearby-dist{
+    flex-shrink:0;
+    font-family:'IBM Plex Mono',monospace;
+    font-size:11px;
+    color:var(--ink-soft);
+  }
+  .nearby-add-btn{
+    flex-shrink:0;
+    padding:4px 8px;
+    font-size:12px;
+  }
   .nav-btn-row{
     display:flex;
     gap:8px;
@@ -839,6 +1018,16 @@
     border:none;background:none;color:var(--rust);
     cursor:pointer;font-size:16px;line-height:1;padding:2px 4px;
   }
+  .reorder-btns{
+    display:flex;flex-direction:column;
+    gap:1px;
+  }
+  .reorder-btn{
+    border:none;background:none;color:var(--ink-soft);
+    cursor:pointer;font-size:10px;line-height:1;padding:1px 3px;
+  }
+  .reorder-btn:disabled{opacity:0.25;cursor:default;}
+  .reorder-btn:not(:disabled):hover{color:var(--accent-dark);}
   .calc-btn{
     width:100%;
     padding:12px;
@@ -888,6 +1077,15 @@
     padding:6px 10px;
     margin:-4px 0 14px;
   }
+  .stats-live{
+    font-size:12px;
+    color:var(--ink-soft);
+    background:var(--bg);
+    border:1px dashed var(--border-strong);
+    border-radius:6px;
+    padding:6px 10px;
+    margin:-4px 0 14px;
+  }
   .leg{
     display:flex;
     justify-content:space-between;
@@ -928,6 +1126,36 @@
     border-top:1px solid var(--border-strong);
     padding-bottom:env(safe-area-inset-bottom);
     z-index:20;
+  }
+  .undo-toast{
+    position:fixed;
+    left:50%;
+    bottom:24px;
+    transform:translateX(-50%);
+    background:var(--accent);
+    color:#fff;
+    padding:10px 14px;
+    border-radius:8px;
+    box-shadow:0 4px 14px rgba(0,0,0,0.25);
+    display:flex;
+    align-items:center;
+    gap:14px;
+    font-size:13px;
+    z-index:2200;
+    max-width:calc(100% - 32px);
+  }
+  .undo-toast button{
+    background:none;
+    border:1px solid rgba(255,255,255,0.6);
+    color:#fff;
+    border-radius:5px;
+    padding:3px 10px;
+    font-size:12px;
+    cursor:pointer;
+    flex-shrink:0;
+  }
+  .undo-toast button:hover{
+    background:rgba(255,255,255,0.15);
   }
   .mobile-tab-btn{
     flex:1;
@@ -1135,6 +1363,7 @@
       <div class="trip-row">
         <button class="reset-btn" id="backupTripBtn" title="Download everything about this trip — plan variants, custom places, place info, comments, packing list, budget — as one JSON file you can restore later">💾 Backup trip</button>
         <button class="reset-btn" id="restoreBackupBtn" title="Restore a trip from a backup JSON file, as a new trip">📥 Restore backup</button>
+        <button class="reset-btn" id="duplicateTripBtn" title="Make a full copy of this trip — all plan variants, custom places, comments, packing list, budget — to experiment on without touching the original">📑 Duplicate trip</button>
       </div>
       <input type="file" id="infoFileInput" accept=".json,application/json" style="display:none;">
       <input type="file" id="backupFileInput" accept=".json,application/json" style="display:none;">
@@ -1158,10 +1387,14 @@
           <button class="remove-btn" id="variantDeleteBtn" title="Delete variant">×</button>
         </span>
         <label class="start-label">Start <input type="time" id="dayStartInput"></label>
+        <label class="ferry-label" title="Flag this day as including a ferry crossing — shows a reminder on the tab, in the drive summary, and in the printable itinerary">
+          <input type="checkbox" id="dayFerryInput"> ⛴ Ferry
+        </label>
         <button class="reset-btn" id="addPlaceBtn" title="Add your own place (e.g. a laundromat) by clicking the map">＋ Place</button>
         <button class="reset-btn" id="addPlaceFromMapsBtn" title="Import a place by pasting a Google Maps link or coordinates">📍 From Maps</button>
         <button class="reset-btn" id="searchPlaceBtn" title="Add a place by searching its name or address">🔍 Search</button>
         <button class="reset-btn" id="dayNotesBtn" title="Comments for this day">💬</button>
+        <button class="reset-btn" id="optimizeOrderBtn" title="Reorder this day's stops to shorten the straight-line route (a starting point — recalculate driving times after)">🔀 Optimize order</button>
         <button class="reset-btn" id="resetDayBtn">Reset day</button>
       </div>
     </div>
@@ -1175,10 +1408,21 @@
   </div>
 
   <div class="col col-right">
-    <p class="section-label">Trip overview</p>
+    <div class="section-label-row">
+      <p class="section-label">Trip overview</p>
+      <div class="units-toggle" id="unitsToggle" title="Distance unit — a personal preference, saved in this browser, applies to every trip">
+        <button type="button" class="unit-btn" data-unit="km">km</button>
+        <button type="button" class="unit-btn" data-unit="mi">mi</button>
+      </div>
+    </div>
     <div id="tripOverview"></div>
+    <div id="weatherStrip"></div>
     <div id="weatherPanel"></div>
     <p class="section-label">Drive summary</p>
+    <div class="fuel-unit-toggle" id="fuelUnitToggle" title="Fuel consumption unit — a personal preference, saved in this browser, applies to every trip">
+      <button type="button" class="unit-btn" data-funit="l100km">L/100km</button>
+      <button type="button" class="unit-btn" data-funit="mpg">mpg</button>
+    </div>
     <div class="fuel-settings" id="fuelSettings" title="Set your car's fuel consumption and price to see an estimated cost — saved in this browser, applies to every trip">
       <span class="fuel-icon">⛽</span>
       <input type="number" id="fuelConsumption" min="0" step="0.1" placeholder="L/100km">
@@ -1282,8 +1526,19 @@
 <div class="info-modal-overlay" id="budgetModal" style="display:none;">
   <div class="info-modal">
     <button class="info-close" id="budgetModalClose" title="Close">×</button>
-    <h2>💰 Trip budget</h2>
+    <h2>💰 Trip budget <button class="link-btn budget-csv-btn" id="budgetCsvBtn" title="Download all logged costs as a spreadsheet-ready CSV file">⬇️ CSV</button></h2>
     <p class="budget-total" id="budgetTotal"></p>
+    <div class="budget-convert-row">
+      <label for="budgetConvertCurrency">Show total in</label>
+      <input type="text" id="budgetConvertCurrency" maxlength="6" placeholder="e.g. USD">
+      <span class="budget-converted" id="budgetConvertedTotal"></span>
+    </div>
+    <div class="budget-convert-row">
+      <label for="budgetTravelers">Split between</label>
+      <input type="number" id="budgetTravelers" min="1" step="1" max="99" placeholder="1">
+      <span class="budget-converted" id="budgetPerPerson"></span>
+    </div>
+    <div id="budgetFuelSuggestion" class="budget-fuel-suggestion"></div>
     <div id="budgetListEl"></div>
     <div class="budget-add-row">
       <select id="budgetCategory">
@@ -1301,6 +1556,36 @@
   </div>
 </div>
 
+<div class="info-modal-overlay" id="nearbyModal" style="display:none;">
+  <div class="info-modal">
+    <button class="info-close" id="nearbyModalClose" title="Close">×</button>
+    <h2 id="nearbyTitle">Nearby</h2>
+    <div id="nearbyList"></div>
+    <div class="error-note" id="nearbyError"></div>
+  </div>
+</div>
+
+<div class="info-modal-overlay" id="searchResultsModal" style="display:none;">
+  <div class="info-modal search-results-modal">
+    <button class="info-close" id="searchResultsClose" title="Close">×</button>
+    <h2>Confirm place</h2>
+    <div id="searchResultsList" class="search-results-list"></div>
+    <div id="searchResultPreview" class="search-result-preview" style="display:none;">
+      <div id="searchResultMap" class="search-result-map"></div>
+      <img id="searchResultPhoto" class="search-result-photo" alt="" style="display:none;">
+      <p class="search-result-address" id="searchResultAddress"></p>
+      <label class="search-result-name-label">Name for this place
+        <input type="text" class="dialog-input" id="searchResultNameInput" maxlength="120">
+      </label>
+      <div class="dialog-actions">
+        <button class="reset-btn" id="searchResultCancelBtn">Cancel</button>
+        <button class="calc-btn" id="searchResultAddBtn">Add place</button>
+      </div>
+    </div>
+    <div class="error-note" id="searchResultsError"></div>
+  </div>
+</div>
+
 <div class="dialog-overlay" id="dialogModal" style="display:none;">
   <div class="dialog-box">
     <h2 id="dialogTitle"></h2>
@@ -1312,6 +1597,11 @@
       <button class="calc-btn" id="dialogOkBtn">OK</button>
     </div>
   </div>
+</div>
+
+<div class="undo-toast" id="undoToast" style="display:none;">
+  <span id="undoToastMsg"></span>
+  <button id="undoToastBtn">Undo</button>
 </div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
@@ -1443,14 +1733,14 @@ function dayDriveEstimate(day){
   const ids = getRouteIds(day);
   if(ids.length < 2) return null;
   if(lastRoute && lastRoute.day === day && lastRoute.ids.join() === ids.join()){
-    return {min: Math.round(lastRoute.route.duration/60), exact:true};
+    return {min: Math.round(lastRoute.route.duration/60), km: lastRoute.route.distance/1000, exact:true};
   }
   let km = 0;
   for(let i=1;i<ids.length;i++){
     const a = byId[ids[i-1]], b = byId[ids[i]];
     if(a && b) km += haversineKm(a,b);
   }
-  return {min: Math.round(km/ESTIMATE_AVG_SPEED_KMH*60), exact:false};
+  return {min: Math.round(km/ESTIMATE_AVG_SPEED_KMH*60), km, exact:false};
 }
 
 function longDriveBadgeHtml(day){
@@ -1459,6 +1749,18 @@ function longDriveBadgeHtml(day){
   const hrs = Math.floor(est.min/60), mins = est.min%60;
   const title = `Long driving day — ${est.exact ? '' : 'approx. '}${hrs}h ${mins}m of driving. Consider splitting stops across another day.`;
   return `<span class="dupe-badge" title="${escapeHtml(title)}">⚠️</span>`;
+}
+
+// A manual per-day flag (dayMeta[day].ferry) for road trips where part of
+// the route is a ferry crossing — genuinely common on coastal/fjord/island
+// routes and worth surfacing since ferries run on fixed schedules and often
+// need advance booking, unlike driving. Deliberately not inferred from the
+// route (detecting "this road segment is a ferry" would need routing-API
+// road-type data OpenRouteService doesn't expose here) — a simple checkbox
+// the traveler sets themselves.
+function ferryBadgeHtml(day){
+  if(!getDayMeta(day).ferry) return '';
+  return `<span class="dupe-badge" title="This day includes a ferry crossing — check schedules and reservations ahead of time.">⛴</span>`;
 }
 
 let plans = {};
@@ -1901,6 +2203,18 @@ function nowMinutesLocal(){
   const d = new Date();
   return d.getHours()*60 + d.getMinutes();
 }
+// Straight-line distance/ETA from a live geolocation fix to a given stop —
+// deliberately as-the-crow-flies (haversine + the same flat average-speed
+// estimate the long-drive tab badges use) rather than a routed distance, so
+// this never costs an extra routing API call and updates purely from local
+// GPS state. Omitted entirely without a valid fix, same "only show what we
+// actually have" convention as fuelCostText.
+function liveNextStopLine(targetId){
+  if(!targetId || !lastPos || !isValidGeoFix(lastPos.lat, lastPos.lon)) return '';
+  const distKm = haversineKm(lastPos, byId[targetId]);
+  const etaMin = Math.round(distKm / ESTIMATE_AVG_SPEED_KMH * 60);
+  return `<p class="stats-live">📍 Live: ${formatDistanceKm(distKm)} to ${escapeHtml(byId[targetId].name)} (as the crow flies, ~${etaMin} min)</p>`;
+}
 // "Now" banner in the day timeline: only meaningful when the active day's
 // date is today and a route has been calculated (so arrival times are
 // known). Walks the same start→drive→stay segments renderStats already
@@ -1921,7 +2235,7 @@ function nowBanner(ids, route, meta){
     t += stay;
   });
   if(nowMin < segs[0].start){
-    return `<p class="stats-now">🕒 Day starts at ${fmtClock(segs[0].start)}</p>`;
+    return `<p class="stats-now">🕒 Day starts at ${fmtClock(segs[0].start)}</p>${liveNextStopLine(ids[0])}`;
   }
   const last = segs[segs.length-1];
   if(nowMin >= last.end){
@@ -1931,9 +2245,10 @@ function nowBanner(ids, route, meta){
   // never satisfies "< end" for a segment whose end equals its own start.
   const cur = segs.find(s=>nowMin < s.end);
   if(cur.type === 'stop'){
-    return `<p class="stats-now">📍 Now at ${escapeHtml(byId[cur.id].name)}${cur.end > cur.start ? ` until ${fmtClock(cur.end)}` : ''}</p>`;
+    const nextId = ids[ids.indexOf(cur.id) + 1];
+    return `<p class="stats-now">📍 Now at ${escapeHtml(byId[cur.id].name)}${cur.end > cur.start ? ` until ${fmtClock(cur.end)}` : ''}</p>${liveNextStopLine(nextId)}`;
   }
-  return `<p class="stats-now">🚗 Driving to ${escapeHtml(byId[cur.toId].name)} — arriving ~${fmtClock(cur.end)}</p>`;
+  return `<p class="stats-now">🚗 Driving to ${escapeHtml(byId[cur.toId].name)} — arriving ~${fmtClock(cur.end)}</p>${liveNextStopLine(cur.toId)}`;
 }
 function fmtClock(mins){
   mins = Math.round(mins) % 1440;
@@ -1944,8 +2259,14 @@ function fmtClock(mins){
 // plain localStorage key shared across every trip rather than anything
 // synced or trip-scoped.
 function loadFuelSettings(){
-  try{ return JSON.parse(localStorage.getItem('tripplan-fuel-settings')) || {}; }
-  catch(e){ return {}; }
+  let s;
+  try{ s = JSON.parse(localStorage.getItem('tripplan-fuel-settings')) || {}; }
+  catch(e){ s = {}; }
+  // Normalized here (not just at the point of use) so every reader — the
+  // inputs, fuelCostText, estimatedFuelCost — agrees on a valid unit even
+  // for settings saved before the mpg toggle existed.
+  s.unit = s.unit === 'mpg' ? 'mpg' : 'l100km';
+  return s;
 }
 function saveFuelSettings(s){
   try{ localStorage.setItem('tripplan-fuel-settings', JSON.stringify(s)); }
@@ -1956,21 +2277,85 @@ function fuelSettingsFromInputs(){
     consumption: parseFloat(document.getElementById('fuelConsumption').value) || 0,
     price: parseFloat(document.getElementById('fuelPrice').value) || 0,
     currency: document.getElementById('fuelCurrency').value.trim(),
+    // Unit changes via its own toggle, not these inputs — carry forward
+    // whatever's already stored rather than defaulting it back to l100km
+    // on every keystroke in the other fields.
+    unit: loadFuelSettings().unit,
   };
 }
 function applyFuelSettingsToInputs(s){
   document.getElementById('fuelConsumption').value = s.consumption || '';
   document.getElementById('fuelPrice').value = s.price || '';
   document.getElementById('fuelCurrency').value = s.currency || '';
+  syncFuelUnitToggle(s.unit);
+}
+// Raw fuel cost in the trip's own currency for a km distance, given a
+// {consumption, price, unit} settings object — shared by fuelCostText (per-
+// leg/day/trip display strings) and estimatedFuelCost (the whole-trip budget
+// suggestion) so the two unit branches can't drift apart. Returns null when
+// consumption/price aren't both set.
+function fuelCost(distanceKm, settings){
+  const s = settings || loadFuelSettings();
+  if(!s.consumption || !s.price) return null;
+  if(s.unit === 'mpg'){
+    const miles = distanceKm * KM_TO_MI;
+    const gallons = miles / s.consumption;
+    return gallons * s.price;
+  }
+  return distanceKm * (s.consumption/100) * s.price;
 }
 // Returns '' when consumption/price aren't both set — callers append this
 // directly, so an empty string just omits the cost cleanly.
 function fuelCostText(distanceKm, settings){
+  const cost = fuelCost(distanceKm, settings);
+  if(cost == null) return '';
   const s = settings || loadFuelSettings();
-  if(!s.consumption || !s.price) return '';
-  const cost = distanceKm * (s.consumption/100) * s.price;
   const rounded = cost >= 100 ? Math.round(cost) : Math.round(cost*10)/10;
   return ` · ≈ ${rounded}${s.currency ? ' ' + escapeHtml(s.currency) : ''} fuel`;
+}
+function syncFuelUnitToggle(unit){
+  unit = unit === 'mpg' ? 'mpg' : 'l100km';
+  document.querySelectorAll('#fuelUnitToggle .unit-btn').forEach(btn=>{
+    btn.classList.toggle('active', btn.dataset.funit === unit);
+  });
+  document.getElementById('fuelConsumption').placeholder = unit === 'mpg' ? 'mpg (US)' : 'L/100km';
+  document.getElementById('fuelPrice').placeholder = unit === 'mpg' ? 'price/gal' : 'price/L';
+}
+
+// Distance unit (km/mi): a personal preference, not trip data, so it's one
+// plain localStorage key applying across every trip — same pattern as fuel
+// settings and dark mode. Every internal calculation (routing, fuel cost,
+// haversine distances, near-duplicate detection) stays in km always; this
+// is purely a display-formatting layer, so nothing upstream needs to change
+// when the unit is switched. Independent of the fuel-consumption unit toggle
+// above — a US-mpg driver isn't necessarily also a miles-for-distance
+// reader, and vice versa, so the two aren't coupled.
+const KM_TO_MI = 0.621371;
+function loadDistanceUnit(){
+  return localStorage.getItem('tripplan-distance-unit') === 'mi' ? 'mi' : 'km';
+}
+function saveDistanceUnit(u){
+  try{ localStorage.setItem('tripplan-distance-unit', u); }
+  catch(e){ console.error('save failed', e); }
+}
+// `km` is always a plain number here (never a pre-rounded string) so this is
+// the only place distances get rounded for display, for both units.
+function formatDistanceKm(km, decimals){
+  if(km == null || !isFinite(km)) return '';
+  const unit = loadDistanceUnit();
+  const value = unit === 'mi' ? km * KM_TO_MI : km;
+  const d = decimals != null ? decimals : (value < 10 ? 1 : 0);
+  return value.toFixed(d) + ' ' + unit;
+}
+// Same km/mi preference as formatDistanceKm, applied to a speed instead of a
+// distance — the km-to-mile ratio converts km/h to mph exactly the same way
+// it converts km to miles, so this just reuses KM_TO_MI rather than a
+// separate constant.
+function formatSpeedKmh(kmh){
+  if(kmh == null || !isFinite(kmh)) return '';
+  const unit = loadDistanceUnit();
+  const value = unit === 'mi' ? kmh * KM_TO_MI : kmh;
+  return Math.round(value) + ' ' + unit + '/h';
 }
 
 // Dark mode: an explicit tripplan-theme ('light'|'dark') in localStorage
@@ -2056,6 +2441,8 @@ document.getElementById('dialogInput').addEventListener('keydown', (e)=>{
 });
 document.addEventListener('keydown', (e)=>{
   if(e.key === 'Escape' && dialogResolve) closeDialog(null);
+  if(e.key === 'Escape' && document.getElementById('searchResultsModal').style.display !== 'none') closeSearchResultsModal();
+  if(e.key === 'Escape' && document.getElementById('nearbyModal').style.display !== 'none') closeNearbyModal();
 });
 
 // ---- Custom places (ticket #9) ----
@@ -2175,6 +2562,100 @@ async function geocodeAddress(query){
   return {lat: parseFloat(results[0].lat), lon: parseFloat(results[0].lon), name: query};
 }
 
+// Ticket msw6fddzu25mte ("Search function confirmation"): the plain
+// geocodeAddress() above is still used by the Maps-link import's title
+// fallback (that flow already has an exact URL/redirect behind it, so the
+// single top match is fine there) — this is a separate multi-result path
+// specifically for "search by typed name", which has no such anchor and
+// genuinely benefits from a confirm-before-save step. Same comma-fallback
+// retry as geocodeAddress; asks Nominatim for up to `limit` matches and
+// `extratags` (carries an OSM `wikipedia` tag when the place has one, used
+// below for a best-effort photo).
+async function nominatimSearchMulti(q, limit, anchor){
+  let url = 'https://nominatim.openstreetmap.org/search?format=jsonv2&extratags=1&limit=' + limit + '&q=' + encodeURIComponent(q);
+  if(anchor) url += '&viewbox=' + viewboxAround(anchor) + '&bounded=1';
+  const res = await fetch(url);
+  if(!res.ok) throw new Error('geocoding HTTP ' + res.status);
+  return res.json();
+}
+
+// Ticket mswuwmi5itojje ("Search function"): a generic query (a supermarket
+// chain name, say) matches branches worldwide with no locality bias, so
+// searching mid-trip could surface a result from another continent above
+// the one actually nearby. Anchors the search on the active day's overnight
+// destination — the best proxy for "roughly where I am today" without
+// asking for live geolocation, and literally "current end of day's hotel"
+// per the ticket. Falls back to wherever real place data exists (an
+// earlier stop, then any place in the trip) so it still helps before a
+// hotel's assigned, and to a plain unbounded search when no trip is
+// loaded — same worldwide behavior as before for that case.
+function searchAnchorPoint(){
+  if(!activeTrip()) return null;
+  const anchor = byId[sleepHotelId(activeDay)] || byId[wakeHotelId(activeDay)];
+  if(anchor) return anchor;
+  const stops = dayStops(activeDay);
+  for(let i = stops.length - 1; i >= 0; i--){
+    if(byId[stops[i]]) return byId[stops[i]];
+  }
+  return PLACES[0] || null;
+}
+
+// A box of roughly latDeg° of latitude (~1.5° ≈ 165km), widened in
+// longitude by 1/cos(lat) so it stays roughly square in real distance —
+// longitude degrees compress a lot this far north, and a naive fixed-degree
+// box would be a much narrower true search radius in Norway than nearer
+// the equator.
+function viewboxAround(anchor, latDeg){
+  latDeg = latDeg || 1.5;
+  const lonDeg = Math.min(10, latDeg / Math.max(0.1, Math.cos(anchor.lat * Math.PI / 180)));
+  return `${anchor.lon - lonDeg},${anchor.lat + latDeg},${anchor.lon + lonDeg},${anchor.lat - latDeg}`;
+}
+
+// Tries the anchored (nearby-biased) search first; only falls back to an
+// unbounded worldwide search if nothing turned up in the area, so a
+// genuine "there's nothing like that near here" case still finds the place
+// instead of reporting no match.
+async function nominatimSearchBiased(q, limit, anchor){
+  if(anchor){
+    const near = await nominatimSearchMulti(q, limit, anchor);
+    if(near.length) return near;
+  }
+  return nominatimSearchMulti(q, limit);
+}
+
+async function geocodeCandidates(query){
+  const anchor = searchAnchorPoint();
+  let results = await nominatimSearchBiased(query, 5, anchor);
+  if(!results.length && query.includes(',')){
+    results = await nominatimSearchBiased(query.slice(query.indexOf(',') + 1).trim(), 5, anchor);
+  }
+  if(!results.length) throw new Error('no match found for "' + query + '"');
+  return results.map(r => ({
+    lat: parseFloat(r.lat),
+    lon: parseFloat(r.lon),
+    name: (r.display_name || query).split(',')[0].trim(),
+    address: r.display_name || '',
+    wikipedia: (r.extratags && r.extratags.wikipedia) || null,
+  }));
+}
+
+// Wikipedia's public REST summary endpoint is keyless and CORS-enabled for
+// client-side calls — same no-auth trust model as Nominatim/Open-Meteo
+// already used elsewhere in this app. Only reachable when OSM tagged the
+// place with a `wikipedia` tag ("lang:Title"); returns null otherwise, and
+// on any fetch/parse failure — a missing photo just means the confirm
+// modal shows no image, never a broken import.
+async function fetchCandidatePhoto(candidate){
+  if(!candidate.wikipedia || !candidate.wikipedia.includes(':')) return null;
+  const [lang, title] = candidate.wikipedia.split(/:(.+)/);
+  try{
+    const res = await fetch(`https://${lang}.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(title)}`);
+    if(!res.ok) return null;
+    const data = await res.json();
+    return (data.thumbnail && data.thumbnail.source) || null;
+  }catch(e){ return null; }
+}
+
 async function resolveMapsInput(input){
   const parsed = parseGoogleMapsCoords(input);
   if(!parsed) return null;
@@ -2251,7 +2732,11 @@ async function importFromMapsLink(){
 // Complements the map-click and Maps-link import paths above: adds a place
 // by geocoding a typed name/address via the same Nominatim helper used to
 // resolve a Maps link that carries no coordinates. Useful when you know a
-// place's name but don't have a map pin or link for it yet.
+// place's name but don't have a map pin or link for it yet. Ticket
+// msw6fddzu25mte asked for a confirm-before-save step (name/map/photo) and
+// a picker when the search matches more than one place — both handled by
+// openSearchResultsModal below rather than saving the top match straight
+// off, like this used to.
 async function searchPlaceByName(){
   if(!activeTrip()){
     document.getElementById('kmlError').textContent = 'Load a trip first — custom places are stored with the trip.';
@@ -2261,25 +2746,115 @@ async function searchPlaceByName(){
   if(!query || !query.trim()) return;
   const errEl = document.getElementById('kmlError');
   errEl.textContent = 'Searching…';
-  let coords;
+  let candidates;
   try{
-    coords = await geocodeAddress(query.trim());
+    candidates = await geocodeCandidates(query.trim());
   }catch(e){
     errEl.textContent = 'Could not find "' + query.trim() + '" (' + e.message + '). Try a more specific search, '
       + 'or use the ＋ Place button to drop a pin by hand.';
     return;
   }
   errEl.textContent = '';
-  const name = (await promptDialog('Search for a place', {message: 'Name for this place:', defaultValue: coords.name || query.trim()}) || '').trim();
-  if(!name) return;
-  const p = {id: 'c' + newId(), name, lat: coords.lat, lon: coords.lon, custom: true};
+  openSearchResultsModal(candidates);
+}
+
+// ---- Search result confirm modal (ticket msw6fddzu25mte) ----
+let searchCandidates = [];
+let searchSelectedIdx = -1;
+let searchPhotoCache = {};
+let searchResultMap = null;
+let searchResultMarker = null;
+
+function ensureSearchResultMap(){
+  if(searchResultMap) return searchResultMap;
+  searchResultMap = L.map('searchResultMap', {scrollWheelZoom:false});
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{
+    maxZoom:18, attribution:'© OpenStreetMap contributors'
+  }).addTo(searchResultMap);
+  return searchResultMap;
+}
+
+function renderSearchResultsList(){
+  const el = document.getElementById('searchResultsList');
+  el.innerHTML = '';
+  searchCandidates.forEach((c,i)=>{
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'search-result-item' + (i === searchSelectedIdx ? ' selected' : '');
+    btn.innerHTML = `<span class="srn">${escapeHtml(c.name)}</span><span class="sra">${escapeHtml(c.address)}</span>`;
+    btn.addEventListener('click', ()=>selectSearchCandidate(i));
+    el.appendChild(btn);
+  });
+}
+
+async function selectSearchCandidate(i){
+  searchSelectedIdx = i;
+  renderSearchResultsList();
+  const c = searchCandidates[i];
+  const preview = document.getElementById('searchResultPreview');
+  preview.style.display = '';
+  document.getElementById('searchResultAddress').textContent = c.address;
+  document.getElementById('searchResultNameInput').value = c.name;
+  const photoEl = document.getElementById('searchResultPhoto');
+  photoEl.style.display = 'none';
+  // The map container is hidden (display:none) until `preview` is shown
+  // above, so Leaflet must size/center it on the next frame — sizing it
+  // while still hidden would leave it stuck at 0×0.
+  requestAnimationFrame(()=>{
+    const map = ensureSearchResultMap();
+    map.invalidateSize();
+    map.setView([c.lat, c.lon], 14);
+    if(searchResultMarker) searchResultMarker.remove();
+    searchResultMarker = L.marker([c.lat, c.lon]).addTo(map);
+  });
+  if(!(i in searchPhotoCache)){
+    searchPhotoCache[i] = await fetchCandidatePhoto(c);
+  }
+  if(searchSelectedIdx !== i) return; // user picked a different candidate while the photo was loading
+  if(searchPhotoCache[i]){
+    photoEl.src = searchPhotoCache[i];
+    photoEl.style.display = '';
+  }
+}
+
+function openSearchResultsModal(candidates){
+  searchCandidates = candidates;
+  searchSelectedIdx = -1;
+  searchPhotoCache = {};
+  document.getElementById('searchResultsError').textContent = '';
+  document.getElementById('searchResultPreview').style.display = 'none';
+  renderSearchResultsList();
+  document.getElementById('searchResultsModal').style.display = '';
+  selectSearchCandidate(0);
+}
+function closeSearchResultsModal(){
+  document.getElementById('searchResultsModal').style.display = 'none';
+}
+function confirmSearchResult(){
+  if(searchSelectedIdx < 0) return;
+  const c = searchCandidates[searchSelectedIdx];
+  const name = document.getElementById('searchResultNameInput').value.trim();
+  if(!name){
+    document.getElementById('searchResultsError').textContent = 'Enter a name for this place.';
+    return;
+  }
+  const p = {id: 'c' + newId(), name, lat: c.lat, lon: c.lon, custom: true};
+  const photo = searchPhotoCache[searchSelectedIdx];
+  if(photo) p.image = photo;
   customPlaces.push(p);
   rebuildById();
   if(!plans[activeDay]) plans[activeDay] = [];
   plans[activeDay].push(p.id);
   saveVariant();
   renderAll();
+  closeSearchResultsModal();
 }
+document.getElementById('searchResultsClose').addEventListener('click', closeSearchResultsModal);
+document.getElementById('searchResultCancelBtn').addEventListener('click', closeSearchResultsModal);
+document.getElementById('searchResultAddBtn').addEventListener('click', confirmSearchResult);
+document.getElementById('searchResultsModal').addEventListener('click', (e)=>{
+  if(e.target === e.currentTarget) closeSearchResultsModal();
+});
 
 // ---- Place info modal (enrichment) + comments ----
 // Imported text may carry HTML from its source: reduce it to plain text,
@@ -2380,6 +2955,54 @@ function closePackingModal(){
 let budgetItems = [];
 let remoteBudget = {};
 function budgetLocalKey(){ return `tripplan-budget:${tripsIndex.activeTripId}`; }
+
+// Ties two previously-independent features together: the fuel settings
+// (⛽ row above the drive summary) already estimate a whole-trip fuel cost
+// for the trip overview panel, but a signed-in-or-not budget tracker had no
+// way to know about it short of the user computing and typing it in by
+// hand. Reuses the exact same dayDriveEstimate()-across-DAYS sum the trip
+// overview's "N km total across the trip" line already computes — null
+// whenever fuel settings or any drive estimate are missing, so callers can
+// just skip rendering the suggestion.
+const FUEL_BUDGET_LABEL = 'Estimated fuel (whole trip)';
+function estimatedFuelCost(){
+  const settings = loadFuelSettings();
+  if(!settings.consumption || !settings.price) return null;
+  const estimates = DAYS.map(d=>dayDriveEstimate(d)).filter(Boolean);
+  if(!estimates.length) return null;
+  const totalKm = estimates.reduce((s,e)=>s+e.km, 0);
+  const approx = estimates.some(e=>!e.exact);
+  return {cost: fuelCost(totalKm, settings), approx, currency: settings.currency};
+}
+function renderBudgetFuelSuggestion(){
+  const el = document.getElementById('budgetFuelSuggestion');
+  const est = estimatedFuelCost();
+  if(!est){ el.innerHTML = ''; return; }
+  const rounded = Math.round(est.cost * 100) / 100;
+  const curTxt = est.currency ? ' ' + escapeHtml(est.currency) : '';
+  const shown = est.cost >= 100 ? Math.round(est.cost) : Math.round(est.cost*10)/10;
+  const existing = budgetItems.find(it=>it.label === FUEL_BUDGET_LABEL);
+  if(existing && Math.abs(existing.amount - rounded) < 0.05){
+    el.innerHTML = `⛽ Estimated fuel already logged below (${existing.amount.toFixed(2)}${curTxt}).`;
+    return;
+  }
+  el.innerHTML = `⛽ ${est.approx ? '≈ ' : ''}${shown}${curTxt} estimated fuel for the whole trip, `
+    + `from your fuel settings — <button type="button" class="link-btn" id="addFuelBudgetBtn">`
+    + `${existing ? 'update the logged estimate' : 'add to budget'}</button>`;
+}
+function addOrUpdateFuelBudgetItem(){
+  const est = estimatedFuelCost();
+  if(!est) return;
+  const rounded = Math.round(est.cost * 100) / 100;
+  const existing = budgetItems.find(it=>it.label === FUEL_BUDGET_LABEL);
+  const newList = existing
+    ? budgetItems.map(it=>it === existing ? {...it, amount: rounded} : it)
+    : [...budgetItems, {id: 'b' + newId(), category: 'Transport', label: FUEL_BUDGET_LABEL, amount: rounded}];
+  commitBudgetItems(newList);
+}
+document.getElementById('budgetFuelSuggestion').addEventListener('click', (e)=>{
+  if(e.target.id === 'addFuelBudgetBtn') addOrUpdateFuelBudgetItem();
+});
 async function commitBudgetItems(newList){
   const errEl = document.getElementById('budgetError');
   errEl.textContent = '';
@@ -2399,6 +3022,87 @@ async function commitBudgetItems(newList){
   renderBudgetList();
   return true;
 }
+// Live currency conversion for the budget total — a personal display
+// preference like the fuel settings, not trip data, so it's one plain
+// localStorage key shared across every trip rather than trip-scoped.
+function loadBudgetConvertCurrency(){
+  try{ return localStorage.getItem('tripplan-budget-convert-currency') || ''; }
+  catch(e){ return ''; }
+}
+function saveBudgetConvertCurrency(code){
+  try{ localStorage.setItem('tripplan-budget-convert-currency', code); }
+  catch(e){ console.error('save failed', e); }
+}
+// Splitting the total N ways — same "personal display preference, not trip
+// data" reasoning as the currency conversion right above: how many people
+// are on this particular trip varies less by trip than you'd think (it's
+// usually "me" or "me and my usual travel companions"), and treating it as
+// trip data would mean a new synced field for a number that's just dividing
+// an already-correct total, not changing what's owed.
+function loadBudgetTravelers(){
+  const n = parseInt(localStorage.getItem('tripplan-budget-travelers'), 10);
+  return Number.isInteger(n) && n >= 1 ? n : 1;
+}
+function saveBudgetTravelers(n){
+  try{ localStorage.setItem('tripplan-budget-travelers', String(n)); }
+  catch(e){ console.error('save failed', e); }
+}
+const ISO_CURRENCY_RE = /^[A-Za-z]{3}$/;
+let exchangeRateCache = {};
+async function fetchExchangeRate(base, target){
+  const key = `${base}:${target}`;
+  if(key in exchangeRateCache) return exchangeRateCache[key];
+  try{
+    const url = `https://api.frankfurter.dev/v1/latest?base=${encodeURIComponent(base)}&symbols=${encodeURIComponent(target)}`;
+    const res = await fetch(url);
+    if(!res.ok) throw new Error('HTTP ' + res.status);
+    const data = await res.json();
+    const rate = data.rates && data.rates[target];
+    exchangeRateCache[key] = Number.isFinite(rate) ? rate : null;
+  }catch(e){
+    exchangeRateCache[key] = null;
+  }
+  return exchangeRateCache[key];
+}
+let budgetConvertToken = 0;
+// Deliberately opt-in and best-effort: an invalid/unrecognized currency
+// code (the fuel-settings currency is free text, not validated as ISO
+// 4217) or a failed lookup just clears the converted line rather than
+// showing an error — this is a nice-to-have on top of the budget total,
+// which always still shows correctly in the trip's own currency.
+async function renderBudgetConversion(){
+  const el = document.getElementById('budgetConvertedTotal');
+  if(!el) return;
+  el.textContent = '';
+  const base = (loadFuelSettings().currency || '').trim();
+  const target = document.getElementById('budgetConvertCurrency').value.trim();
+  if(!ISO_CURRENCY_RE.test(target)) return;
+  if(!ISO_CURRENCY_RE.test(base)){
+    el.textContent = 'Set a 3-letter fuel currency code (e.g. NOK) to convert.';
+    return;
+  }
+  const baseUpper = base.toUpperCase(), targetUpper = target.toUpperCase();
+  if(baseUpper === targetUpper) return;
+  const total = budgetItems.reduce((s,it)=>s+it.amount, 0);
+  if(!total) return;
+  const token = ++budgetConvertToken;
+  el.textContent = 'Converting…';
+  const rate = await fetchExchangeRate(baseUpper, targetUpper);
+  if(token !== budgetConvertToken) return; // input/total changed meanwhile
+  el.textContent = rate != null
+    ? `≈ ${(total * rate).toFixed(2)} ${targetUpper}`
+    : 'Could not fetch exchange rate.';
+}
+// Only shown once split into 2+ ways — at 1 traveler "per person" is just
+// the total again, and the empty budget case has nothing to divide.
+function renderBudgetSplit(total, suffix){
+  const el = document.getElementById('budgetPerPerson');
+  if(!el) return;
+  const travelers = loadBudgetTravelers();
+  el.textContent = (budgetItems.length && travelers > 1)
+    ? `≈ ${(total / travelers).toFixed(2)}${suffix} per person`
+    : '';
+}
 function renderBudgetList(){
   const listEl = document.getElementById('budgetListEl');
   const totalEl = document.getElementById('budgetTotal');
@@ -2407,6 +3111,9 @@ function renderBudgetList(){
   const total = budgetItems.reduce((s,it)=>s+it.amount, 0);
   totalEl.innerHTML = budgetItems.length
     ? `<span>Total</span><span>${total.toFixed(2)}${suffix}</span>` : '';
+  renderBudgetFuelSuggestion();
+  renderBudgetConversion();
+  renderBudgetSplit(total, suffix);
   listEl.innerHTML = budgetItems.length ? '' :
     '<div class="empty-note">No costs logged yet — add accommodation, activities, or anything else you\'re budgeting for.</div>';
   budgetItems.forEach(item=>{
@@ -2444,12 +3151,45 @@ function addBudgetItem(){
   amountInput.value = '';
   commitBudgetItems([...budgetItems, {id: 'b' + newId(), category: catInput.value, label, amount}]);
 }
+// RFC 4180-ish: quote a field only when it needs it (contains a comma,
+// quote, or newline), doubling any embedded quotes — labels/categories are
+// free text, so this can't just assume they're comma-safe.
+function csvField(v){
+  const s = String(v == null ? '' : v);
+  return /[",\r\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+}
+function buildBudgetCsv(items, currency){
+  const rows = [['Category', 'Label', 'Amount', 'Currency']]
+    .concat(items.map(it => [it.category, it.label, it.amount.toFixed(2), currency]));
+  return rows.map(r => r.map(csvField).join(',')).join('\r\n') + '\r\n';
+}
+function exportBudgetCsv(){
+  const trip = activeTrip();
+  const errEl = document.getElementById('budgetError');
+  if(!trip){ errEl.textContent = 'Load a trip first.'; return; }
+  if(!budgetItems.length){ errEl.textContent = 'No costs logged yet — nothing to export.'; return; }
+  errEl.textContent = '';
+  const currency = (loadFuelSettings().currency || '').trim();
+  const csv = buildBudgetCsv(budgetItems, currency);
+  const blob = new Blob([csv], {type: 'text/csv'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `${(trip.name || 'trip').replace(/[^\w\- ]+/g, '').trim() || 'trip'}-budget.csv`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
 function openBudgetModal(){
   if(!activeTrip()){
     document.getElementById('kmlError').textContent = 'Load a trip first — the budget attaches to a trip.';
     return;
   }
   document.getElementById('budgetError').textContent = '';
+  document.getElementById('budgetConvertCurrency').value = loadBudgetConvertCurrency();
+  const travelers = loadBudgetTravelers();
+  document.getElementById('budgetTravelers').value = travelers > 1 ? travelers : '';
   renderBudgetList();
   document.getElementById('budgetModal').style.display = '';
 }
@@ -2602,7 +3342,7 @@ function renderTabs(){
     const t = document.createElement('div');
     t.className = 'tab' + (d===activeDay ? ' active':'');
     const dateHtml = DAY_DATES[d] ? `<div class="tab-date">${formatDayDate(DAY_DATES[d])}</div>` : '';
-    t.innerHTML = `<span class="num">${d}</span>Day ${d}${longDriveBadgeHtml(d)}${dateHtml}`;
+    t.innerHTML = `<span class="num">${d}</span>Day ${d}${longDriveBadgeHtml(d)}${ferryBadgeHtml(d)}${dateHtml}`;
     t.onclick = ()=>{ activeDay=d; renderAll(); };
     el.appendChild(t);
   });
@@ -2671,6 +3411,18 @@ function renderMasterList(){
         if(isSelected){
           const idx = plans[activeDay].indexOf(p.id);
           if(idx !== -1) plans[activeDay].splice(idx,1);
+          const removedDay = activeDay, removedId = p.id, removedIdx = idx;
+          saveState();
+          renderAll();
+          if(idx !== -1){
+            showUndoToast(`Removed "${p.name}" from Day ${removedDay}`, ()=>{
+              if(!plans[removedDay]) plans[removedDay] = [];
+              plans[removedDay].splice(removedIdx, 0, removedId);
+              saveState();
+              renderAll();
+            });
+          }
+          return;
         }else{
           plans[activeDay].push(p.id);
         }
@@ -2709,6 +3461,18 @@ function renderMasterList(){
         if(isSelected){
           const idx = plans[activeDay].indexOf(p.id);
           if(idx !== -1) plans[activeDay].splice(idx,1);
+          const removedDay = activeDay, removedId = p.id, removedIdx = idx;
+          saveState();
+          renderAll();
+          if(idx !== -1){
+            showUndoToast(`Removed "${p.name}" from Day ${removedDay}`, ()=>{
+              if(!plans[removedDay]) plans[removedDay] = [];
+              plans[removedDay].splice(removedIdx, 0, removedId);
+              saveState();
+              renderAll();
+            });
+          }
+          return;
         }else{
           plans[activeDay].push(p.id);
         }
@@ -2738,9 +3502,103 @@ function renderMasterList(){
   }
 }
 
+// A brief "Removed X · Undo" toast for the day's plan-mutating actions that
+// don't otherwise ask for confirmation (unchecking a place, the route
+// list's × button) — an accidental click is one tap to fix instead of
+// hunting for the place again in the master list. `undoFn` re-applies
+// whatever state the caller captured before mutating.
+let undoToastTimer = null;
+function showUndoToast(message, undoFn){
+  clearTimeout(undoToastTimer);
+  const toast = document.getElementById('undoToast');
+  document.getElementById('undoToastMsg').textContent = message;
+  const btn = document.getElementById('undoToastBtn');
+  btn.onclick = ()=>{
+    clearTimeout(undoToastTimer);
+    toast.style.display = 'none';
+    undoFn();
+  };
+  toast.style.display = 'flex';
+  undoToastTimer = setTimeout(()=>{ toast.style.display = 'none'; }, 6000);
+}
+
 function resetDay(){
   if(!confirm(`Reset Day ${activeDay} to its original stops?`)) return;
   plans[activeDay] = JSON.parse(JSON.stringify(DEFAULT_PLANS[activeDay] || []));
+  saveState();
+  renderAll();
+}
+
+// Total straight-line distance of anchorStart -> order -> anchorEnd (anchors
+// omitted when the day has none, e.g. day 1 has no previous-night hotel).
+function pathCostKm(order, anchorStart, anchorEnd){
+  const seq = [...(anchorStart ? [anchorStart] : []), ...order, ...(anchorEnd ? [anchorEnd] : [])];
+  let total = 0;
+  for(let i = 1; i < seq.length; i++) total += haversineKm(seq[i-1], seq[i]);
+  return total;
+}
+
+// Reorders a day's editable stops (the pinned wake/sleep hotels are never
+// moved) to shorten the straight-line route between them — nearest-neighbor
+// construction followed by 2-opt refinement. This is a real driving-distance
+// proxy, not the routing API (no network call, and every candidate ordering
+// would mean one API call each) — it's meant to give a good starting order
+// to then "Calculate driving times" against, not a substitute for that.
+function optimizeDayOrder(){
+  const wake = wakeHotelId(activeDay), sleep = sleepHotelId(activeDay);
+  const stops = dayStops(activeDay);
+  if(stops.length < 2){
+    alert(`Day ${activeDay} needs at least two stops (besides the hotel) before its order can be optimized.`);
+    return;
+  }
+  const anchorStart = wake ? byId[wake] : null;
+  const anchorEnd = sleep ? byId[sleep] : null;
+  const points = stops.map(id => byId[id]);
+
+  let remaining = points.slice();
+  let order = [];
+  let cur = anchorStart;
+  if(!cur){
+    cur = remaining.shift();
+    order.push(cur);
+  }
+  while(remaining.length){
+    let bestIdx = 0, bestDist = Infinity;
+    remaining.forEach((p, i)=>{
+      const d = haversineKm(cur, p);
+      if(d < bestDist){ bestDist = d; bestIdx = i; }
+    });
+    cur = remaining.splice(bestIdx, 1)[0];
+    order.push(cur);
+  }
+
+  // 2-opt: only ever reverses sub-segments of the editable stops, so the
+  // pinned hotel anchors (not part of `order`) are never touched.
+  let improved = true;
+  while(improved){
+    improved = false;
+    for(let i = 0; i < order.length - 1; i++){
+      for(let j = i + 1; j < order.length; j++){
+        const candidate = order.slice(0, i).concat(order.slice(i, j + 1).reverse(), order.slice(j + 1));
+        if(pathCostKm(candidate, anchorStart, anchorEnd) < pathCostKm(order, anchorStart, anchorEnd) - 1e-9){
+          order = candidate;
+          improved = true;
+        }
+      }
+    }
+  }
+
+  const beforeKm = pathCostKm(points, anchorStart, anchorEnd);
+  const afterKm = pathCostKm(order, anchorStart, anchorEnd);
+  const newIds = order.map(p => p.id);
+  if(newIds.join() === stops.join() || afterKm >= beforeKm - 0.05){
+    alert(`Day ${activeDay}'s stop order is already close to optimal (straight-line estimate).`);
+    return;
+  }
+  if(!confirm(`Reorder ${stops.length} stops to shorten the estimated straight-line route from `
+    + `${formatDistanceKm(beforeKm, 1)} to ${formatDistanceKm(afterKm, 1)}?\n\nThis is a straight-line estimate, `
+    + `not real driving distance — recalculate driving times afterward to see the actual effect.`)) return;
+  plans[activeDay] = newIds;
   saveState();
   renderAll();
 }
@@ -2761,6 +3619,21 @@ function flipMove(container, mutate){
       r.style.transform = '';
     });
   });
+}
+
+// Keyboard/tap-friendly alternative to drag-and-drop reordering — the ▲/▼
+// buttons on each route-item row. Always recomputes dayStops() fresh rather
+// than trusting a closured index, so a stale click (e.g. after some other
+// change re-rendered the list) can't swap the wrong pair; a no-op past
+// either end is silently ignored rather than wrapping around.
+function moveStopInDay(day, idx, delta){
+  const stops = dayStops(day);
+  const j = idx + delta;
+  if(j < 0 || j >= stops.length) return;
+  [stops[idx], stops[j]] = [stops[j], stops[idx]];
+  plans[day] = stops;
+  saveState();
+  renderAll();
 }
 
 // Persist whatever order the drag preview left the DOM in.
@@ -2792,26 +3665,165 @@ function gmapsDirUrl(from, to){
   const origin = from ? `&origin=${from.lat},${from.lon}` : '';
   return `https://www.google.com/maps/dir/?api=1&destination=${to.lat},${to.lon}&travelmode=driving${origin}`;
 }
-// Small per-segment link: preview the drive from the previous stop here.
-function segmentNavLink(fromId, toId){
+// Per-item nav link: routes from the device's current location (same
+// gmapsDirUrl(lastPos, ...) fallback as "Navigate to next stop" — omits
+// the origin, letting Google Maps use its own current-location default,
+// when we don't have a fix yet), not from the previous stop in the list —
+// the plan can drift from reality (running early/late, a detour), so this
+// always answers "how do I get there from here right now."
+function segmentNavLink(toId){
   const a = document.createElement('a');
   a.className = 'nav-btn';
-  a.href = gmapsDirUrl(byId[fromId], byId[toId]);
+  a.href = gmapsDirUrl(lastPos, byId[toId]);
   a.target = '_blank';
   a.rel = 'noopener';
-  a.title = `Google Maps: ${byId[fromId].name} → ${byId[toId].name}`;
+  a.title = `Google Maps: navigate to ${byId[toId].name} from your location`;
   a.textContent = '➤';
   return a;
 }
 
-function hotelRow(hotelId, label, fromId){
+function hotelRow(hotelId, label){
   const row = document.createElement('div');
   row.className = 'route-item hotel-stop';
   row.innerHTML = `<span class="idx hotel-idx">⌂</span><span class="name">${escapeHtml(byId[hotelId].name)}</span><span class="hotel-tag">${label}</span>`;
   wireInfoClick(row, hotelId);
-  if(fromId) row.appendChild(segmentNavLink(fromId, hotelId));
+  row.appendChild(segmentNavLink(hotelId));
+  row.appendChild(nearbyLink(hotelId));
   return row;
 }
+
+// ---- Nearby amenities (fuel/food/parking/restrooms/pharmacy/hospital/EV) via Overpass ----
+// Overpass API (overpass-api.de) is OSM's public query endpoint — keyless,
+// CORS-enabled (Access-Control-Allow-Origin: *), same no-auth
+// client-side-callable spirit as Nominatim/Open-Meteo already used
+// elsewhere in this app. Curated to the handful of amenity types actually
+// useful mid-road-trip, not a general POI browser. Pharmacy/hospital are
+// in here for the same reason as everything else — genuinely useful to
+// find quickly from wherever today's stop is — not a dedicated "emergency
+// info" feature; OSM's own amenity=pharmacy/hospital tags slot straight
+// into the existing query with no special-casing needed. EV charging
+// (amenity=charging_station) slots in the same way — a real gap for an EV
+// road-tripper, and this app already knows where "nearby" means for every
+// stop; no special-casing beyond the icon needed there either.
+const NEARBY_AMENITY_ICONS = {
+  fuel: '⛽', restaurant: '🍽️', cafe: '☕', fast_food: '🍔',
+  parking: '🅿️', toilets: '🚻', supermarket: '🛒',
+  pharmacy: '💊', hospital: '🏥', charging_station: '🔌',
+};
+const NEARBY_RADIUS_M = 1500;
+const NEARBY_RESULT_CAP = 15;
+
+function nearbyLink(placeId){
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.className = 'nearby-btn';
+  btn.title = `Find nearby fuel, food, parking, restrooms, EV charging, or a pharmacy/hospital near ${byId[placeId].name}`;
+  btn.setAttribute('aria-label', `Find places near ${byId[placeId].name}`);
+  btn.textContent = '🔎';
+  btn.addEventListener('click', (e)=>{ e.stopPropagation(); openNearbyModal(placeId); });
+  return btn;
+}
+
+async function fetchNearbyAmenities(lat, lon){
+  const types = Object.keys(NEARBY_AMENITY_ICONS).join('|');
+  const query = `[out:json][timeout:12];node(around:${NEARBY_RADIUS_M},${lat},${lon})`
+    + `[amenity~"^(${types})$"];out ${NEARBY_RESULT_CAP * 3};`;
+  const res = await fetch('https://overpass-api.de/api/interpreter', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+    body: 'data=' + encodeURIComponent(query),
+  });
+  if(!res.ok) throw new Error('Overpass HTTP ' + res.status);
+  const data = await res.json();
+  const origin = {lat, lon};
+  return (data.elements || [])
+    // Unnamed amenities (a huge share of OSM parking/toilets nodes) aren't
+    // worth surfacing — nothing to show the user or save as a place name.
+    .filter(el => el.tags && el.tags.name && el.lat != null && el.lon != null)
+    .map(el => ({
+      name: el.tags.name,
+      lat: el.lat, lon: el.lon,
+      amenity: el.tags.amenity,
+      distanceKm: haversineKm(origin, {lat: el.lat, lon: el.lon}),
+    }))
+    .sort((a,b)=>a.distanceKm - b.distanceKm)
+    .slice(0, NEARBY_RESULT_CAP);
+}
+
+let nearbyResults = [];
+async function openNearbyModal(placeId){
+  const p = byId[placeId];
+  if(!p) return;
+  document.getElementById('nearbyTitle').textContent = `Nearby ${p.name}`;
+  document.getElementById('nearbyError').textContent = '';
+  document.getElementById('nearbyList').innerHTML = '<div class="empty-note">Searching…</div>';
+  document.getElementById('nearbyModal').style.display = '';
+  let results;
+  try{
+    results = await fetchNearbyAmenities(p.lat, p.lon);
+  }catch(e){
+    document.getElementById('nearbyList').innerHTML = '';
+    document.getElementById('nearbyError').textContent = 'Could not look up nearby places (' + e.message + ').';
+    return;
+  }
+  nearbyResults = results;
+  renderNearbyList();
+}
+function renderNearbyList(){
+  const el = document.getElementById('nearbyList');
+  if(!nearbyResults.length){
+    el.innerHTML = `<div class="empty-note">No named fuel, food, parking, or restroom spots found within ${NEARBY_RADIUS_M}m.</div>`;
+    return;
+  }
+  el.innerHTML = '';
+  nearbyResults.forEach(r=>{
+    const row = document.createElement('div');
+    row.className = 'nearby-item';
+    const meters = Math.round(r.distanceKm * 1000);
+    // Sub-1km distances stay in meters regardless of the unit toggle — this
+    // lookup is a fixed 1.5km radius, and nobody thinks in fractional miles
+    // at that scale; only the (rare, at this radius) km-and-up case respects
+    // the user's chosen unit.
+    const distText = meters < 1000 ? `${meters} m` : formatDistanceKm(r.distanceKm, 1);
+    const icon = document.createElement('span');
+    icon.className = 'nearby-icon';
+    icon.textContent = NEARBY_AMENITY_ICONS[r.amenity] || '📍';
+    const name = document.createElement('span');
+    name.className = 'nearby-name';
+    name.textContent = r.name;
+    const dist = document.createElement('span');
+    dist.className = 'nearby-dist';
+    dist.textContent = distText;
+    const addBtn = document.createElement('button');
+    addBtn.className = 'reset-btn nearby-add-btn';
+    addBtn.textContent = '+ Add';
+    addBtn.title = `Add "${r.name}" to Day ${activeDay}`;
+    addBtn.onclick = ()=>addNearbyAsPlace(r);
+    row.appendChild(icon);
+    row.appendChild(name);
+    row.appendChild(dist);
+    row.appendChild(addBtn);
+    el.appendChild(row);
+  });
+}
+function addNearbyAsPlace(r){
+  if(!activeTrip()) return;
+  const p = {id: 'c' + newId(), name: r.name, lat: r.lat, lon: r.lon, custom: true};
+  customPlaces.push(p);
+  rebuildById();
+  if(!plans[activeDay]) plans[activeDay] = [];
+  plans[activeDay].push(p.id);
+  saveVariant();
+  renderAll();
+  closeNearbyModal();
+}
+function closeNearbyModal(){
+  document.getElementById('nearbyModal').style.display = 'none';
+}
+document.getElementById('nearbyModalClose').addEventListener('click', closeNearbyModal);
+document.getElementById('nearbyModal').addEventListener('click', (e)=>{
+  if(e.target === e.currentTarget) closeNearbyModal();
+});
 
 // Every place name opens the place modal (info when imported, comments
 // always). The dotted underline marks places with imported info; a 💬
@@ -2860,7 +3872,7 @@ function renderRouteList(){
     if(!leg) return;
     const div = document.createElement('div');
     div.className = 'route-leg-info';
-    div.textContent = `↓ ${Math.round(leg.duration/60)} min · ${(leg.distance/1000).toFixed(0)} km`;
+    div.textContent = `↓ ${Math.round(leg.duration/60)} min · ${formatDistanceKm(leg.distance/1000)}`;
     el.appendChild(div);
   };
   if(wake) el.appendChild(hotelRow(wake, 'Start'));
@@ -2899,15 +3911,48 @@ function renderRouteList(){
     suffix.className = 'stay-suffix';
     suffix.textContent = 'min';
     row.appendChild(suffix);
-    if(prevId) row.appendChild(segmentNavLink(prevId, id));
+    row.appendChild(segmentNavLink(id));
+    row.appendChild(nearbyLink(id));
     prevId = id;
+    // Keyboard/tap-friendly alternative to drag-and-drop — real <button>
+    // elements are focusable and Enter/Space-operable, unlike a draggable
+    // div, which needs a pointer. `stopIdx` is this row's position among
+    // dayStops(activeDay) — same order the drag reorder produces (`pos`
+    // above is 1-based over that same sequence).
+    const stopIdx = pos - 1;
+    const reorderBtns = document.createElement('div');
+    reorderBtns.className = 'reorder-btns';
+    const upBtn = document.createElement('button');
+    upBtn.className = 'reorder-btn';
+    upBtn.textContent = '▲';
+    upBtn.title = `Move "${p.name}" earlier`;
+    upBtn.setAttribute('aria-label', `Move ${p.name} earlier in Day ${activeDay}`);
+    upBtn.disabled = stopIdx === 0;
+    upBtn.onclick = ()=>moveStopInDay(activeDay, stopIdx, -1);
+    const downBtn = document.createElement('button');
+    downBtn.className = 'reorder-btn';
+    downBtn.textContent = '▼';
+    downBtn.title = `Move "${p.name}" later`;
+    downBtn.setAttribute('aria-label', `Move ${p.name} later in Day ${activeDay}`);
+    downBtn.disabled = stopIdx === stops.length - 1;
+    downBtn.onclick = ()=>moveStopInDay(activeDay, stopIdx, 1);
+    reorderBtns.appendChild(upBtn);
+    reorderBtns.appendChild(downBtn);
+    row.appendChild(reorderBtns);
     const rm = document.createElement('button');
     rm.className = 'remove-btn';
     rm.textContent = '×';
     rm.onclick = ()=>{
+      const removedDay = activeDay, removedId = id, removedIdx = i;
       plans[activeDay].splice(i,1);
       saveState();
       renderAll();
+      showUndoToast(`Removed "${p.name}" from Day ${removedDay}`, ()=>{
+        if(!plans[removedDay]) plans[removedDay] = [];
+        plans[removedDay].splice(removedIdx, 0, removedId);
+        saveState();
+        renderAll();
+      });
     };
     row.appendChild(rm);
 
@@ -2925,7 +3970,7 @@ function renderRouteList(){
   });
   if(sleep){
     if(prevId) appendLegInfo(prevId, sleep);
-    el.appendChild(hotelRow(sleep, isLoopDay(activeDay) ? 'Return' : 'End', prevId));
+    el.appendChild(hotelRow(sleep, isLoopDay(activeDay) ? 'Return' : 'End'));
   }
   if(stops.length===0 && !wake && !sleep){
     el.innerHTML = '<div class="empty-note">No stops yet — add some from the left.</div>';
@@ -2971,9 +4016,28 @@ function setMobileSection(section){
   if(section === 'route' && map) map.invalidateSize();
 }
 
-// Day timeline: departure at the chosen start time, each stop's arrival
-// clock time from the driving legs, plus the minutes spent per stop.
-// Hidden when the plan no longer matches what was last calculated.
+// "Trip starts in N days" / "Day N of M — today" / "Trip ended N days ago",
+// shown at the top of the overview panel — a quick at-a-glance answer to
+// "how close is this trip" without doing the date math in your head. String
+// comparison is enough for the before/after checks since DAY_DATES/TRIP_START
+// are always plain ISO 'YYYY-MM-DD', which sorts lexicographically the same
+// as chronologically; only the day-count math needs real Date objects.
+function tripCountdownLine(){
+  if(!TRIP_START || !DAYS.length) return '';
+  const today = todayStr();
+  const lastDate = DAY_DATES[DAYS[DAYS.length - 1]] || TRIP_START;
+  if(today < TRIP_START){
+    const days = Math.round((new Date(TRIP_START) - new Date(today)) / 86400000);
+    return `<p class="stats-total">🗓️ Trip starts in ${days} day${days===1?'':'s'} (${formatDayDate(TRIP_START)})</p>`;
+  }
+  if(today > lastDate){
+    const days = Math.round((new Date(today) - new Date(lastDate)) / 86400000);
+    return `<p class="stats-sub">Trip ended ${days} day${days===1?'':'s'} ago</p>`;
+  }
+  const dayNum = DAYS.find(d=>DAY_DATES[d] === today);
+  return dayNum ? `<p class="stats-total">🗓️ Day ${dayNum} of ${DAYS.length} — today</p>` : '';
+}
+
 function renderTripOverview(){
   const el = document.getElementById('tripOverview');
   if(!PLACES.length){
@@ -2983,16 +4047,29 @@ function renderTripOverview(){
   const totalPlaces = PLACES.length + customPlaces.length;
   const hotelIds = new Set(Object.values(DAY_HOTELS).filter(Boolean));
   const incompleteDays = DAYS.filter(d=>getRouteIds(d).length < 2).length;
-  const longDays = DAYS.filter(d=>{
-    const est = dayDriveEstimate(d);
-    return est && est.min >= LONG_DRIVE_WARN_MIN;
-  }).length;
+  const driveEstimates = DAYS.map(d=>dayDriveEstimate(d)).filter(Boolean);
+  const longDays = driveEstimates.filter(est=>est.min >= LONG_DRIVE_WARN_MIN).length;
+  const ferryDays = DAYS.filter(d=>getDayMeta(d).ferry).length;
+  let totalDriveLine = '';
+  if(driveEstimates.length){
+    const totalMin = driveEstimates.reduce((s,e)=>s+e.min,0);
+    const totalKm = driveEstimates.reduce((s,e)=>s+e.km,0);
+    const approx = driveEstimates.some(e=>!e.exact);
+    const hrs = Math.floor(totalMin/60), mins = totalMin%60;
+    totalDriveLine = `<p class="stats-sub">${approx ? '≈ ' : ''}${hrs}h ${mins}m driving · ${formatDistanceKm(totalKm)} total across the trip`
+      + `${approx ? ` (${driveEstimates.filter(e=>e.exact).length}/${driveEstimates.length} days calculated exactly, rest estimated)` : ''}</p>`;
+  }
   el.innerHTML = `
+    ${tripCountdownLine()}
     <p class="stats-total">${DAYS.length} day${DAYS.length===1?'':'s'}${TRIP_START ? ` · starts ${TRIP_START}` : ''}</p>
-    <p class="stats-sub">${totalPlaces} place${totalPlaces===1?'':'s'} · ${hotelIds.size} overnight stop${hotelIds.size===1?'':'s'}${incompleteDays ? ` · ${incompleteDays} day${incompleteDays===1?'':'s'} need${incompleteDays===1?'s':''} at least one stop` : ''}${longDays ? ` · ⚠️ ${longDays} long driving day${longDays===1?'':'s'}` : ''}</p>
+    <p class="stats-sub">${totalPlaces} place${totalPlaces===1?'':'s'} · ${hotelIds.size} overnight stop${hotelIds.size===1?'':'s'}${incompleteDays ? ` · ${incompleteDays} day${incompleteDays===1?'':'s'} need${incompleteDays===1?'s':''} at least one stop` : ''}${longDays ? ` · ⚠️ ${longDays} long driving day${longDays===1?'':'s'}` : ''}${ferryDays ? ` · ⛴ ${ferryDays} ferry day${ferryDays===1?'':'s'}` : ''}</p>
+    ${totalDriveLine}
   `;
 }
 
+// Day timeline: departure at the chosen start time, each stop's arrival
+// clock time from the driving legs, plus the minutes spent per stop.
+// Hidden when the plan no longer matches what was last calculated.
 function renderStats(){
   const statsEl = document.getElementById('statsPanel');
   if(!lastRoute || lastRoute.day !== activeDay
@@ -3009,8 +4086,8 @@ function renderStats(){
     if(i > 0){
       const leg = route.legs[i-1];
       const lm = Math.round(leg.duration/60);
-      const lk = (leg.distance/1000).toFixed(0);
-      rows += `<div class="leg drive-leg"><span>drive</span><span class="leg-time">${lm} min · ${lk} km</span></div>`;
+      const lk = leg.distance/1000;
+      rows += `<div class="leg drive-leg"><span>drive</span><span class="leg-time">${lm} min · ${formatDistanceKm(lk)}</span></div>`;
       t += lm;
     }
     const stay = stayMinutes(activeDay, id);
@@ -3018,17 +4095,20 @@ function renderStats(){
     stayTotal += stay;
     t += stay;
   });
-  const totalKm = (route.distance/1000).toFixed(0);
+  const totalKm = route.distance/1000;
   const driveMin = Math.round(route.duration/60);
   const hrs = Math.floor(driveMin/60), mins = driveMin%60;
   const sh = Math.floor(stayTotal/60), sm = stayTotal%60;
   const longWarn = driveMin >= LONG_DRIVE_WARN_MIN
     ? '<p class="stats-warn">⚠️ Long driving day — consider splitting stops across another day.</p>' : '';
+  const ferryWarn = meta.ferry
+    ? '<p class="stats-warn">⛴ This day includes a ferry crossing — check schedules and reservations ahead of time.</p>' : '';
   statsEl.innerHTML = `
     <p class="stats-total">${meta.start} → ${fmtClock(t)}</p>
-    <p class="stats-sub">${hrs}h ${mins}m driving · ${sh}h ${sm}m at stops · ${totalKm} km${isLoopDay(activeDay) ? ' · loops back to hotel' : ''}${fuelCostText(Number(totalKm))}</p>
+    <p class="stats-sub">${hrs}h ${mins}m driving · ${sh}h ${sm}m at stops · ${formatDistanceKm(totalKm)}${isLoopDay(activeDay) ? ' · loops back to hotel' : ''}${fuelCostText(totalKm)}</p>
     ${nowBanner(ids, route, meta)}
     ${longWarn}
+    ${ferryWarn}
     ${rows}
   `;
 }
@@ -3043,9 +4123,11 @@ function renderAll(){
   renderRouteList();
   renderMapMarkers();
   document.getElementById('dayStartInput').value = getDayMeta(activeDay).start;
+  document.getElementById('dayFerryInput').checked = !!getDayMeta(activeDay).ferry;
   renderStats();
   renderTripOverview();
   renderWeather();
+  renderTripWeatherStrip();
   renderTripUi();
   updateKmlStatus();
   saveLastVisit();
@@ -3078,7 +4160,7 @@ async function fetchWeather(lat, lon, date){
   if(key in weatherCache) return weatherCache[key];
   try{
     const url = 'https://api.open-meteo.com/v1/forecast?latitude=' + lat + '&longitude=' + lon +
-      '&daily=temperature_2m_max,temperature_2m_min,precipitation_sum,weathercode,sunrise,sunset' +
+      '&daily=temperature_2m_max,temperature_2m_min,precipitation_sum,weathercode,sunrise,sunset,windspeed_10m_max' +
       '&timezone=auto&start_date=' + date + '&end_date=' + date;
     const res = await fetch(url);
     if(!res.ok) throw new Error('HTTP ' + res.status);
@@ -3092,6 +4174,9 @@ async function fetchWeather(lat, lon, date){
       tMax: Math.round(d.temperature_2m_max[0]), tMin: Math.round(d.temperature_2m_min[0]),
       precip: d.precipitation_sum[0], code: d.weathercode[0],
       sunrise: clockOf(d.sunrise && d.sunrise[0]), sunset: clockOf(d.sunset && d.sunset[0]),
+      // Open-Meteo's default windspeed unit is already km/h — no conversion
+      // needed here, formatSpeedKmh() handles km/mi display at render time.
+      windMax: d.windspeed_10m_max ? d.windspeed_10m_max[0] : null,
     };
     weatherCache[key] = result;
     return result;
@@ -3100,6 +4185,16 @@ async function fetchWeather(lat, lon, date){
     return null;
   }
 }
+// Plain-text "☀️ Clear · 18°/9°C · 3mm rain" summary — no sunrise/sunset
+// (those stay HTML-only in the in-app panel), so this is reusable anywhere
+// a forecast needs to show up as plain text: the printable itinerary and
+// the ICS event description, alongside the in-app weather panel itself.
+function weatherSummaryText(forecast){
+  if(!forecast) return '';
+  const label = WEATHER_CODE_LABELS[forecast.code] || '🌡️';
+  const precipText = forecast.precip > 0 ? ` · ${forecast.precip}mm rain` : '';
+  return `${label} · ${forecast.tMax}°/${forecast.tMin}°C${precipText}`;
+}
 async function renderWeather(){
   const el = document.getElementById('weatherPanel');
   if(!el) return;
@@ -3107,18 +4202,56 @@ async function renderWeather(){
   const ids = getRouteIds(activeDay);
   const ref = ids.length ? byId[ids[0]] : null;
   el.innerHTML = '';
-  if(!date || !ref) return;
-  const diffDays = Math.round((new Date(date + 'T00:00:00') - new Date(new Date().toDateString())) / 86400000);
-  if(diffDays < 0 || diffDays > 15) return;
+  if(!date || !ref || !weatherWithinHorizon(date)) return;
   const token = ++weatherRequestToken;
   const forecast = await fetchWeather(ref.lat, ref.lon, date);
   if(token !== weatherRequestToken) return; // a newer day was selected meanwhile
   if(!forecast) return;
-  const label = WEATHER_CODE_LABELS[forecast.code] || '🌡️';
-  const precipText = forecast.precip > 0 ? ` · ${forecast.precip}mm rain` : '';
+  const summary = weatherSummaryText(forecast);
   const sunText = forecast.sunrise && forecast.sunset
     ? ` · 🌅 ${forecast.sunrise} 🌇 ${forecast.sunset}` : '';
-  el.innerHTML = `<p class="stats-sub">${label} ${forecast.tMax}° / ${forecast.tMin}°C${precipText}${sunText}</p>`;
+  // Wind stays HTML-only in the in-app panel, same as sunrise/sunset above —
+  // genuinely useful context for mountain passes and ferry crossings, but
+  // not essential enough to widen the terse plain-text summary reused by
+  // the exports.
+  const windText = forecast.windMax != null
+    ? ` · 💨 ${formatSpeedKmh(forecast.windMax)} max wind` : '';
+  el.innerHTML = `<p class="stats-sub">${summary}${sunText}${windText}</p>`;
+}
+
+// Whole-trip weather strip: a compact per-day forecast row in the trip
+// overview — genuinely useful for spotting a rainy day (or checking
+// conditions on a day already flagged long-driving or ferry) before you're
+// on the road, rather than checking one day at a time. Reuses the exact
+// same fetchWeather() call/cache as the single-day panel above (so once a
+// day's forecast is fetched here, switching to it doesn't re-fetch), and
+// fetches sequentially rather than all at once — a keyless public API is
+// worth being gentle with, same reasoning as the printable itinerary's
+// sequential per-day routing fetches.
+let weatherStripToken = 0;
+async function renderTripWeatherStrip(){
+  const el = document.getElementById('weatherStrip');
+  if(!el) return;
+  el.innerHTML = '';
+  if(!DAYS.length) return;
+  const eligibleDays = DAYS.filter(d=>weatherWithinHorizon(DAY_DATES[d]));
+  if(!eligibleDays.length) return;
+  const token = ++weatherStripToken;
+  const chips = [];
+  for(const d of eligibleDays){
+    const ids = getRouteIds(d);
+    const ref = ids.length ? byId[ids[0]] : null;
+    if(!ref) continue;
+    const forecast = await fetchWeather(ref.lat, ref.lon, DAY_DATES[d]);
+    if(token !== weatherStripToken) return; // trip/day changed mid-fetch — discard
+    if(!forecast) continue;
+    const icon = (WEATHER_CODE_LABELS[forecast.code] || '🌡️').split(' ')[0];
+    const title = `Day ${d}${forecast.precip > 0 ? ` — ${forecast.precip}mm rain expected` : ''}`;
+    chips.push(`<div class="weather-chip${d===activeDay?' active':''}" title="${escapeHtml(title)}">`
+      + `<span class="wc-day">D${d}</span><span class="wc-icon">${icon}</span><span class="wc-temp">${forecast.tMax}°/${forecast.tMin}°</span></div>`);
+  }
+  if(token !== weatherStripToken) return;
+  el.innerHTML = chips.length ? `<div class="weather-strip-row">${chips.join('')}</div>` : '';
 }
 
 async function fetchFromProxy(ids){
@@ -3383,6 +4516,7 @@ async function calculateRoute(){
     lastRoute = {day: activeDay, ids, route};
     renderRouteList(); // show the per-leg drive times inline
     renderStats();
+    renderTripOverview(); // this day's exact distance now feeds the whole-trip total
     if(!errEl.textContent) errEl.textContent = '';
   }catch(e){
     errEl.textContent = 'Could not calculate route: ' + e.message;
@@ -3399,14 +4533,27 @@ async function calculateRoute(){
 // in lastRoute. Days that can't be routed (offline, API down, rate limit)
 // still return a stop list — just without arrival times or leg distances —
 // so the export degrades gracefully instead of failing outright.
+// Same ~16-day Open-Meteo horizon and "day's starting point" reference as
+// renderWeather()/renderTripWeatherStrip() — factored out so buildDayItinerary
+// (feeding the printable itinerary and ICS export) can reuse the exact same
+// eligibility check instead of duplicating the date-diff math a third time.
+function weatherWithinHorizon(date){
+  if(!date) return false;
+  const diffDays = Math.round((new Date(date + 'T00:00:00') - new Date(new Date().toDateString())) / 86400000);
+  return diffDays >= 0 && diffDays <= 15;
+}
 async function buildDayItinerary(day){
   const ids = getRouteIds(day);
   const meta = getDayMeta(day);
   const result = {
     day, date: DAY_DATES[day] || null, start: meta.start,
     loop: isLoopDay(day), stops: [], notes: [], routed: false, needsRoute: ids.length >= 2,
-    distanceKm: null, driveMin: null, end: null,
+    distanceKm: null, driveMin: null, end: null, ferry: !!meta.ferry, weather: null,
   };
+  const wref = ids.length ? byId[ids[0]] : null;
+  if(wref && weatherWithinHorizon(result.date)){
+    result.weather = await fetchWeather(wref.lat, wref.lon, result.date);
+  }
   let route = null;
   if(ids.length >= 2){
     try{ route = await fetchFromProxy(ids); }
@@ -3420,7 +4567,7 @@ async function buildDayItinerary(day){
     if(i > 0 && route){
       const leg = route.legs[i-1];
       legMin = Math.round(leg.duration/60);
-      legKm = (leg.distance/1000).toFixed(0);
+      legKm = leg.distance/1000; // raw km — formatted for display at each call site, per the active unit
       t += legMin;
     }
     const stay = stayMinutes(day, id);
@@ -3429,7 +4576,7 @@ async function buildDayItinerary(day){
   });
   if(route){
     result.routed = true;
-    result.distanceKm = (route.distance/1000).toFixed(0);
+    result.distanceKm = route.distance/1000; // raw km, same reasoning as legKm above
     result.driveMin = Math.round(route.duration/60);
     result.end = fmtClock(t);
   }
@@ -3439,7 +4586,7 @@ async function buildDayItinerary(day){
 
 function renderPrintableItinerary(trip, days){
   const routedDays = days.filter(d=>d.routed);
-  const totalKm = routedDays.reduce((s,d)=> s + Number(d.distanceKm), 0);
+  const totalKm = routedDays.reduce((s,d)=> s + d.distanceKm, 0);
   const totalMin = routedDays.reduce((s,d)=> s + d.driveMin, 0);
   const unrouted = days.filter(d=>!d.routed && d.needsRoute).length;
   const hrs = Math.floor(totalMin/60), mins = totalMin%60;
@@ -3454,21 +4601,24 @@ function renderPrintableItinerary(trip, days){
       // stop i+1 (it's the drive that got you there), not on stop i.
       const next = d.stops[i+1];
       const legRow = next
-        ? `<tr class="t-leg"><td></td><td>${next.legMin != null ? `↓ drive ${next.legMin} min · ${next.legKm} km` : '↓ drive (time unavailable)'}</td></tr>`
+        ? `<tr class="t-leg"><td></td><td>${next.legMin != null ? `↓ drive ${next.legMin} min · ${formatDistanceKm(next.legKm)}` : '↓ drive (time unavailable)'}</td></tr>`
         : '';
       return stopRow + legRow;
     }).join('');
     const notesHtml = d.notes.length
       ? `<div class="t-notes"><b>Notes:</b> ${d.notes.map(n=>escapeHtml(n)).join(' · ')}</div>` : '';
     const totalsHtml = d.routed
-      ? `<p class="t-total">${d.start} → ${d.end} · ${Math.floor(d.driveMin/60)}h ${d.driveMin%60}m driving · ${d.distanceKm} km${d.loop ? ' · loops back to hotel' : ''}${fuelCostText(Number(d.distanceKm), fuel)}</p>${d.driveMin >= LONG_DRIVE_WARN_MIN ? '<p class="t-total t-warn">⚠️ Long driving day</p>' : ''}`
+      ? `<p class="t-total">${d.start} → ${d.end} · ${Math.floor(d.driveMin/60)}h ${d.driveMin%60}m driving · ${formatDistanceKm(d.distanceKm)}${d.loop ? ' · loops back to hotel' : ''}${fuelCostText(d.distanceKm, fuel)}</p>${d.driveMin >= LONG_DRIVE_WARN_MIN ? '<p class="t-total t-warn">⚠️ Long driving day</p>' : ''}`
       : d.needsRoute
         ? '<p class="t-total t-warn">Driving times unavailable for this day — showing stop order only.</p>'
         : '<p class="t-total">No driving this day.</p>';
+    const weatherHtml = d.weather ? `<p class="t-total t-weather">${weatherSummaryText(d.weather)}</p>` : '';
     return `<div class="day-block">
-      <h2>Day ${d.day}${d.date ? ` — ${formatDayDate(d.date)}` : ''}</h2>
+      <h2>Day ${d.day}${d.date ? ` — ${formatDayDate(d.date)}` : ''}${d.ferry ? ' ⛴' : ''}</h2>
+      ${weatherHtml}
       <table>${rows}</table>
       ${totalsHtml}
+      ${d.ferry ? '<p class="t-total t-warn">⛴ This day includes a ferry crossing — check schedules and reservations ahead of time.</p>' : ''}
       ${notesHtml}
     </div>`;
   }).join('');
@@ -3488,6 +4638,7 @@ function renderPrintableItinerary(trip, days){
   .t-stay{color:#777;font-size:0.85em;}
   tr.t-leg td{color:#888;font-size:0.85em;padding-left:4.5em;}
   .t-total{color:#555;font-size:0.9rem;margin:0.4rem 0 0;}
+  .t-weather{margin:0.2rem 0 0.6rem;}
   .t-warn{color:#a05a00;}
   .t-notes{font-size:0.9rem;color:#555;margin-top:0.3rem;}
   .print-btn{position:fixed;top:1rem;right:1rem;padding:0.5rem 1rem;border-radius:6px;border:none;background:#C0552E;color:#fff;cursor:pointer;font-size:0.95rem;}
@@ -3498,7 +4649,7 @@ function renderPrintableItinerary(trip, days){
   <h1>${escapeHtml(trip.name)}</h1>
   <p class="t-sub">${days.length} days${trip.tripStart ? ` · starting ${trip.tripStart}` : ''}</p>
   <div class="t-summary">
-    ${totalKm ? `<b>${totalKm} km</b> total driving · <b>${hrs}h ${mins}m</b> total driving time${fuelCostText(totalKm, fuel)}` : 'Driving totals unavailable'}
+    ${totalKm ? `<b>${formatDistanceKm(totalKm)}</b> total driving · <b>${hrs}h ${mins}m</b> total driving time${fuelCostText(totalKm, fuel)}` : 'Driving totals unavailable'}
     ${unrouted ? ` · ${unrouted} day${unrouted>1?'s':''} without routing data` : ''}
   </div>
   ${dayHtml}
@@ -3656,7 +4807,8 @@ function buildTripIcs(days){
     const endTime = d.routed && d.end ? d.end : fmtClock(parseClock(d.start) + ICS_DEFAULT_DAY_HOURS * 60);
     const dtend = icsDateTime(d.date, endTime);
     const descParts = [d.stops.map(s=>(s.overnight ? '🏨 ' : '') + s.name).join('\n')];
-    if(d.routed) descParts.push(`${Math.floor(d.driveMin/60)}h ${d.driveMin%60}m driving \u00b7 ${d.distanceKm} km`);
+    if(d.routed) descParts.push(`${Math.floor(d.driveMin/60)}h ${d.driveMin%60}m driving \u00b7 ${formatDistanceKm(d.distanceKm)}`);
+    if(d.weather) descParts.push('Forecast: ' + weatherSummaryText(d.weather));
     if(d.notes.length) descParts.push('Notes: ' + d.notes.join('; '));
     return [
       'BEGIN:VEVENT',
@@ -3858,6 +5010,26 @@ async function restoreTripBackup(file){
   }
 }
 
+// Reuses the exact backup/restore round-trip: build an in-memory backup of
+// the active trip, hand it to restoreTripBackup as if it had been picked
+// from disk. Not a shortcut around that code path — the same server/local
+// endpoints, validation, and "always creates a new trip" behavior apply.
+async function duplicateTrip(){
+  const errEl = document.getElementById('kmlError');
+  errEl.textContent = '';
+  const backup = buildTripBackup();
+  if(!backup || backup.kml_source == null){
+    errEl.textContent = 'Load a trip first.';
+    return;
+  }
+  if(!confirm(`Duplicate "${backup.name}" as a new trip? This copies every plan variant, `
+    + `custom place, comment, packing item, and budget line.`)) return;
+  backup.name = `${backup.name} (copy)`;
+  const blob = new Blob([JSON.stringify(backup)], {type: 'application/json'});
+  const file = new File([blob], 'duplicate.json', {type: 'application/json'});
+  await restoreTripBackup(file);
+}
+
 function haversineKm(a, b){
   const rad = x => x * Math.PI / 180;
   const dLat = rad(b.lat - a.lat), dLon = rad(b.lon - a.lon);
@@ -4049,6 +5221,7 @@ document.getElementById('backupFileInput').addEventListener('change', async (e)=
   e.target.value = '';
   if(file) await restoreTripBackup(file);
 });
+document.getElementById('duplicateTripBtn').addEventListener('click', duplicateTrip);
 document.getElementById('placeSearchInput').addEventListener('input', (e)=>{
   placeFilter = e.target.value;
   renderMasterList();
@@ -4086,6 +5259,18 @@ document.getElementById('budgetLabel').addEventListener('keydown', (e)=>{
 document.getElementById('budgetAmount').addEventListener('keydown', (e)=>{
   if(e.key === 'Enter') addBudgetItem();
 });
+document.getElementById('budgetConvertCurrency').addEventListener('change', (e)=>{
+  const normalized = e.target.value.trim().toUpperCase();
+  e.target.value = normalized;
+  saveBudgetConvertCurrency(normalized);
+  renderBudgetConversion();
+});
+document.getElementById('budgetTravelers').addEventListener('change', (e)=>{
+  const n = parseInt(e.target.value, 10);
+  saveBudgetTravelers(Number.isInteger(n) && n >= 1 ? n : 1);
+  renderBudgetList();
+});
+document.getElementById('budgetCsvBtn').addEventListener('click', exportBudgetCsv);
 document.getElementById('dayNotesBtn').addEventListener('click', ()=>{
   if(!activeTrip()) return;
   openModal({scope:'day', day: activeDay}, `Day ${activeDay} — notes`);
@@ -4107,7 +5292,7 @@ function dayDescriptionText(){
     if(!p) return;
     if(i > 0 && legMatch){
       const leg = lastRoute.route.legs[i-1];
-      lines.push(`  (drive ${Math.round(leg.duration/60)} min, ${(leg.distance/1000).toFixed(0)} km)`);
+      lines.push(`  (drive ${Math.round(leg.duration/60)} min, ${formatDistanceKm(leg.distance/1000)})`);
     }
     const stay = stayMinutes(activeDay, id);
     const info = placeInfo[id];
@@ -4129,6 +5314,22 @@ document.getElementById('copyDayBtn').addEventListener('click', async ()=>{
     return;
   }
   const text = dayDescriptionText();
+  const title = `Day ${activeDay}` + (DAY_DATES[activeDay] ? ` — ${formatDayDate(DAY_DATES[activeDay])}` : '');
+  // On a phone, the whole point of this button is texting today's plan to
+  // travel companions — the native share sheet (WhatsApp/SMS/Email/etc.)
+  // gets there in one tap instead of "copy, then switch app, then paste".
+  // Desktop browsers mostly don't implement navigator.share at all, so this
+  // silently falls through to the existing clipboard behavior there.
+  if(navigator.share){
+    try{
+      await navigator.share({title, text});
+      return; // share sheet handled delivery; no "Copied" confirmation needed
+    }catch(e){
+      if(e.name === 'AbortError') return; // user closed the share sheet — not an error
+      // any other share failure (e.g. unsupported on this exact call) falls
+      // through to the clipboard path below rather than leaving the user stuck
+    }
+  }
   try{
     await navigator.clipboard.writeText(text);
     btn.textContent = '✓ Copied';
@@ -4219,10 +5420,18 @@ document.getElementById('variantDeleteBtn').addEventListener('click', deleteVari
 
 document.getElementById('calcBtn').addEventListener('click', calculateRoute);
 document.getElementById('resetDayBtn').addEventListener('click', resetDay);
+document.getElementById('optimizeOrderBtn').addEventListener('click', optimizeDayOrder);
 document.getElementById('dayStartInput').addEventListener('change', (e)=>{
   getDayMeta(activeDay).start = e.target.value || '09:00';
   saveMeta();
   renderStats();
+});
+document.getElementById('dayFerryInput').addEventListener('change', (e)=>{
+  getDayMeta(activeDay).ferry = e.target.checked;
+  saveMeta();
+  renderTabs();
+  renderStats();
+  renderTripOverview();
 });
 
 ['fuelConsumption', 'fuelPrice', 'fuelCurrency'].forEach(id=>{
@@ -4230,6 +5439,31 @@ document.getElementById('dayStartInput').addEventListener('change', (e)=>{
     saveFuelSettings(fuelSettingsFromInputs());
     renderStats();
   });
+});
+document.getElementById('fuelUnitToggle').addEventListener('click', (e)=>{
+  const btn = e.target.closest('.unit-btn');
+  if(!btn) return;
+  const unit = btn.dataset.funit === 'mpg' ? 'mpg' : 'l100km';
+  const s = loadFuelSettings();
+  s.unit = unit;
+  saveFuelSettings(s);
+  syncFuelUnitToggle(unit);
+  renderStats();
+  renderTripOverview();
+});
+
+function syncUnitsToggle(){
+  const unit = loadDistanceUnit();
+  document.querySelectorAll('#unitsToggle .unit-btn').forEach(btn=>{
+    btn.classList.toggle('active', btn.dataset.unit === unit);
+  });
+}
+document.getElementById('unitsToggle').addEventListener('click', (e)=>{
+  const btn = e.target.closest('.unit-btn');
+  if(!btn) return;
+  saveDistanceUnit(btn.dataset.unit);
+  syncUnitsToggle();
+  renderAll();
 });
 
 document.getElementById('themeToggleBtn').addEventListener('click', toggleTheme);
@@ -4766,6 +6000,7 @@ if('serviceWorker' in navigator){
   initMap();
   watchLocation();
   applyFuelSettingsToInputs(loadFuelSettings());
+  syncUnitsToggle();
   applyTheme(localStorage.getItem('tripplan-theme'));
   // Same trip-loading logic as switching trips (parse KML, load enrichment/
   // comments/packing/variant, render) — used to be duplicated here with
