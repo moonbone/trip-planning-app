@@ -126,6 +126,14 @@ The user's own real trip currently loaded into the app is a Norway road trip, Au
   the trip's own currency regardless. The chosen target currency is a personal display
   preference like the fuel settings themselves — one plain, non-trip-scoped
   `tripplan-budget-convert-currency` localStorage key, restored the next time the modal opens.
+  A "Split between" row right below it (same `.budget-convert-row` styling, same
+  restored-on-modal-open/plain-non-trip-scoped-key pattern — `tripplan-budget-travelers`,
+  `loadBudgetTravelers`/`saveBudgetTravelers`) divides the running total by a traveler count
+  and shows "≈ N &lt;currency&gt; per person" (`renderBudgetSplit`) — how many people are on a
+  given trip doesn't vary by trip data any more than which currency you want the total shown
+  in does, so this stays a display preference rather than a new synced trip field. Hidden
+  whenever the count is 1 (the default/empty-input state) or the budget itself is empty, same
+  as the currency conversion line hides when nothing's been chosen or converted.
   A "⬇️ CSV" button in the budget modal's header (`exportBudgetCsv`/`buildBudgetCsv`) downloads
   every logged item (category, label, amount, the fuel-settings currency) as a spreadsheet-ready
   CSV file — RFC 4180-ish quoting (`csvField`) for labels that contain a comma or quote, since

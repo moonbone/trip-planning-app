@@ -1533,6 +1533,11 @@
       <input type="text" id="budgetConvertCurrency" maxlength="6" placeholder="e.g. USD">
       <span class="budget-converted" id="budgetConvertedTotal"></span>
     </div>
+    <div class="budget-convert-row">
+      <label for="budgetTravelers">Split between</label>
+      <input type="number" id="budgetTravelers" min="1" step="1" max="99" placeholder="1">
+      <span class="budget-converted" id="budgetPerPerson"></span>
+    </div>
     <div id="budgetFuelSuggestion" class="budget-fuel-suggestion"></div>
     <div id="budgetListEl"></div>
     <div class="budget-add-row">
@@ -3018,6 +3023,20 @@ function saveBudgetConvertCurrency(code){
   try{ localStorage.setItem('tripplan-budget-convert-currency', code); }
   catch(e){ console.error('save failed', e); }
 }
+// Splitting the total N ways — same "personal display preference, not trip
+// data" reasoning as the currency conversion right above: how many people
+// are on this particular trip varies less by trip than you'd think (it's
+// usually "me" or "me and my usual travel companions"), and treating it as
+// trip data would mean a new synced field for a number that's just dividing
+// an already-correct total, not changing what's owed.
+function loadBudgetTravelers(){
+  const n = parseInt(localStorage.getItem('tripplan-budget-travelers'), 10);
+  return Number.isInteger(n) && n >= 1 ? n : 1;
+}
+function saveBudgetTravelers(n){
+  try{ localStorage.setItem('tripplan-budget-travelers', String(n)); }
+  catch(e){ console.error('save failed', e); }
+}
 const ISO_CURRENCY_RE = /^[A-Za-z]{3}$/;
 let exchangeRateCache = {};
 async function fetchExchangeRate(base, target){
@@ -3064,6 +3083,16 @@ async function renderBudgetConversion(){
     ? `≈ ${(total * rate).toFixed(2)} ${targetUpper}`
     : 'Could not fetch exchange rate.';
 }
+// Only shown once split into 2+ ways — at 1 traveler "per person" is just
+// the total again, and the empty budget case has nothing to divide.
+function renderBudgetSplit(total, suffix){
+  const el = document.getElementById('budgetPerPerson');
+  if(!el) return;
+  const travelers = loadBudgetTravelers();
+  el.textContent = (budgetItems.length && travelers > 1)
+    ? `≈ ${(total / travelers).toFixed(2)}${suffix} per person`
+    : '';
+}
 function renderBudgetList(){
   const listEl = document.getElementById('budgetListEl');
   const totalEl = document.getElementById('budgetTotal');
@@ -3074,6 +3103,7 @@ function renderBudgetList(){
     ? `<span>Total</span><span>${total.toFixed(2)}${suffix}</span>` : '';
   renderBudgetFuelSuggestion();
   renderBudgetConversion();
+  renderBudgetSplit(total, suffix);
   listEl.innerHTML = budgetItems.length ? '' :
     '<div class="empty-note">No costs logged yet — add accommodation, activities, or anything else you\'re budgeting for.</div>';
   budgetItems.forEach(item=>{
@@ -3148,6 +3178,8 @@ function openBudgetModal(){
   }
   document.getElementById('budgetError').textContent = '';
   document.getElementById('budgetConvertCurrency').value = loadBudgetConvertCurrency();
+  const travelers = loadBudgetTravelers();
+  document.getElementById('budgetTravelers').value = travelers > 1 ? travelers : '';
   renderBudgetList();
   document.getElementById('budgetModal').style.display = '';
 }
@@ -5213,6 +5245,11 @@ document.getElementById('budgetConvertCurrency').addEventListener('change', (e)=
   e.target.value = normalized;
   saveBudgetConvertCurrency(normalized);
   renderBudgetConversion();
+});
+document.getElementById('budgetTravelers').addEventListener('change', (e)=>{
+  const n = parseInt(e.target.value, 10);
+  saveBudgetTravelers(Number.isInteger(n) && n >= 1 ? n : 1);
+  renderBudgetList();
 });
 document.getElementById('budgetCsvBtn').addEventListener('click', exportBudgetCsv);
 document.getElementById('dayNotesBtn').addEventListener('click', ()=>{
