@@ -3,6 +3,109 @@
 A running log of what each scheduled nightly session built on `beta`, so
 future runs don't duplicate or contradict prior work. Newest entry first.
 
+## 2026-08-21
+
+`beta` was at 03a6ce9 going in (synced with master after the prior 6-night
+batch was promoted to production). Fetched the real feature-request backlog
+from mainline (`GET /tickets`): of 13 tickets, one was open (`new`) — the
+rest are already `done` or `in_beta` from prior nights.
+
+1. **Ticket `mt17lonuj2k12b` — "Auto open current day."** The user's report:
+   on load, the current day is auto-selected (that logic — `initialDay()` —
+   already existed from an earlier "Navigate button" ticket), but the tabs
+   row scrolls horizontally and the newly-active tab could land off-screen
+   with nothing to show it was even selected. `renderTabs()` now calls
+   `scrollIntoView({block:'nearest', inline:'nearest'})` on the active tab
+   after every render. While in there, closed a real accessibility gap this
+   surfaced: day tabs were plain unfocusable `<div>`s with only a click
+   handler, unlike every other interactive control in this app. Added
+   `role="tablist"`/`role="tab"`/`aria-selected`, made the active tab
+   Tab-focusable, and wired Enter/Space to activate plus Left/Right/Home/End
+   to move focus+selection between days. Marked `in_beta` on mainline after
+   pushing.
+
+Then three own-initiative picks, each committed and pushed separately, each
+verified against the local dev-server with Playwright (fresh chromium,
+stubbed `window.L` for the CDN-less sandbox, stubbed `fetch` for external
+hosts where a real network call would otherwise hang instead of failing
+fast — same approach every prior night has used, documented further down
+this file):
+
+2. **Stale-route nudge.** `renderStats()` showed the exact same "Select 2+
+   stops and calculate to see times" message whether a day had never been
+   routed, or had been routed and then edited (a stop moved/removed/added
+   since). The second case is easy to miss — the calculated times just
+   silently vanish with no hint the plan moved on. Now says "Stops changed
+   since the last calculation — press Calculate driving times to update"
+   specifically for that case, using the same `lastRoute.day`/`lastRoute.ids`
+   staleness check the panel already relied on, just distinguishing which
+   branch produced it.
+
+3. **"Jump to today" button.** The trip overview panel already shows "Day N
+   of M — today" via `tripCountdownLine()` when today falls within the trip,
+   but that only helps while you're still on today's tab — `initialDay()`
+   only runs once, on page load. Navigate away to plan a different day (very
+   likely mid-trip, which is exactly the situation for the user's own trip
+   right now) and there was no quick way back short of a reload. A small
+   button next to that line now jumps straight back, shown only when today
+   isn't the active day.
+
+4. **Move a stop to a different day.** Previously the only way to shift a
+   stop from one day's plan to another was to remove it and re-find/re-add
+   it from the master list under its original day — real friction for a
+   genuinely common mid-trip adjustment. Each route-item row now has a small
+   "→ day" `<select>` listing every other day in the trip; picking one moves
+   the stop there in one action. Hotel anchors are untouched since wake/sleep
+   hotel ids come from `DAY_HOTELS` (computed once from the KML's overnight
+   flags), not from a stop's position in `plans[]`, so the move always lands
+   the stop correctly — just before the target day's sleep hotel. Reuses the
+   existing `showUndoToast` pattern (this app's established convention for
+   single-click plan-mutating actions) rather than a confirm dialog.
+
+5. **Print only remaining days, on a trip already underway.** The printable
+   itinerary always built every day in the trip, including days already
+   behind you — genuinely wasted weight for a feature whose whole point is
+   being useful with no signal partway through a trip. `printTripItinerary()`
+   now checks for a real past/future split (≥1 day already before today,
+   ≥1 day still today-or-later) and, only then, asks once via `confirm()`
+   whether to print just the remaining days. A trip with no dates, one not
+   yet started, or one already fully over skips the prompt and prints
+   everything, unchanged from before. `buildDayItinerary()` already tags
+   each day with its own day number/date, so `renderPrintableItinerary()`
+   needed no changes — it was already agnostic to which subset of days it's
+   handed.
+
+All five changes verified end-to-end against the local dev-server with a
+hand-built 12-day test KML dated around the real current date (so "today"
+falls on day 11 of 12) plus a second, fully-future test KML for the
+no-regression case: 12 tabs render and the active one scrolls into view on
+both click and full page reload; keyboard End/ArrowLeft move focus and
+selection correctly between tabs; seeding a `lastRoute` then mutating the
+day's plan switches the stats panel from the calculated view to the new
+stale message; the "Jump to today" button appears/disappears correctly and
+returns to the right tab; moving a stop between days updates both days'
+`plans[]`, renders in the right position on the target day, and undoes
+cleanly back to the exact original state; and the print-remaining-days
+prompt reports the correct past/remaining counts, both `confirm()` branches
+produce the right day subset, and a fully-future trip skips the prompt
+entirely. Spot-checked the live beta URL after pushing — all four new
+CSS/JS hooks (`role="tablist"`, `.today-jump-btn`, `.move-day-select`, plus
+the stale-route copy) are present in the served HTML.
+
+**Decided not to do, and why:**
+- **A dedicated "days needing a route recalculated" indicator in the trip
+  overview panel**, alongside the existing per-day stale-route nudge. The
+  per-day message already surfaces this the moment you're looking at that
+  day; a trip-wide rollup would be a second place tracking the same state
+  and felt like scope creep for tonight rather than a clearly-needed
+  addition — a candidate to revisit if it turns out to matter in practice.
+- **Auto-scrolling to today's day whenever it becomes "today" while the app
+  is already open** (i.e. at midnight, mid-session) — a real edge case, but
+  vanishingly rare for anyone actually using this app at midnight on a
+  moving trip, and "Jump to today" already covers the actual need (getting
+  back quickly) without guessing at when to trigger an automatic jump the
+  user didn't ask for.
+
 ## 2026-08-20
 
 `beta` was at 1cd2d7d going in (last night's five features: live position,

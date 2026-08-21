@@ -373,6 +373,32 @@ The user's own real trip currently loaded into the app is a Norway road trip, Au
   same "always creates a new trip, never overwrites" behavior, same local/remote dual-driver
   path. The copy is named "<original> (copy)" and, since `restoreTripBackup` already switches
   to whatever it just created, duplicating lands you directly on the new copy.
+  Day tabs (`renderTabs()`) scroll the newly-active tab into view after every render
+  (`scrollIntoView({block:'nearest', inline:'nearest'})`) — the tabs row scrolls horizontally,
+  so the auto-selected "today" day (or any active day) could otherwise land off-screen with no
+  indication it was selected. Tabs also carry real `role="tablist"`/`role="tab"`/`aria-selected`,
+  are Tab-focusable, and support Enter/Space to activate plus Left/Right/Home/End to move
+  focus+selection — previously plain unfocusable `<div>`s with only a click handler, unlike
+  every other interactive control in this app.
+  `renderStats()` distinguishes "never calculated" from "calculated, then the stop list
+  changed" (a stop moved/removed/added after the last `calculateRoute()`) — the latter shows
+  "Stops changed since the last calculation — press Calculate driving times to update" instead
+  of the same generic empty-state message, since previously the times just silently vanished
+  with no hint the plan had moved on.
+  A "Jump to today" button appears next to the trip-overview's "Day N of M — today" line
+  (`tripCountdownLine()`) whenever today isn't the active day — `initialDay()` only
+  auto-selects today's tab once, on page load, so navigating away to plan a different day
+  previously left no quick way back short of a reload.
+  Each route-item row has a small "→ day" `<select>` (`moveDaySelect`/`moveStopToDay`) for
+  moving that stop to a different day in one action, instead of remove-here/re-add-there.
+  Hotel anchors are unaffected since wake/sleep hotel ids come from `DAY_HOTELS` (computed
+  once from the KML's overnight flags), not from a stop's position in `plans[]` — the moved
+  stop always renders correctly, just before the target day's sleep hotel. Uses the same
+  `showUndoToast` pattern as other single-click plan-mutating actions.
+  "🖨️ Print itinerary" now offers to print only the remaining days when the trip has a real
+  past/future split (at least one day already before today, at least one still today-or-later)
+  — asks once via `confirm()` before building the printable page; a trip with no dates, one
+  not yet started, or one fully over skips the prompt and prints everything, unchanged.
 - `aws/handler.mjs` — Lambda handler. Serves `index.html` at `GET /`, proxies
   `POST /route` to OpenRouteService using `process.env.ORS_API_KEY`, resolves shortened
   Google Maps links via `POST /resolve-maps-link` (host-allowlisted to Google's own
