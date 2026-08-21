@@ -1064,6 +1064,20 @@
     color:var(--ink-soft);
     margin:0 0 14px;
   }
+  .today-jump-btn{
+    font-family:'Inter',sans-serif;
+    font-size:12px;
+    font-weight:600;
+    color:var(--accent);
+    background:none;
+    border:1px solid var(--accent);
+    border-radius:6px;
+    padding:2px 8px;
+    margin-left:8px;
+    cursor:pointer;
+    vertical-align:middle;
+  }
+  .today-jump-btn:hover{background:var(--accent-light);}
   .stats-warn{
     font-size:12px;
     color:var(--rust);
@@ -4064,7 +4078,18 @@ function tripCountdownLine(){
     return `<p class="stats-sub">Trip ended ${days} day${days===1?'':'s'} ago</p>`;
   }
   const dayNum = DAYS.find(d=>DAY_DATES[d] === today);
-  return dayNum ? `<p class="stats-total">🗓️ Day ${dayNum} of ${DAYS.length} — today</p>` : '';
+  if(!dayNum) return '';
+  // Auto-selecting today's tab on load (initialDay()) is a one-time thing —
+  // once you've navigated away to plan another day, there was previously no
+  // quick way back to "where the trip actually is right now" short of a
+  // page reload. Only shown when today isn't already the active day.
+  const jumpBtn = dayNum !== activeDay
+    ? '<button class="today-jump-btn" onclick="jumpToToday()">Jump to today</button>' : '';
+  return `<p class="stats-total">🗓️ Day ${dayNum} of ${DAYS.length} — today${jumpBtn}</p>`;
+}
+function jumpToToday(){
+  const dayNum = DAYS.find(d=>DAY_DATES[d] === todayStr());
+  if(dayNum){ activeDay = dayNum; renderAll(); }
 }
 
 function renderTripOverview(){
@@ -4101,9 +4126,15 @@ function renderTripOverview(){
 // Hidden when the plan no longer matches what was last calculated.
 function renderStats(){
   const statsEl = document.getElementById('statsPanel');
-  if(!lastRoute || lastRoute.day !== activeDay
-     || lastRoute.ids.join() !== getRouteIds(activeDay).join()){
-    statsEl.innerHTML = '<div class="empty-note">Select 2+ stops and calculate to see times.</div>';
+  const currentIds = getRouteIds(activeDay);
+  if(!lastRoute || lastRoute.day !== activeDay || lastRoute.ids.join() !== currentIds.join()){
+    // Distinguish "never calculated yet" from "was calculated, but the stop
+    // list has since changed" — the latter is easy to miss (times just
+    // silently disappear) unless the message says the plan moved on.
+    const stale = lastRoute && lastRoute.day === activeDay;
+    statsEl.innerHTML = stale
+      ? '<div class="empty-note">Stops changed since the last calculation — press "Calculate driving times" to update.</div>'
+      : '<div class="empty-note">Select 2+ stops and calculate to see times.</div>';
     return;
   }
   const {ids, route} = lastRoute;
