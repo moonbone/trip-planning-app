@@ -4793,6 +4793,22 @@ async function printTripItinerary(){
     document.getElementById('errorNote').textContent = 'Load a trip first.';
     return;
   }
+  // Mid-trip, the whole-trip printout carries days already behind you —
+  // dead weight in your hand (or your battery, since this build's whole
+  // point is being useful with no signal). Offer to print just what's left
+  // whenever there's a real split: at least one day already past *and* at
+  // least one still ahead. A trip with no dates, not yet started, or
+  // already fully over just prints everything, same as before.
+  const today = todayStr();
+  const pastDays = DAYS.filter(d=>DAY_DATES[d] && DAY_DATES[d] < today);
+  const remainingDays = DAYS.filter(d=>!DAY_DATES[d] || DAY_DATES[d] >= today);
+  let daysToPrint = DAYS;
+  if(pastDays.length && remainingDays.length){
+    const wantsRemaining = confirm(`This trip has ${pastDays.length} day${pastDays.length===1?'':'s'} `
+      + `already past. Print only the ${remainingDays.length} remaining day${remainingDays.length===1?'':'s'} `
+      + `instead of the whole trip?\n\nOK = remaining days only · Cancel = whole trip`);
+    if(wantsRemaining) daysToPrint = remainingDays;
+  }
   const win = window.open('', '_blank');
   if(!win){
     document.getElementById('errorNote').textContent = 'Could not open a new tab — check your popup blocker.';
@@ -4805,9 +4821,9 @@ async function printTripItinerary(){
   btn.textContent = 'Building…';
   try{
     const days = [];
-    for(const day of DAYS){
+    for(const [i, day] of daysToPrint.entries()){
       const msgEl = win.document.getElementById('loadingMsg');
-      if(msgEl) msgEl.textContent = `Fetching driving times… (day ${day} of ${DAYS.length})`;
+      if(msgEl) msgEl.textContent = `Fetching driving times… (${i+1}/${daysToPrint.length}, Day ${day})`;
       days.push(await buildDayItinerary(day));
     }
     win.document.open();
