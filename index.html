@@ -1029,6 +1029,17 @@
   }
   .reorder-btn:disabled{opacity:0.25;cursor:default;}
   .reorder-btn:not(:disabled):hover{color:var(--accent-dark);}
+  .move-day-select{
+    font-family:'IBM Plex Mono',monospace;
+    font-size:11px;
+    color:var(--ink-soft);
+    background:var(--bg);
+    border:1px solid var(--border);
+    border-radius:6px;
+    padding:2px 2px;
+    max-width:64px;
+    cursor:pointer;
+  }
   .calc-btn{
     width:100%;
     padding:12px;
@@ -3646,6 +3657,58 @@ function optimizeDayOrder(){
   renderAll();
 }
 
+// A small <select> on each route-item row for moving that stop to a
+// different day in one action, instead of remove-here-then-re-add-there.
+// A plain <select> (not a button+modal) since the target is a closed list
+// of existing days — no picker UI needed, and it's reachable/operable by
+// keyboard for free.
+function moveDaySelect(day, idx, placeName){
+  const sel = document.createElement('select');
+  sel.className = 'move-day-select';
+  sel.title = `Move "${placeName}" to another day`;
+  sel.setAttribute('aria-label', `Move ${placeName} to a different day`);
+  const placeholder = document.createElement('option');
+  placeholder.value = '';
+  placeholder.textContent = '→ day';
+  sel.appendChild(placeholder);
+  DAYS.forEach(d=>{
+    if(d === day) return;
+    const opt = document.createElement('option');
+    opt.value = d;
+    opt.textContent = `Day ${d}`;
+    sel.appendChild(opt);
+  });
+  sel.value = '';
+  sel.onclick = (e)=>e.stopPropagation(); // don't start a row drag
+  sel.onchange = ()=>{
+    const targetDay = Number(sel.value);
+    if(!targetDay) return;
+    moveStopToDay(day, idx, targetDay);
+  };
+  return sel;
+}
+// Removes the stop at `idx` in plans[fromDay] and appends it to
+// plans[toDay]'s editable stops (hotel anchors live in DAY_HOTELS, not in
+// plan-array position, so appending at the end is always safe — it renders
+// just before that day's sleep hotel, same as any other newly-added stop).
+function moveStopToDay(fromDay, idx, toDay){
+  const id = plans[fromDay][idx];
+  const place = byId[id];
+  plans[fromDay].splice(idx, 1);
+  if(!plans[toDay]) plans[toDay] = [];
+  plans[toDay].push(id);
+  saveState();
+  renderAll();
+  showUndoToast(`Moved "${place.name}" to Day ${toDay}`, ()=>{
+    const cur = plans[toDay].indexOf(id);
+    if(cur !== -1) plans[toDay].splice(cur, 1);
+    if(!plans[fromDay]) plans[fromDay] = [];
+    plans[fromDay].splice(idx, 0, id);
+    saveState();
+    renderAll();
+  });
+}
+
 // FLIP-animate the rows that shift while `mutate` reorders the list, so a
 // drag previews the new order instead of snapping on drop.
 function flipMove(container, mutate){
@@ -3982,6 +4045,11 @@ function renderRouteList(){
     reorderBtns.appendChild(upBtn);
     reorderBtns.appendChild(downBtn);
     row.appendChild(reorderBtns);
+    // Moving a stop to a different day previously meant removing it here and
+    // re-finding/re-adding it from the master list on the target day — real
+    // friction for the common "actually let's do this on Tuesday instead"
+    // adjustment, especially useful while a trip is actually underway.
+    if(DAYS.length > 1) row.appendChild(moveDaySelect(activeDay, i, p.name));
     const rm = document.createElement('button');
     rm.className = 'remove-btn';
     rm.textContent = '×';
