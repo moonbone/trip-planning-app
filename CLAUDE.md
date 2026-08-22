@@ -298,7 +298,15 @@ The user's own real trip currently loaded into the app is a Norway road trip, Au
   matches the last-calculated `lastRoute`, otherwise a straight-line/50kmh fallback
   (`ESTIMATE_AVG_SPEED_KMH`) so every day tab can be flagged without routing all of them
   up front — deliberately a rough overestimate for winding/mountain roads, so it favors
-  flagging over missing a genuinely long day. When the active day's date is today, the
+  flagging over missing a genuinely long day. A **rain badge** (🌧️ on the day tab, plus a
+  rainy-day count in the trip overview) follows the same pattern one level over, firing at
+  `RAIN_WARN_MM` (5mm) of forecast precipitation — enough to be a day worth planning
+  around, not a passing drizzle. `rainBadgeHtml` deliberately never fetches: it only reads
+  whatever `weatherCache` already holds, so it stays a cheap synchronous lookup like the
+  long-drive/ferry badges beside it rather than a third independent weather call path.
+  `renderTripWeatherStrip` (which does the fetching, for every day in horizon) calls
+  `renderTabs()`/`renderTripOverview()` once it finishes, so the badges appear as soon as
+  the cache is warm. When the active day's date is today, the
   drive summary also shows a live "now" banner (`nowBanner`, called from `renderStats`,
   refreshed every 60s by a `setInterval`) — before departure, at a stop until its planned
   departure time, driving with an ETA, or done for the day — computed by walking the same

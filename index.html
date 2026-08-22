@@ -1747,6 +1747,9 @@ function getRouteIds(day){
 
 // 4.5h — common trip-planning guidance for a comfortable driving day.
 const LONG_DRIVE_WARN_MIN = 270;
+// 5mm — enough to be a real rain day worth planning around, not just a
+// passing drizzle a forecast shows almost every day somewhere in its range.
+const RAIN_WARN_MM = 5;
 // Straight-line fallback speed for days that haven't been routed yet —
 // generous enough for winding rural/mountain roads and ferry waits, so the
 // estimate errs toward flagging rather than missing a genuinely long day.
@@ -1787,6 +1790,23 @@ function longDriveBadgeHtml(day){
 function ferryBadgeHtml(day){
   if(!getDayMeta(day).ferry) return '';
   return `<span class="dupe-badge" title="This day includes a ferry crossing — check schedules and reservations ahead of time.">⛴</span>`;
+}
+
+// A rain badge sourced from whatever's already in weatherCache — never
+// triggers its own fetch (renderTripWeatherStrip's sequential fetch already
+// populates the cache for every day in range, and calls renderTabs() again
+// once it does), so this stays a cheap, synchronous lookup like the two
+// badges above rather than a third independent weather call path.
+function rainBadgeHtml(day){
+  const date = DAY_DATES[day];
+  if(!weatherWithinHorizon(date)) return '';
+  const ids = getRouteIds(day);
+  const ref = ids.length ? byId[ids[0]] : null;
+  if(!ref) return '';
+  const key = `${ref.lat.toFixed(2)},${ref.lon.toFixed(2)},${date}`;
+  const forecast = weatherCache[key];
+  if(!forecast || forecast.precip < RAIN_WARN_MM) return '';
+  return `<span class="dupe-badge" title="${escapeHtml(`Rain expected — ~${forecast.precip}mm forecast for this day.`)}">🌧️</span>`;
 }
 
 let plans = {};
@@ -3377,7 +3397,7 @@ function renderTabs(){
     t.setAttribute('aria-selected', d===activeDay ? 'true' : 'false');
     t.tabIndex = d===activeDay ? 0 : -1;
     const dateHtml = DAY_DATES[d] ? `<div class="tab-date">${formatDayDate(DAY_DATES[d])}</div>` : '';
-    t.innerHTML = `<span class="num">${d}</span>Day ${d}${longDriveBadgeHtml(d)}${ferryBadgeHtml(d)}${dateHtml}`;
+    t.innerHTML = `<span class="num">${d}</span>Day ${d}${longDriveBadgeHtml(d)}${ferryBadgeHtml(d)}${rainBadgeHtml(d)}${dateHtml}`;
     const activate = ()=>{ activeDay=d; renderAll(); };
     t.onclick = activate;
     t.onkeydown = (e)=>{
@@ -4175,6 +4195,7 @@ function renderTripOverview(){
   const driveEstimates = DAYS.map(d=>dayDriveEstimate(d)).filter(Boolean);
   const longDays = driveEstimates.filter(est=>est.min >= LONG_DRIVE_WARN_MIN).length;
   const ferryDays = DAYS.filter(d=>getDayMeta(d).ferry).length;
+  const rainDays = DAYS.filter(d=>rainBadgeHtml(d)).length;
   let totalDriveLine = '';
   if(driveEstimates.length){
     const totalMin = driveEstimates.reduce((s,e)=>s+e.min,0);
@@ -4187,7 +4208,7 @@ function renderTripOverview(){
   el.innerHTML = `
     ${tripCountdownLine()}
     <p class="stats-total">${DAYS.length} day${DAYS.length===1?'':'s'}${TRIP_START ? ` · starts ${TRIP_START}` : ''}</p>
-    <p class="stats-sub">${totalPlaces} place${totalPlaces===1?'':'s'} · ${hotelIds.size} overnight stop${hotelIds.size===1?'':'s'}${incompleteDays ? ` · ${incompleteDays} day${incompleteDays===1?'':'s'} need${incompleteDays===1?'s':''} at least one stop` : ''}${longDays ? ` · ⚠️ ${longDays} long driving day${longDays===1?'':'s'}` : ''}${ferryDays ? ` · ⛴ ${ferryDays} ferry day${ferryDays===1?'':'s'}` : ''}</p>
+    <p class="stats-sub">${totalPlaces} place${totalPlaces===1?'':'s'} · ${hotelIds.size} overnight stop${hotelIds.size===1?'':'s'}${incompleteDays ? ` · ${incompleteDays} day${incompleteDays===1?'':'s'} need${incompleteDays===1?'s':''} at least one stop` : ''}${longDays ? ` · ⚠️ ${longDays} long driving day${longDays===1?'':'s'}` : ''}${ferryDays ? ` · ⛴ ${ferryDays} ferry day${ferryDays===1?'':'s'}` : ''}${rainDays ? ` · 🌧️ ${rainDays} rainy day${rainDays===1?'':'s'}` : ''}</p>
     ${totalDriveLine}
   `;
 }
@@ -4383,6 +4404,12 @@ async function renderTripWeatherStrip(){
   }
   if(token !== weatherStripToken) return;
   el.innerHTML = chips.length ? `<div class="weather-strip-row">${chips.join('')}</div>` : '';
+  // fetchWeather() populated weatherCache along the way (for every in-horizon
+  // day, whether or not this call is still the latest) — the rain badges on
+  // day tabs and the rainy-day count in the trip overview only ever read
+  // that cache, so refresh both now that it has fresh data.
+  renderTabs();
+  renderTripOverview();
 }
 
 async function fetchFromProxy(ids){
