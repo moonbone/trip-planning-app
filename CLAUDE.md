@@ -140,14 +140,20 @@ The user's own real trip currently loaded into the app is a Norway road trip, Au
   those are free text. Same client-side blob-download pattern as GPX/ICS/backup export.
   Every route-item row (stops and pinned hotels alike) has a small "🔎" button
   (`nearbyLink`/`openNearbyModal`) that looks up nearby fuel stations, restaurants, cafes,
-  fast food, parking, restrooms, supermarkets, pharmacies, hospitals, and EV charging
-  stations — the amenity types actually relevant mid-road-trip, not a general POI browser —
+  fast food, parking, restrooms, supermarkets, pharmacies, hospitals, EV charging
+  stations, ATMs, and banks — the amenity types actually relevant mid-road-trip, not a
+  general POI browser —
   within 1.5km of that stop, via Overpass
   (`overpass-api.de`, OSM's public query API: keyless, `Access-Control-Allow-Origin: *`,
   same no-auth client-side-callable trust model as Nominatim/Open-Meteo already used
   elsewhere in this app). Results are sorted nearest-first, capped at 15, and unnamed nodes
   (a large share of OSM parking/toilets data) are filtered out since there'd be nothing to
-  show or save. Each result has a "+ Add" button that adds it as a custom place to the
+  show or save. Each result also shows its OSM `opening_hours` tag when present (no query
+  change needed — Overpass's `out` already returns the whole tag map). Shown **verbatim**,
+  not parsed into an "Open now" answer: OSM's opening-hours syntax is a small language of
+  its own, and evaluating it correctly needs public-holiday calendars and timezone handling
+  this app has no business carrying — a subtly wrong "Open now" is worse than the raw
+  string a traveler can read for themselves. Each result has a "+ Add" button that adds it as a custom place to the
   active day using its exact OSM coordinates — same `customPlaces.push` + `plans[day].push`
   pattern every other "add a place" path in this app already uses. A failed/slow Overpass
   call (the free public instance is noticeably less reliable than Nominatim — occasional
@@ -297,7 +303,27 @@ The user's own real trip currently loaded into the app is a Norway road trip, Au
   matches the last-calculated `lastRoute`, otherwise a straight-line/50kmh fallback
   (`ESTIMATE_AVG_SPEED_KMH`) so every day tab can be flagged without routing all of them
   up front — deliberately a rough overestimate for winding/mountain roads, so it favors
-  flagging over missing a genuinely long day. When the active day's date is today, the
+  flagging over missing a genuinely long day. A **rain badge** (🌧️ on the day tab, plus a
+  rainy-day count in the trip overview) follows the same pattern one level over, firing at
+  `RAIN_WARN_MM` (5mm) of forecast precipitation — enough to be a day worth planning
+  around, not a passing drizzle. `rainBadgeHtml` deliberately never fetches: it only reads
+  whatever `weatherCache` already holds, so it stays a cheap synchronous lookup like the
+  long-drive/ferry badges beside it rather than a third independent weather call path.
+  `renderTripWeatherStrip` (which does the fetching, for every day in horizon) calls
+  `renderTabs()`/`renderTripOverview()` once it finishes, so the badges appear as soon as
+  the cache is warm — but only when a badge actually changed (it diffs the rendered badge
+  strings before/after its fetches), and it restores keyboard focus into the tab bar
+  afterward. Both matter because `renderTabs()` rebuilds every tab element from scratch:
+  an unconditional call would drop focus out of the tab bar mid-interaction and re-run its
+  `scrollIntoView()` even on a trip with no rainy days at all. `cachedForecast(day)` is the shared read-only cache lookup both the
+  rain badge and the daylight warning below go through. A **daylight warning** (🌇 in the
+  active day's drive summary and in the printable itinerary) fires when a routed day's
+  computed end time falls after that day's sunset — genuinely relevant at northern
+  latitudes, where the daylight window swings by hours across a season. Sunset is already
+  fetched for the weather panel so it costs no extra call; `daylightOverrunText(forecast,
+  endMin)` is the shared plain-text core (same in-app/export split as `weatherSummaryText`
+  and `fuelCostText`) and guards the sunset string's shape itself, since `parseClock()`
+  silently falls back to 09:00 on anything unparseable. When the active day's date is today, the
   drive summary also shows a live "now" banner (`nowBanner`, called from `renderStats`,
   refreshed every 60s by a `setInterval`) — before departure, at a stop until its planned
   departure time, driving with an ETA, or done for the day — computed by walking the same
@@ -311,7 +337,19 @@ The user's own real trip currently loaded into the app is a Norway road trip, Au
   (`api.open-meteo.com`, no key, CORS-enabled for client-side use — same trust model as
   the Nominatim geocoding already called client-side elsewhere in this app), so it needs
   no server env var and works whether signed in or not. Its forecast horizon is ~16 days,
-  so days already past or too far out just render nothing rather than a stale guess; a
+  so days already past render nothing rather than a stale guess. Days *beyond* that
+  horizon (a trip planned months out) fall back to a **climate normal** instead of showing
+  nothing: `fetchClimateNormal` averages temperature/precipitation for the same calendar
+  date ±2 days across the last 3 years (`CLIMATE_YEARS_BACK`/`CLIMATE_WINDOW_DAYS`) via
+  Open-Meteo's `archive-api.open-meteo.com` — a different endpoint on the same free,
+  keyless, CORS-enabled service, no new config. Rendered as clearly-not-a-forecast (a "~"
+  prefix, italic text, and a dashed chip in the trip strip, all labeled "avg of the past N
+  years — not a live forecast"), cached per `lat,lon,MM-DD` in its own `climateCache`
+  (the year doesn't matter for a calendar-date average). One failing year is skipped
+  rather than sinking the whole average. `isFutureBeyondHorizon` is the gate — deliberately
+  future-only, since there's nothing to plan for on a day already behind you. Kept to the
+  in-app panel and trip strip for now, **not** wired into the printable itinerary/ICS
+  export, which already have a clear "no forecast" precedent for out-of-horizon days. A
   request-token guard (`weatherRequestToken`) discards a slow response that resolves after
   the user has already switched to a different day. Results are cached in memory per
   `lat,lon,date` for the session (`weatherCache`) — switching back to an already-fetched
@@ -335,6 +373,10 @@ The user's own real trip currently loaded into the app is a Norway road trip, Au
   silently omitted from the strip rather than shown broken; the active day's chip is
   highlighted. Guarded by its own request token (`weatherStripToken`), same pattern as
   `weatherRequestToken`, so a trip/day switch mid-fetch discards the stale in-flight result.
+  Each chip is a real `<button>` (`weatherChipHtml`) that switches to that day — spotting a
+  rainy day in the strip and wanting to open it is the obvious next move, and a button gets
+  keyboard/screen-reader support for free, the same reasoning that made the day tabs
+  focusable.
   A "🔀 Optimize order" button (route header, next to "Reset day") reorders a day's editable
   stops to shorten the route between the pinned wake/sleep hotel(s) — nearest-neighbor
   construction plus 2-opt refinement (`optimizeDayOrder`) over straight-line (`haversineKm`)
@@ -373,6 +415,32 @@ The user's own real trip currently loaded into the app is a Norway road trip, Au
   same "always creates a new trip, never overwrites" behavior, same local/remote dual-driver
   path. The copy is named "<original> (copy)" and, since `restoreTripBackup` already switches
   to whatever it just created, duplicating lands you directly on the new copy.
+  Day tabs (`renderTabs()`) scroll the newly-active tab into view after every render
+  (`scrollIntoView({block:'nearest', inline:'nearest'})`) — the tabs row scrolls horizontally,
+  so the auto-selected "today" day (or any active day) could otherwise land off-screen with no
+  indication it was selected. Tabs also carry real `role="tablist"`/`role="tab"`/`aria-selected`,
+  are Tab-focusable, and support Enter/Space to activate plus Left/Right/Home/End to move
+  focus+selection — previously plain unfocusable `<div>`s with only a click handler, unlike
+  every other interactive control in this app.
+  `renderStats()` distinguishes "never calculated" from "calculated, then the stop list
+  changed" (a stop moved/removed/added after the last `calculateRoute()`) — the latter shows
+  "Stops changed since the last calculation — press Calculate driving times to update" instead
+  of the same generic empty-state message, since previously the times just silently vanished
+  with no hint the plan had moved on.
+  A "Jump to today" button appears next to the trip-overview's "Day N of M — today" line
+  (`tripCountdownLine()`) whenever today isn't the active day — `initialDay()` only
+  auto-selects today's tab once, on page load, so navigating away to plan a different day
+  previously left no quick way back short of a reload.
+  Each route-item row has a small "→ day" `<select>` (`moveDaySelect`/`moveStopToDay`) for
+  moving that stop to a different day in one action, instead of remove-here/re-add-there.
+  Hotel anchors are unaffected since wake/sleep hotel ids come from `DAY_HOTELS` (computed
+  once from the KML's overnight flags), not from a stop's position in `plans[]` — the moved
+  stop always renders correctly, just before the target day's sleep hotel. Uses the same
+  `showUndoToast` pattern as other single-click plan-mutating actions.
+  "🖨️ Print itinerary" now offers to print only the remaining days when the trip has a real
+  past/future split (at least one day already before today, at least one still today-or-later)
+  — asks once via `confirm()` before building the printable page; a trip with no dates, one
+  not yet started, or one fully over skips the prompt and prints everything, unchanged.
 - `aws/handler.mjs` — Lambda handler. Serves `index.html` at `GET /`, proxies
   `POST /route` to OpenRouteService using `process.env.ORS_API_KEY`, resolves shortened
   Google Maps links via `POST /resolve-maps-link` (host-allowlisted to Google's own
