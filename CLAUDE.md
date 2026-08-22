@@ -373,6 +373,10 @@ The user's own real trip currently loaded into the app is a Norway road trip, Au
   silently omitted from the strip rather than shown broken; the active day's chip is
   highlighted. Guarded by its own request token (`weatherStripToken`), same pattern as
   `weatherRequestToken`, so a trip/day switch mid-fetch discards the stale in-flight result.
+  Each chip is a real `<button>` (`weatherChipHtml`) that switches to that day — spotting a
+  rainy day in the strip and wanting to open it is the obvious next move, and a button gets
+  keyboard/screen-reader support for free, the same reasoning that made the day tabs
+  focusable.
   A "🔀 Optimize order" button (route header, next to "Reset day") reorders a day's editable
   stops to shorten the route between the pinned wake/sleep hotel(s) — nearest-neighbor
   construction plus 2-opt refinement (`optimizeDayOrder`) over straight-line (`haversineKm`)
