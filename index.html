@@ -283,6 +283,13 @@
   }
   .weather-chip .wc-day{font-weight:600;}
   .weather-chip .wc-icon{font-size:15px;}
+  .weather-chip.climate{
+    border-style:dashed;
+    opacity:0.85;
+  }
+  .climate-normal{
+    font-style:italic;
+  }
   .kml-panel{
     display:flex;
     flex-direction:column;
@@ -4337,6 +4344,63 @@ async function fetchWeather(lat, lon, date){
     return null;
   }
 }
+
+// Climate normal for days beyond Open-Meteo's ~16-day forecast horizon —
+// a trip planned months ahead previously just showed nothing for every day
+// past that window. Not a forecast: averages temperature/precipitation from
+// the same calendar date (± a few days, for a bigger sample) across the
+// last few years via Open-Meteo's free, keyless archive API — same trust
+// model as the live forecast call above, just a different Open-Meteo
+// endpoint. Deliberately kept to the in-app weather panel and trip strip
+// for this first pass, not wired into the printable itinerary/ICS export —
+// those already have a clear "no forecast available" precedent for
+// out-of-horizon days and can pick this up later if it's wanted there too.
+const CLIMATE_YEARS_BACK = 3;
+const CLIMATE_WINDOW_DAYS = 2; // ± days around the target date, per year sampled
+let climateCache = {};
+async function fetchClimateNormal(lat, lon, date){
+  const key = `${lat.toFixed(2)},${lon.toFixed(2)},${date.slice(5)}`; // cache by MM-DD — the year itself doesn't matter
+  if(key in climateCache) return climateCache[key];
+  const fmt = d => d.toISOString().slice(0,10);
+  const samples = {tMax: [], tMin: [], precip: []};
+  try{
+    const target = new Date(date + 'T00:00:00');
+    for(let yearsAgo = 1; yearsAgo <= CLIMATE_YEARS_BACK; yearsAgo++){
+      const center = new Date(target);
+      center.setFullYear(center.getFullYear() - yearsAgo);
+      const start = new Date(center); start.setDate(start.getDate() - CLIMATE_WINDOW_DAYS);
+      const end = new Date(center); end.setDate(end.getDate() + CLIMATE_WINDOW_DAYS);
+      const url = 'https://archive-api.open-meteo.com/v1/archive?latitude=' + lat + '&longitude=' + lon +
+        '&daily=temperature_2m_max,temperature_2m_min,precipitation_sum&timezone=auto' +
+        '&start_date=' + fmt(start) + '&end_date=' + fmt(end);
+      const res = await fetch(url);
+      if(!res.ok) continue; // one bad year shouldn't sink the whole average
+      const data = await res.json();
+      const d = data.daily;
+      if(!d || !d.time) continue;
+      (d.temperature_2m_max||[]).forEach(v=>{ if(v!=null) samples.tMax.push(v); });
+      (d.temperature_2m_min||[]).forEach(v=>{ if(v!=null) samples.tMin.push(v); });
+      (d.precipitation_sum||[]).forEach(v=>{ if(v!=null) samples.precip.push(v); });
+    }
+    if(!samples.tMax.length){ climateCache[key] = null; return null; }
+    const avg = arr => arr.reduce((s,v)=>s+v,0)/arr.length;
+    const result = {
+      tMax: Math.round(avg(samples.tMax)), tMin: Math.round(avg(samples.tMin)),
+      precip: Math.round(avg(samples.precip)*10)/10,
+      years: CLIMATE_YEARS_BACK,
+    };
+    climateCache[key] = result;
+    return result;
+  }catch(e){
+    climateCache[key] = null;
+    return null;
+  }
+}
+function climateSummaryText(normal){
+  if(!normal) return '';
+  const precipText = normal.precip > 0 ? ` · ~${normal.precip}mm rain` : '';
+  return `~${normal.tMax}°/${normal.tMin}°C${precipText} (avg of the past ${normal.years} years — not a live forecast)`;
+}
 // Plain-text "☀️ Clear · 18°/9°C · 3mm rain" summary — no sunrise/sunset
 // (those stay HTML-only in the in-app panel), so this is reusable anywhere
 // a forecast needs to show up as plain text: the printable itinerary and
@@ -4354,21 +4418,28 @@ async function renderWeather(){
   const ids = getRouteIds(activeDay);
   const ref = ids.length ? byId[ids[0]] : null;
   el.innerHTML = '';
-  if(!date || !ref || !weatherWithinHorizon(date)) return;
+  if(!date || !ref) return;
   const token = ++weatherRequestToken;
-  const forecast = await fetchWeather(ref.lat, ref.lon, date);
-  if(token !== weatherRequestToken) return; // a newer day was selected meanwhile
-  if(!forecast) return;
-  const summary = weatherSummaryText(forecast);
-  const sunText = forecast.sunrise && forecast.sunset
-    ? ` · 🌅 ${forecast.sunrise} 🌇 ${forecast.sunset}` : '';
-  // Wind stays HTML-only in the in-app panel, same as sunrise/sunset above —
-  // genuinely useful context for mountain passes and ferry crossings, but
-  // not essential enough to widen the terse plain-text summary reused by
-  // the exports.
-  const windText = forecast.windMax != null
-    ? ` · 💨 ${formatSpeedKmh(forecast.windMax)} max wind` : '';
-  el.innerHTML = `<p class="stats-sub">${summary}${sunText}${windText}</p>`;
+  if(weatherWithinHorizon(date)){
+    const forecast = await fetchWeather(ref.lat, ref.lon, date);
+    if(token !== weatherRequestToken) return; // a newer day was selected meanwhile
+    if(!forecast) return;
+    const summary = weatherSummaryText(forecast);
+    const sunText = forecast.sunrise && forecast.sunset
+      ? ` · 🌅 ${forecast.sunrise} 🌇 ${forecast.sunset}` : '';
+    // Wind stays HTML-only in the in-app panel, same as sunrise/sunset above —
+    // genuinely useful context for mountain passes and ferry crossings, but
+    // not essential enough to widen the terse plain-text summary reused by
+    // the exports.
+    const windText = forecast.windMax != null
+      ? ` · 💨 ${formatSpeedKmh(forecast.windMax)} max wind` : '';
+    el.innerHTML = `<p class="stats-sub">${summary}${sunText}${windText}</p>`;
+  }else if(isFutureBeyondHorizon(date)){
+    const normal = await fetchClimateNormal(ref.lat, ref.lon, date);
+    if(token !== weatherRequestToken) return;
+    if(!normal) return;
+    el.innerHTML = `<p class="stats-sub climate-normal">${climateSummaryText(normal)}</p>`;
+  }
 }
 
 // Whole-trip weather strip: a compact per-day forecast row in the trip
@@ -4386,7 +4457,10 @@ async function renderTripWeatherStrip(){
   if(!el) return;
   el.innerHTML = '';
   if(!DAYS.length) return;
-  const eligibleDays = DAYS.filter(d=>weatherWithinHorizon(DAY_DATES[d]));
+  // Days beyond the live forecast horizon still get a chip — a dashed,
+  // "~"-prefixed climate-normal estimate instead of a real forecast — so a
+  // trip planned months out isn't just blank past day ~16.
+  const eligibleDays = DAYS.filter(d=>weatherWithinHorizon(DAY_DATES[d]) || isFutureBeyondHorizon(DAY_DATES[d]));
   if(!eligibleDays.length) return;
   const token = ++weatherStripToken;
   const chips = [];
@@ -4394,13 +4468,23 @@ async function renderTripWeatherStrip(){
     const ids = getRouteIds(d);
     const ref = ids.length ? byId[ids[0]] : null;
     if(!ref) continue;
-    const forecast = await fetchWeather(ref.lat, ref.lon, DAY_DATES[d]);
-    if(token !== weatherStripToken) return; // trip/day changed mid-fetch — discard
-    if(!forecast) continue;
-    const icon = (WEATHER_CODE_LABELS[forecast.code] || '🌡️').split(' ')[0];
-    const title = `Day ${d}${forecast.precip > 0 ? ` — ${forecast.precip}mm rain expected` : ''}`;
-    chips.push(`<div class="weather-chip${d===activeDay?' active':''}" title="${escapeHtml(title)}">`
-      + `<span class="wc-day">D${d}</span><span class="wc-icon">${icon}</span><span class="wc-temp">${forecast.tMax}°/${forecast.tMin}°</span></div>`);
+    const date = DAY_DATES[d];
+    if(weatherWithinHorizon(date)){
+      const forecast = await fetchWeather(ref.lat, ref.lon, date);
+      if(token !== weatherStripToken) return; // trip/day changed mid-fetch — discard
+      if(!forecast) continue;
+      const icon = (WEATHER_CODE_LABELS[forecast.code] || '🌡️').split(' ')[0];
+      const title = `Day ${d}${forecast.precip > 0 ? ` — ${forecast.precip}mm rain expected` : ''}`;
+      chips.push(`<div class="weather-chip${d===activeDay?' active':''}" title="${escapeHtml(title)}">`
+        + `<span class="wc-day">D${d}</span><span class="wc-icon">${icon}</span><span class="wc-temp">${forecast.tMax}°/${forecast.tMin}°</span></div>`);
+    }else{
+      const normal = await fetchClimateNormal(ref.lat, ref.lon, date);
+      if(token !== weatherStripToken) return;
+      if(!normal) continue;
+      const title = `Day ${d} — estimated from the past ${normal.years} years, not a live forecast`;
+      chips.push(`<div class="weather-chip climate${d===activeDay?' active':''}" title="${escapeHtml(title)}">`
+        + `<span class="wc-day">D${d}</span><span class="wc-icon">~</span><span class="wc-temp">${normal.tMax}°/${normal.tMin}°</span></div>`);
+    }
   }
   if(token !== weatherStripToken) return;
   el.innerHTML = chips.length ? `<div class="weather-strip-row">${chips.join('')}</div>` : '';
@@ -4699,6 +4783,13 @@ function weatherWithinHorizon(date){
   if(!date) return false;
   const diffDays = Math.round((new Date(date + 'T00:00:00') - new Date(new Date().toDateString())) / 86400000);
   return diffDays >= 0 && diffDays <= 15;
+}
+// A future day past the live forecast horizon — the climate-normal fallback
+// applies here, not to days already behind you (nothing to plan for there).
+function isFutureBeyondHorizon(date){
+  if(!date) return false;
+  const diffDays = Math.round((new Date(date + 'T00:00:00') - new Date(new Date().toDateString())) / 86400000);
+  return diffDays > 15;
 }
 async function buildDayItinerary(day){
   const ids = getRouteIds(day);

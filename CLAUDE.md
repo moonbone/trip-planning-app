@@ -320,7 +320,19 @@ The user's own real trip currently loaded into the app is a Norway road trip, Au
   (`api.open-meteo.com`, no key, CORS-enabled for client-side use — same trust model as
   the Nominatim geocoding already called client-side elsewhere in this app), so it needs
   no server env var and works whether signed in or not. Its forecast horizon is ~16 days,
-  so days already past or too far out just render nothing rather than a stale guess; a
+  so days already past render nothing rather than a stale guess. Days *beyond* that
+  horizon (a trip planned months out) fall back to a **climate normal** instead of showing
+  nothing: `fetchClimateNormal` averages temperature/precipitation for the same calendar
+  date ±2 days across the last 3 years (`CLIMATE_YEARS_BACK`/`CLIMATE_WINDOW_DAYS`) via
+  Open-Meteo's `archive-api.open-meteo.com` — a different endpoint on the same free,
+  keyless, CORS-enabled service, no new config. Rendered as clearly-not-a-forecast (a "~"
+  prefix, italic text, and a dashed chip in the trip strip, all labeled "avg of the past N
+  years — not a live forecast"), cached per `lat,lon,MM-DD` in its own `climateCache`
+  (the year doesn't matter for a calendar-date average). One failing year is skipped
+  rather than sinking the whole average. `isFutureBeyondHorizon` is the gate — deliberately
+  future-only, since there's nothing to plan for on a day already behind you. Kept to the
+  in-app panel and trip strip for now, **not** wired into the printable itinerary/ICS
+  export, which already have a clear "no forecast" precedent for out-of-horizon days. A
   request-token guard (`weatherRequestToken`) discards a slow response that resolves after
   the user has already switched to a different day. Results are cached in memory per
   `lat,lon,date` for the session (`weatherCache`) — switching back to an already-fetched
