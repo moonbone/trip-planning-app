@@ -3810,11 +3810,14 @@ function hotelRow(hotelId, label){
 // into the existing query with no special-casing needed. EV charging
 // (amenity=charging_station) slots in the same way — a real gap for an EV
 // road-tripper, and this app already knows where "nearby" means for every
-// stop; no special-casing beyond the icon needed there either.
+// stop; no special-casing beyond the icon needed there either. Same for
+// amenity=atm/bank — genuinely useful in areas that aren't as card-friendly
+// as Norway, and nothing about the query needs to change to pick them up.
 const NEARBY_AMENITY_ICONS = {
   fuel: '⛽', restaurant: '🍽️', cafe: '☕', fast_food: '🍔',
   parking: '🅿️', toilets: '🚻', supermarket: '🛒',
   pharmacy: '💊', hospital: '🏥', charging_station: '🔌',
+  atm: '🏧', bank: '🏦',
 };
 const NEARBY_RADIUS_M = 1500;
 const NEARBY_RESULT_CAP = 15;
@@ -3823,7 +3826,7 @@ function nearbyLink(placeId){
   const btn = document.createElement('button');
   btn.type = 'button';
   btn.className = 'nearby-btn';
-  btn.title = `Find nearby fuel, food, parking, restrooms, EV charging, or a pharmacy/hospital near ${byId[placeId].name}`;
+  btn.title = `Find nearby fuel, food, parking, restrooms, EV charging, a pharmacy/hospital, or an ATM/bank near ${byId[placeId].name}`;
   btn.setAttribute('aria-label', `Find places near ${byId[placeId].name}`);
   btn.textContent = '🔎';
   btn.addEventListener('click', (e)=>{ e.stopPropagation(); openNearbyModal(placeId); });
