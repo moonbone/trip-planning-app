@@ -148,7 +148,12 @@ The user's own real trip currently loaded into the app is a Norway road trip, Au
   same no-auth client-side-callable trust model as Nominatim/Open-Meteo already used
   elsewhere in this app). Results are sorted nearest-first, capped at 15, and unnamed nodes
   (a large share of OSM parking/toilets data) are filtered out since there'd be nothing to
-  show or save. Each result has a "+ Add" button that adds it as a custom place to the
+  show or save. Each result also shows its OSM `opening_hours` tag when present (no query
+  change needed — Overpass's `out` already returns the whole tag map). Shown **verbatim**,
+  not parsed into an "Open now" answer: OSM's opening-hours syntax is a small language of
+  its own, and evaluating it correctly needs public-holiday calendars and timezone handling
+  this app has no business carrying — a subtly wrong "Open now" is worse than the raw
+  string a traveler can read for themselves. Each result has a "+ Add" button that adds it as a custom place to the
   active day using its exact OSM coordinates — same `customPlaces.push` + `plans[day].push`
   pattern every other "add a place" path in this app already uses. A failed/slow Overpass
   call (the free public instance is noticeably less reliable than Nominatim — occasional

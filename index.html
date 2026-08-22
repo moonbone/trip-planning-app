@@ -914,6 +914,11 @@
   }
   .nearby-item .nearby-icon{flex-shrink:0;font-size:15px;}
   .nearby-item .nearby-name{flex:1;word-break:break-word;}
+  .nearby-item .nearby-hours{
+    display:block;
+    font-size:11px;
+    color:var(--ink-soft);
+  }
   .nearby-item .nearby-dist{
     flex-shrink:0;
     font-family:'IBM Plex Mono',monospace;
@@ -3906,6 +3911,13 @@ async function fetchNearbyAmenities(lat, lon){
       name: el.tags.name,
       lat: el.lat, lon: el.lon,
       amenity: el.tags.amenity,
+      // OSM's opening_hours syntax is a small language of its own
+      // ("Mo-Fr 08:00-20:00; Sa 10:00-16:00; PH off"). Deliberately shown
+      // verbatim rather than parsed into an is-it-open-now answer: a
+      // correct evaluator needs public-holiday calendars and timezone
+      // handling this app has no business carrying, and a subtly wrong
+      // "Open now" is worse than the raw string a traveler can read.
+      hours: el.tags.opening_hours || null,
       distanceKm: haversineKm(origin, {lat: el.lat, lon: el.lon}),
     }))
     .sort((a,b)=>a.distanceKm - b.distanceKm)
@@ -3953,6 +3965,13 @@ function renderNearbyList(){
     const name = document.createElement('span');
     name.className = 'nearby-name';
     name.textContent = r.name;
+    if(r.hours){
+      const hours = document.createElement('span');
+      hours.className = 'nearby-hours';
+      hours.textContent = r.hours;
+      hours.title = 'Opening hours, as recorded in OpenStreetMap';
+      name.appendChild(hours);
+    }
     const dist = document.createElement('span');
     dist.className = 'nearby-dist';
     dist.textContent = distText;
