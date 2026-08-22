@@ -1799,21 +1799,47 @@ function ferryBadgeHtml(day){
   return `<span class="dupe-badge" title="This day includes a ferry crossing — check schedules and reservations ahead of time.">⛴</span>`;
 }
 
-// A rain badge sourced from whatever's already in weatherCache — never
-// triggers its own fetch (renderTripWeatherStrip's sequential fetch already
-// populates the cache for every day in range, and calls renderTabs() again
-// once it does), so this stays a cheap, synchronous lookup like the two
-// badges above rather than a third independent weather call path.
-function rainBadgeHtml(day){
+// Read a day's forecast out of whatever weatherCache already holds, without
+// ever triggering a fetch of its own — renderTripWeatherStrip's sequential
+// fetch already populates the cache for every day in range and re-renders
+// once it does. That keeps every synchronous consumer below (rain badge,
+// daylight warning) a cheap lookup rather than its own weather call path.
+function cachedForecast(day){
   const date = DAY_DATES[day];
-  if(!weatherWithinHorizon(date)) return '';
+  if(!weatherWithinHorizon(date)) return null;
   const ids = getRouteIds(day);
   const ref = ids.length ? byId[ids[0]] : null;
-  if(!ref) return '';
-  const key = `${ref.lat.toFixed(2)},${ref.lon.toFixed(2)},${date}`;
-  const forecast = weatherCache[key];
+  if(!ref) return null;
+  return weatherCache[`${ref.lat.toFixed(2)},${ref.lon.toFixed(2)},${date}`] || null;
+}
+
+function rainBadgeHtml(day){
+  const forecast = cachedForecast(day);
   if(!forecast || forecast.precip < RAIN_WARN_MM) return '';
   return `<span class="dupe-badge" title="${escapeHtml(`Rain expected — ~${forecast.precip}mm forecast for this day.`)}">🌧️</span>`;
+}
+
+// Finishing a driving day after dark is a real road-trip concern on
+// unfamiliar mountain or coastal roads — and at northern latitudes the
+// daylight window swings by hours across a season, so a plan that was
+// comfortably in daylight in June very much isn't in September. Sunset is
+// already fetched for the weather panel, so this costs no extra API call.
+// Plain text, shared by the in-app drive summary and the printable
+// itinerary so the two can't drift apart — same split as weatherSummaryText.
+function daylightOverrunText(forecast, endMin){
+  if(!forecast || !forecast.sunset || endMin == null) return '';
+  // parseClock() falls back to 09:00 on anything unparseable, which would
+  // silently produce a nonsense warning — check the shape first.
+  if(!/^\d{1,2}:\d{2}$/.test(forecast.sunset)) return '';
+  const sunsetMin = parseClock(forecast.sunset);
+  if(endMin <= sunsetMin) return '';
+  const over = Math.round(endMin - sunsetMin);
+  const overText = over >= 60 ? `${Math.floor(over/60)}h ${over%60}m` : `${over}m`;
+  return `🌇 Day ends ${overText} after sunset (${forecast.sunset}) — the last stretch will be in the dark.`;
+}
+function daylightWarningHtml(day, endMin){
+  const text = daylightOverrunText(cachedForecast(day), endMin);
+  return text ? `<p class="stats-warn">${text}</p>` : '';
 }
 
 let plans = {};
@@ -4268,6 +4294,7 @@ function renderStats(){
     ${nowBanner(ids, route, meta)}
     ${longWarn}
     ${ferryWarn}
+    ${daylightWarningHtml(activeDay, t)}
     ${rows}
   `;
 }
@@ -4862,11 +4889,13 @@ function renderPrintableItinerary(trip, days){
         ? '<p class="t-total t-warn">Driving times unavailable for this day — showing stop order only.</p>'
         : '<p class="t-total">No driving this day.</p>';
     const weatherHtml = d.weather ? `<p class="t-total t-weather">${weatherSummaryText(d.weather)}</p>` : '';
+    const daylightText = d.routed && d.end ? daylightOverrunText(d.weather, parseClock(d.end)) : '';
     return `<div class="day-block">
       <h2>Day ${d.day}${d.date ? ` — ${formatDayDate(d.date)}` : ''}${d.ferry ? ' ⛴' : ''}</h2>
       ${weatherHtml}
       <table>${rows}</table>
       ${totalsHtml}
+      ${daylightText ? `<p class="t-total t-warn">${escapeHtml(daylightText)}</p>` : ''}
       ${d.ferry ? '<p class="t-total t-warn">⛴ This day includes a ferry crossing — check schedules and reservations ahead of time.</p>' : ''}
       ${notesHtml}
     </div>`;

@@ -306,7 +306,15 @@ The user's own real trip currently loaded into the app is a Norway road trip, Au
   long-drive/ferry badges beside it rather than a third independent weather call path.
   `renderTripWeatherStrip` (which does the fetching, for every day in horizon) calls
   `renderTabs()`/`renderTripOverview()` once it finishes, so the badges appear as soon as
-  the cache is warm. When the active day's date is today, the
+  the cache is warm. `cachedForecast(day)` is the shared read-only cache lookup both the
+  rain badge and the daylight warning below go through. A **daylight warning** (🌇 in the
+  active day's drive summary and in the printable itinerary) fires when a routed day's
+  computed end time falls after that day's sunset — genuinely relevant at northern
+  latitudes, where the daylight window swings by hours across a season. Sunset is already
+  fetched for the weather panel so it costs no extra call; `daylightOverrunText(forecast,
+  endMin)` is the shared plain-text core (same in-app/export split as `weatherSummaryText`
+  and `fuelCostText`) and guards the sunset string's shape itself, since `parseClock()`
+  silently falls back to 09:00 on anything unparseable. When the active day's date is today, the
   drive summary also shows a live "now" banner (`nowBanner`, called from `renderStats`,
   refreshed every 60s by a `setInterval`) — before departure, at a stop until its planned
   departure time, driving with an ETA, or done for the day — computed by walking the same
