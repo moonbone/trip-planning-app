@@ -3,6 +3,147 @@
 A running log of what each scheduled nightly session built on `beta`, so
 future runs don't duplicate or contradict prior work. Newest entry first.
 
+## 2026-08-22
+
+`beta` was at cae984f going in (last night's five: tab scroll/keyboard nav,
+stale-route nudge, jump-to-today, move-to-day, print-remaining). Fetched
+the real feature-request backlog from mainline (`GET /tickets`): of 13
+tickets, **zero were actionable** — every one is already `done` or
+`in_beta` from prior nights (the three most recent, `mt17lonuj2k12b`
+"Auto open current day", `mswuwmi5itojje` "Search function", and
+`msw6fddzu25mte` "Search function confirmation", were all marked
+`in_beta` by the last few sessions). **No mainline ticket was implemented
+or marked `in_beta` tonight** — nothing was left to take. All six changes
+below are own-initiative picks, each committed and pushed separately,
+each verified against the local dev-server with Playwright (fresh
+chromium, stubbed `window.L`, stubbed every external API this sandbox
+can't reach from a browser — the approach every prior night has used).
+
+A loose theme emerged: the app had been *fetching* a lot of weather it
+wasn't really *using*. Four of tonight's six changes close that gap.
+
+1. **ATMs and banks in the nearby-amenities lookup.** Same shape as the
+   pharmacy/hospital and EV-charging additions from earlier nights: OSM's
+   `amenity=atm`/`bank` tags slot straight into the existing Overpass
+   query with no special-casing beyond an icon each. Cash is still the
+   practical fallback in plenty of places a road trip passes through.
+
+2. **A rain badge on the day tabs, and a rainy-day count in the trip
+   overview.** The whole-trip weather strip already fetched a forecast
+   for every day in horizon, but spotting a wet day still meant reading
+   the strip carefully and mapping chips back to tabs. A 🌧️ badge now
+   sits on the tab itself, beside the long-drive and ferry badges it
+   mirrors, firing at `RAIN_WARN_MM` (5mm) — enough to be a day worth
+   planning around, not a passing drizzle. `rainBadgeHtml` deliberately
+   never fetches: it only reads what `weatherCache` already holds, so it
+   stays a cheap synchronous lookup like the two badges beside it rather
+   than becoming a third weather call path.
+
+3. **Climate normals beyond the forecast horizon.** Flagged in the
+   2026-08-20 entry's "decided not to do" as genuinely useful but needing
+   room to build properly — tonight had it. Open-Meteo's forecast only
+   reaches ~16 days, so a trip planned months ahead showed a completely
+   blank weather panel and strip for nearly all of it, which is exactly
+   when someone is deciding what to pack and which days to keep flexible.
+   Days past the horizon now fall back to an average of the same calendar
+   date (±2 days) over the last 3 years from
+   `archive-api.open-meteo.com` — a different endpoint on the same free,
+   keyless service, so no new config or GitHub secret. Presented as
+   clearly *not* a forecast: a "~" prefix, italic text, a dashed chip,
+   and an explicit "avg of the past N years" label. Deliberately
+   future-only (a past day has nothing left to plan for) and in-app only
+   — the printable itinerary and ICS export already have a settled "no
+   forecast available" story for these days, and widening that felt like
+   a separate decision. Confirmed the archive API's real response shape
+   with a live call from this shell before trusting the parsing, and the
+   real Bergen October values (≈12°/8°C, wet) came back closely matching
+   the stub the tests use.
+
+4. **A daylight warning when a day finishes after sunset.** The app
+   already had both halves of this and had never put them together:
+   sunset comes back on the forecast it already fetches, and the drive
+   summary already computes the day's end time. Finishing the last
+   stretch in the dark on unfamiliar mountain or coastal roads is a real
+   concern, and at northern latitudes the daylight window swings by hours
+   across a season, so a plan that was comfortable in June isn't in
+   September. Shows in the active day's drive summary and in the
+   printable itinerary through one shared plain-text helper
+   (`daylightOverrunText`), matching how `weatherSummaryText`/
+   `fuelCostText` are already shared across those two surfaces. Costs no
+   extra API call. Also factored the cached-forecast lookup introduced in
+   (2) into `cachedForecast()`, now shared by both.
+
+5. **Fixed a rough edge introduced by (2), before it could bite.** The
+   rain badge landed with an unconditional `renderTabs()` once the
+   weather strip's fetches finish. `renderTabs()` rebuilds every tab
+   element from scratch — so that call dropped keyboard focus out of the
+   tab bar if someone was arrowing between days while fetches were still
+   in flight (undoing last night's own tab-accessibility work), and
+   re-ran the active tab's `scrollIntoView()` even on trips where no day
+   is rainy and nothing about the tabs had changed. Now it diffs the
+   rendered badge strings across the fetches, returns early when they
+   match, and restores focus into the tab bar when it does rebuild.
+
+6. **The weather strip's day chips switch to that day.** The strip's
+   whole purpose is spotting a day worth looking at, but the chips were
+   inert `<div>`s, so the next move was hunting for the matching tab by
+   hand. They're real `<button>`s now (`weatherChipHtml`), which also
+   makes them keyboard- and screen-reader-operable for free — the same
+   reasoning that made the day tabs focusable last night.
+
+**44 checks total across six throwaway Playwright scripts, all passing**,
+with the full set re-run after every later change to catch cross-feature
+regressions. Coverage worth noting: the rain badge's positive *and*
+negative day; the climate fallback's beyond-horizon, in-horizon, and
+already-past branches (a fully-past trip must trigger **zero** API calls
+of either kind — asserted directly); the daylight warning driven through
+both an early sunset (warning shown, names the time) and a late one (no
+warning, timeline otherwise intact); and for (5), an explicit assertion
+that a dry trip calls `renderTabs` exactly **once** while a wet trip
+calls it exactly **twice**, with keyboard focus surviving in both cases.
+Also screenshotted the new UI in both light and dark mode — the climate
+chip's dashed border, the rain badges, and the nearby modal's new
+opening-hours sub-line all read correctly in both.
+
+Two process notes for future nights, both re-learned the hard way:
+- **The dev-server gotcha from CLAUDE.md bit again, and silently.** A
+  restart failed with `EADDRINUSE` because the old process was still
+  holding 8787, so a test run "passed" against stale markup and then
+  "failed" 4 checks on the next run with no code change in between. The
+  earlier apparent success was the false one. Always confirm the new
+  server actually bound (or grep the *served* HTML for a new symbol)
+  rather than assuming a restart worked.
+- `pkill -f dev-server.mjs` **kills its own shell**, because the pattern
+  appears in the shell's own `/proc` cmdline. Cost three dead commands
+  before it was obvious. There's now a
+  `scratchpad/restart-dev.sh` helper that matches exact cmdlines and
+  skips `$$`; a future night may want to keep something like it around.
+
+**Decided not to do, and why:**
+- **Wiring climate normals into the printable itinerary and ICS export.**
+  Those already degrade cleanly to "no forecast" for out-of-horizon days,
+  and pushing a 3-year average into a printed itinerary — where it's
+  furthest from the "not a live forecast" caveat that makes it honest —
+  is a different judgment call than showing it on screen. Left as a
+  deliberate, revisitable choice rather than an oversight.
+- **Parsing OSM `opening_hours` into an "Open now" verdict** when adding
+  it to the nearby results (which *was* added, shown verbatim). Doing it
+  correctly needs public-holiday calendars and timezone handling this app
+  has no business carrying, and a subtly wrong "Open now" is worse than
+  the raw string a traveler can read for themselves.
+- **A trip-wide "days ending after dark" rollup** to go with the per-day
+  daylight warning. The warning needs a day's *computed end time*, which
+  only exists once that day has actually been routed — so a trip-wide
+  count would be blank or misleading for most days on most trips. Same
+  reasoning that kept last night's stale-route indicator per-day.
+- **Live-verifying the Overpass `opening_hours` tag against the real
+  API.** The public instance was returning 503s all session (the
+  flakiness CLAUDE.md already documents); backed off after two attempts
+  rather than hammering it. No real risk either way — `out` already
+  returns the full tag map (that's how the existing code reads
+  `tags.name`/`tags.amenity`), so this reads one more standard key off an
+  object the code already consumes, with no query change.
+
 ## 2026-08-21
 
 `beta` was at 03a6ce9 going in (synced with master after the prior 6-night
