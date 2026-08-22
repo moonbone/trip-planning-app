@@ -194,6 +194,7 @@
     margin-bottom:-1px;
   }
   .tab.active .num{background:var(--rust);}
+  .tab:focus-visible{outline:2px solid var(--accent);outline-offset:-2px;}
   .tab-date{
     font-family:'Inter',sans-serif;
     font-weight:400;
@@ -273,7 +274,12 @@
     background:var(--panel);
     font-size:11px;
     color:var(--ink-soft);
-    cursor:default;
+    cursor:pointer;
+    font-family:inherit;
+    line-height:1.3;
+  }
+  .weather-chip:hover{
+    border-color:var(--accent);
   }
   .weather-chip.active{
     border-color:var(--accent);
@@ -282,6 +288,13 @@
   }
   .weather-chip .wc-day{font-weight:600;}
   .weather-chip .wc-icon{font-size:15px;}
+  .weather-chip.climate{
+    border-style:dashed;
+    opacity:0.85;
+  }
+  .climate-normal{
+    font-style:italic;
+  }
   .kml-panel{
     display:flex;
     flex-direction:column;
@@ -906,6 +919,11 @@
   }
   .nearby-item .nearby-icon{flex-shrink:0;font-size:15px;}
   .nearby-item .nearby-name{flex:1;word-break:break-word;}
+  .nearby-item .nearby-hours{
+    display:block;
+    font-size:11px;
+    color:var(--ink-soft);
+  }
   .nearby-item .nearby-dist{
     flex-shrink:0;
     font-family:'IBM Plex Mono',monospace;
@@ -1028,6 +1046,17 @@
   }
   .reorder-btn:disabled{opacity:0.25;cursor:default;}
   .reorder-btn:not(:disabled):hover{color:var(--accent-dark);}
+  .move-day-select{
+    font-family:'IBM Plex Mono',monospace;
+    font-size:11px;
+    color:var(--ink-soft);
+    background:var(--bg);
+    border:1px solid var(--border);
+    border-radius:6px;
+    padding:2px 2px;
+    max-width:64px;
+    cursor:pointer;
+  }
   .calc-btn{
     width:100%;
     padding:12px;
@@ -1063,6 +1092,20 @@
     color:var(--ink-soft);
     margin:0 0 14px;
   }
+  .today-jump-btn{
+    font-family:'Inter',sans-serif;
+    font-size:12px;
+    font-weight:600;
+    color:var(--accent);
+    background:none;
+    border:1px solid var(--accent);
+    border-radius:6px;
+    padding:2px 8px;
+    margin-left:8px;
+    cursor:pointer;
+    vertical-align:middle;
+  }
+  .today-jump-btn:hover{background:var(--accent-light);}
   .stats-warn{
     font-size:12px;
     color:var(--rust);
@@ -1338,7 +1381,7 @@
   </div>
 </header>
 
-<div class="tabs" id="tabs"></div>
+<div class="tabs" id="tabs" role="tablist" aria-label="Trip days"></div>
 
 <main id="plannerMain">
   <div class="col col-left">
@@ -1721,6 +1764,9 @@ function getRouteIds(day){
 
 // 4.5h — common trip-planning guidance for a comfortable driving day.
 const LONG_DRIVE_WARN_MIN = 270;
+// 5mm — enough to be a real rain day worth planning around, not just a
+// passing drizzle a forecast shows almost every day somewhere in its range.
+const RAIN_WARN_MM = 5;
 // Straight-line fallback speed for days that haven't been routed yet —
 // generous enough for winding rural/mountain roads and ferry waits, so the
 // estimate errs toward flagging rather than missing a genuinely long day.
@@ -1761,6 +1807,49 @@ function longDriveBadgeHtml(day){
 function ferryBadgeHtml(day){
   if(!getDayMeta(day).ferry) return '';
   return `<span class="dupe-badge" title="This day includes a ferry crossing — check schedules and reservations ahead of time.">⛴</span>`;
+}
+
+// Read a day's forecast out of whatever weatherCache already holds, without
+// ever triggering a fetch of its own — renderTripWeatherStrip's sequential
+// fetch already populates the cache for every day in range and re-renders
+// once it does. That keeps every synchronous consumer below (rain badge,
+// daylight warning) a cheap lookup rather than its own weather call path.
+function cachedForecast(day){
+  const date = DAY_DATES[day];
+  if(!weatherWithinHorizon(date)) return null;
+  const ids = getRouteIds(day);
+  const ref = ids.length ? byId[ids[0]] : null;
+  if(!ref) return null;
+  return weatherCache[`${ref.lat.toFixed(2)},${ref.lon.toFixed(2)},${date}`] || null;
+}
+
+function rainBadgeHtml(day){
+  const forecast = cachedForecast(day);
+  if(!forecast || forecast.precip < RAIN_WARN_MM) return '';
+  return `<span class="dupe-badge" title="${escapeHtml(`Rain expected — ~${forecast.precip}mm forecast for this day.`)}">🌧️</span>`;
+}
+
+// Finishing a driving day after dark is a real road-trip concern on
+// unfamiliar mountain or coastal roads — and at northern latitudes the
+// daylight window swings by hours across a season, so a plan that was
+// comfortably in daylight in June very much isn't in September. Sunset is
+// already fetched for the weather panel, so this costs no extra API call.
+// Plain text, shared by the in-app drive summary and the printable
+// itinerary so the two can't drift apart — same split as weatherSummaryText.
+function daylightOverrunText(forecast, endMin){
+  if(!forecast || !forecast.sunset || endMin == null) return '';
+  // parseClock() falls back to 09:00 on anything unparseable, which would
+  // silently produce a nonsense warning — check the shape first.
+  if(!/^\d{1,2}:\d{2}$/.test(forecast.sunset)) return '';
+  const sunsetMin = parseClock(forecast.sunset);
+  if(endMin <= sunsetMin) return '';
+  const over = Math.round(endMin - sunsetMin);
+  const overText = over >= 60 ? `${Math.floor(over/60)}h ${over%60}m` : `${over}m`;
+  return `🌇 Day ends ${overText} after sunset (${forecast.sunset}) — the last stretch will be in the dark.`;
+}
+function daylightWarningHtml(day, endMin){
+  const text = daylightOverrunText(cachedForecast(day), endMin);
+  return text ? `<p class="stats-warn">${text}</p>` : '';
 }
 
 let plans = {};
@@ -3335,17 +3424,45 @@ function watchLocation(){
   {enableHighAccuracy: false, maximumAge: 60000});
 }
 
+// Day tabs were plain unfocusable <div>s with only a click handler — every
+// other reorderable/interactive control in this app (route-item ▲/▼,
+// undo toast, etc.) is reachable by keyboard, so bring the tab row in line:
+// real tablist/tab roles, Tab-focusable, Enter/Space activates, and
+// Left/Right/Home/End move focus+selection the way native OS tabs do.
 function renderTabs(){
   const el = document.getElementById('tabs');
   el.innerHTML = '';
-  DAYS.forEach(d=>{
+  let activeTabEl = null;
+  DAYS.forEach((d,i)=>{
     const t = document.createElement('div');
     t.className = 'tab' + (d===activeDay ? ' active':'');
+    t.setAttribute('role', 'tab');
+    t.setAttribute('aria-selected', d===activeDay ? 'true' : 'false');
+    t.tabIndex = d===activeDay ? 0 : -1;
     const dateHtml = DAY_DATES[d] ? `<div class="tab-date">${formatDayDate(DAY_DATES[d])}</div>` : '';
-    t.innerHTML = `<span class="num">${d}</span>Day ${d}${longDriveBadgeHtml(d)}${ferryBadgeHtml(d)}${dateHtml}`;
-    t.onclick = ()=>{ activeDay=d; renderAll(); };
+    t.innerHTML = `<span class="num">${d}</span>Day ${d}${longDriveBadgeHtml(d)}${ferryBadgeHtml(d)}${rainBadgeHtml(d)}${dateHtml}`;
+    const activate = ()=>{ activeDay=d; renderAll(); };
+    t.onclick = activate;
+    t.onkeydown = (e)=>{
+      if(e.key === 'Enter' || e.key === ' '){ e.preventDefault(); activate(); return; }
+      let j = null;
+      if(e.key === 'ArrowRight') j = Math.min(i+1, DAYS.length-1);
+      else if(e.key === 'ArrowLeft') j = Math.max(i-1, 0);
+      else if(e.key === 'Home') j = 0;
+      else if(e.key === 'End') j = DAYS.length-1;
+      if(j === null || j === i) return;
+      e.preventDefault();
+      activeDay = DAYS[j];
+      renderAll();
+      document.getElementById('tabs').children[j]?.focus();
+    };
     el.appendChild(t);
+    if(d===activeDay) activeTabEl = t;
   });
+  // Ticket mt17lonuj2k12b: the tabs row scrolls horizontally, so the
+  // auto-selected "today" day (or any active day) could be scrolled out of
+  // view — bring it into view without smooth-scrolling the whole page.
+  if(activeTabEl) activeTabEl.scrollIntoView({ block: 'nearest', inline: 'nearest' });
 }
 
 function renderMasterList(){
@@ -3603,6 +3720,58 @@ function optimizeDayOrder(){
   renderAll();
 }
 
+// A small <select> on each route-item row for moving that stop to a
+// different day in one action, instead of remove-here-then-re-add-there.
+// A plain <select> (not a button+modal) since the target is a closed list
+// of existing days — no picker UI needed, and it's reachable/operable by
+// keyboard for free.
+function moveDaySelect(day, idx, placeName){
+  const sel = document.createElement('select');
+  sel.className = 'move-day-select';
+  sel.title = `Move "${placeName}" to another day`;
+  sel.setAttribute('aria-label', `Move ${placeName} to a different day`);
+  const placeholder = document.createElement('option');
+  placeholder.value = '';
+  placeholder.textContent = '→ day';
+  sel.appendChild(placeholder);
+  DAYS.forEach(d=>{
+    if(d === day) return;
+    const opt = document.createElement('option');
+    opt.value = d;
+    opt.textContent = `Day ${d}`;
+    sel.appendChild(opt);
+  });
+  sel.value = '';
+  sel.onclick = (e)=>e.stopPropagation(); // don't start a row drag
+  sel.onchange = ()=>{
+    const targetDay = Number(sel.value);
+    if(!targetDay) return;
+    moveStopToDay(day, idx, targetDay);
+  };
+  return sel;
+}
+// Removes the stop at `idx` in plans[fromDay] and appends it to
+// plans[toDay]'s editable stops (hotel anchors live in DAY_HOTELS, not in
+// plan-array position, so appending at the end is always safe — it renders
+// just before that day's sleep hotel, same as any other newly-added stop).
+function moveStopToDay(fromDay, idx, toDay){
+  const id = plans[fromDay][idx];
+  const place = byId[id];
+  plans[fromDay].splice(idx, 1);
+  if(!plans[toDay]) plans[toDay] = [];
+  plans[toDay].push(id);
+  saveState();
+  renderAll();
+  showUndoToast(`Moved "${place.name}" to Day ${toDay}`, ()=>{
+    const cur = plans[toDay].indexOf(id);
+    if(cur !== -1) plans[toDay].splice(cur, 1);
+    if(!plans[fromDay]) plans[fromDay] = [];
+    plans[fromDay].splice(idx, 0, id);
+    saveState();
+    renderAll();
+  });
+}
+
 // FLIP-animate the rows that shift while `mutate` reorders the list, so a
 // drag previews the new order instead of snapping on drop.
 function flipMove(container, mutate){
@@ -3704,11 +3873,14 @@ function hotelRow(hotelId, label){
 // into the existing query with no special-casing needed. EV charging
 // (amenity=charging_station) slots in the same way — a real gap for an EV
 // road-tripper, and this app already knows where "nearby" means for every
-// stop; no special-casing beyond the icon needed there either.
+// stop; no special-casing beyond the icon needed there either. Same for
+// amenity=atm/bank — genuinely useful in areas that aren't as card-friendly
+// as Norway, and nothing about the query needs to change to pick them up.
 const NEARBY_AMENITY_ICONS = {
   fuel: '⛽', restaurant: '🍽️', cafe: '☕', fast_food: '🍔',
   parking: '🅿️', toilets: '🚻', supermarket: '🛒',
   pharmacy: '💊', hospital: '🏥', charging_station: '🔌',
+  atm: '🏧', bank: '🏦',
 };
 const NEARBY_RADIUS_M = 1500;
 const NEARBY_RESULT_CAP = 15;
@@ -3717,7 +3889,7 @@ function nearbyLink(placeId){
   const btn = document.createElement('button');
   btn.type = 'button';
   btn.className = 'nearby-btn';
-  btn.title = `Find nearby fuel, food, parking, restrooms, EV charging, or a pharmacy/hospital near ${byId[placeId].name}`;
+  btn.title = `Find nearby fuel, food, parking, restrooms, EV charging, a pharmacy/hospital, or an ATM/bank near ${byId[placeId].name}`;
   btn.setAttribute('aria-label', `Find places near ${byId[placeId].name}`);
   btn.textContent = '🔎';
   btn.addEventListener('click', (e)=>{ e.stopPropagation(); openNearbyModal(placeId); });
@@ -3744,6 +3916,13 @@ async function fetchNearbyAmenities(lat, lon){
       name: el.tags.name,
       lat: el.lat, lon: el.lon,
       amenity: el.tags.amenity,
+      // OSM's opening_hours syntax is a small language of its own
+      // ("Mo-Fr 08:00-20:00; Sa 10:00-16:00; PH off"). Deliberately shown
+      // verbatim rather than parsed into an is-it-open-now answer: a
+      // correct evaluator needs public-holiday calendars and timezone
+      // handling this app has no business carrying, and a subtly wrong
+      // "Open now" is worse than the raw string a traveler can read.
+      hours: el.tags.opening_hours || null,
       distanceKm: haversineKm(origin, {lat: el.lat, lon: el.lon}),
     }))
     .sort((a,b)=>a.distanceKm - b.distanceKm)
@@ -3791,6 +3970,13 @@ function renderNearbyList(){
     const name = document.createElement('span');
     name.className = 'nearby-name';
     name.textContent = r.name;
+    if(r.hours){
+      const hours = document.createElement('span');
+      hours.className = 'nearby-hours';
+      hours.textContent = r.hours;
+      hours.title = 'Opening hours, as recorded in OpenStreetMap';
+      name.appendChild(hours);
+    }
     const dist = document.createElement('span');
     dist.className = 'nearby-dist';
     dist.textContent = distText;
@@ -3939,6 +4125,11 @@ function renderRouteList(){
     reorderBtns.appendChild(upBtn);
     reorderBtns.appendChild(downBtn);
     row.appendChild(reorderBtns);
+    // Moving a stop to a different day previously meant removing it here and
+    // re-finding/re-adding it from the master list on the target day — real
+    // friction for the common "actually let's do this on Tuesday instead"
+    // adjustment, especially useful while a trip is actually underway.
+    if(DAYS.length > 1) row.appendChild(moveDaySelect(activeDay, i, p.name));
     const rm = document.createElement('button');
     rm.className = 'remove-btn';
     rm.textContent = '×';
@@ -4035,7 +4226,18 @@ function tripCountdownLine(){
     return `<p class="stats-sub">Trip ended ${days} day${days===1?'':'s'} ago</p>`;
   }
   const dayNum = DAYS.find(d=>DAY_DATES[d] === today);
-  return dayNum ? `<p class="stats-total">🗓️ Day ${dayNum} of ${DAYS.length} — today</p>` : '';
+  if(!dayNum) return '';
+  // Auto-selecting today's tab on load (initialDay()) is a one-time thing —
+  // once you've navigated away to plan another day, there was previously no
+  // quick way back to "where the trip actually is right now" short of a
+  // page reload. Only shown when today isn't already the active day.
+  const jumpBtn = dayNum !== activeDay
+    ? '<button class="today-jump-btn" onclick="jumpToToday()">Jump to today</button>' : '';
+  return `<p class="stats-total">🗓️ Day ${dayNum} of ${DAYS.length} — today${jumpBtn}</p>`;
+}
+function jumpToToday(){
+  const dayNum = DAYS.find(d=>DAY_DATES[d] === todayStr());
+  if(dayNum){ activeDay = dayNum; renderAll(); }
 }
 
 function renderTripOverview(){
@@ -4050,6 +4252,7 @@ function renderTripOverview(){
   const driveEstimates = DAYS.map(d=>dayDriveEstimate(d)).filter(Boolean);
   const longDays = driveEstimates.filter(est=>est.min >= LONG_DRIVE_WARN_MIN).length;
   const ferryDays = DAYS.filter(d=>getDayMeta(d).ferry).length;
+  const rainDays = DAYS.filter(d=>rainBadgeHtml(d)).length;
   let totalDriveLine = '';
   if(driveEstimates.length){
     const totalMin = driveEstimates.reduce((s,e)=>s+e.min,0);
@@ -4062,7 +4265,7 @@ function renderTripOverview(){
   el.innerHTML = `
     ${tripCountdownLine()}
     <p class="stats-total">${DAYS.length} day${DAYS.length===1?'':'s'}${TRIP_START ? ` · starts ${TRIP_START}` : ''}</p>
-    <p class="stats-sub">${totalPlaces} place${totalPlaces===1?'':'s'} · ${hotelIds.size} overnight stop${hotelIds.size===1?'':'s'}${incompleteDays ? ` · ${incompleteDays} day${incompleteDays===1?'':'s'} need${incompleteDays===1?'s':''} at least one stop` : ''}${longDays ? ` · ⚠️ ${longDays} long driving day${longDays===1?'':'s'}` : ''}${ferryDays ? ` · ⛴ ${ferryDays} ferry day${ferryDays===1?'':'s'}` : ''}</p>
+    <p class="stats-sub">${totalPlaces} place${totalPlaces===1?'':'s'} · ${hotelIds.size} overnight stop${hotelIds.size===1?'':'s'}${incompleteDays ? ` · ${incompleteDays} day${incompleteDays===1?'':'s'} need${incompleteDays===1?'s':''} at least one stop` : ''}${longDays ? ` · ⚠️ ${longDays} long driving day${longDays===1?'':'s'}` : ''}${ferryDays ? ` · ⛴ ${ferryDays} ferry day${ferryDays===1?'':'s'}` : ''}${rainDays ? ` · 🌧️ ${rainDays} rainy day${rainDays===1?'':'s'}` : ''}</p>
     ${totalDriveLine}
   `;
 }
@@ -4072,9 +4275,15 @@ function renderTripOverview(){
 // Hidden when the plan no longer matches what was last calculated.
 function renderStats(){
   const statsEl = document.getElementById('statsPanel');
-  if(!lastRoute || lastRoute.day !== activeDay
-     || lastRoute.ids.join() !== getRouteIds(activeDay).join()){
-    statsEl.innerHTML = '<div class="empty-note">Select 2+ stops and calculate to see times.</div>';
+  const currentIds = getRouteIds(activeDay);
+  if(!lastRoute || lastRoute.day !== activeDay || lastRoute.ids.join() !== currentIds.join()){
+    // Distinguish "never calculated yet" from "was calculated, but the stop
+    // list has since changed" — the latter is easy to miss (times just
+    // silently disappear) unless the message says the plan moved on.
+    const stale = lastRoute && lastRoute.day === activeDay;
+    statsEl.innerHTML = stale
+      ? '<div class="empty-note">Stops changed since the last calculation — press "Calculate driving times" to update.</div>'
+      : '<div class="empty-note">Select 2+ stops and calculate to see times.</div>';
     return;
   }
   const {ids, route} = lastRoute;
@@ -4109,6 +4318,7 @@ function renderStats(){
     ${nowBanner(ids, route, meta)}
     ${longWarn}
     ${ferryWarn}
+    ${daylightWarningHtml(activeDay, t)}
     ${rows}
   `;
 }
@@ -4185,6 +4395,63 @@ async function fetchWeather(lat, lon, date){
     return null;
   }
 }
+
+// Climate normal for days beyond Open-Meteo's ~16-day forecast horizon —
+// a trip planned months ahead previously just showed nothing for every day
+// past that window. Not a forecast: averages temperature/precipitation from
+// the same calendar date (± a few days, for a bigger sample) across the
+// last few years via Open-Meteo's free, keyless archive API — same trust
+// model as the live forecast call above, just a different Open-Meteo
+// endpoint. Deliberately kept to the in-app weather panel and trip strip
+// for this first pass, not wired into the printable itinerary/ICS export —
+// those already have a clear "no forecast available" precedent for
+// out-of-horizon days and can pick this up later if it's wanted there too.
+const CLIMATE_YEARS_BACK = 3;
+const CLIMATE_WINDOW_DAYS = 2; // ± days around the target date, per year sampled
+let climateCache = {};
+async function fetchClimateNormal(lat, lon, date){
+  const key = `${lat.toFixed(2)},${lon.toFixed(2)},${date.slice(5)}`; // cache by MM-DD — the year itself doesn't matter
+  if(key in climateCache) return climateCache[key];
+  const fmt = d => d.toISOString().slice(0,10);
+  const samples = {tMax: [], tMin: [], precip: []};
+  try{
+    const target = new Date(date + 'T00:00:00');
+    for(let yearsAgo = 1; yearsAgo <= CLIMATE_YEARS_BACK; yearsAgo++){
+      const center = new Date(target);
+      center.setFullYear(center.getFullYear() - yearsAgo);
+      const start = new Date(center); start.setDate(start.getDate() - CLIMATE_WINDOW_DAYS);
+      const end = new Date(center); end.setDate(end.getDate() + CLIMATE_WINDOW_DAYS);
+      const url = 'https://archive-api.open-meteo.com/v1/archive?latitude=' + lat + '&longitude=' + lon +
+        '&daily=temperature_2m_max,temperature_2m_min,precipitation_sum&timezone=auto' +
+        '&start_date=' + fmt(start) + '&end_date=' + fmt(end);
+      const res = await fetch(url);
+      if(!res.ok) continue; // one bad year shouldn't sink the whole average
+      const data = await res.json();
+      const d = data.daily;
+      if(!d || !d.time) continue;
+      (d.temperature_2m_max||[]).forEach(v=>{ if(v!=null) samples.tMax.push(v); });
+      (d.temperature_2m_min||[]).forEach(v=>{ if(v!=null) samples.tMin.push(v); });
+      (d.precipitation_sum||[]).forEach(v=>{ if(v!=null) samples.precip.push(v); });
+    }
+    if(!samples.tMax.length){ climateCache[key] = null; return null; }
+    const avg = arr => arr.reduce((s,v)=>s+v,0)/arr.length;
+    const result = {
+      tMax: Math.round(avg(samples.tMax)), tMin: Math.round(avg(samples.tMin)),
+      precip: Math.round(avg(samples.precip)*10)/10,
+      years: CLIMATE_YEARS_BACK,
+    };
+    climateCache[key] = result;
+    return result;
+  }catch(e){
+    climateCache[key] = null;
+    return null;
+  }
+}
+function climateSummaryText(normal){
+  if(!normal) return '';
+  const precipText = normal.precip > 0 ? ` · ~${normal.precip}mm rain` : '';
+  return `~${normal.tMax}°/${normal.tMin}°C${precipText} (avg of the past ${normal.years} years — not a live forecast)`;
+}
 // Plain-text "☀️ Clear · 18°/9°C · 3mm rain" summary — no sunrise/sunset
 // (those stay HTML-only in the in-app panel), so this is reusable anywhere
 // a forecast needs to show up as plain text: the printable itinerary and
@@ -4202,21 +4469,28 @@ async function renderWeather(){
   const ids = getRouteIds(activeDay);
   const ref = ids.length ? byId[ids[0]] : null;
   el.innerHTML = '';
-  if(!date || !ref || !weatherWithinHorizon(date)) return;
+  if(!date || !ref) return;
   const token = ++weatherRequestToken;
-  const forecast = await fetchWeather(ref.lat, ref.lon, date);
-  if(token !== weatherRequestToken) return; // a newer day was selected meanwhile
-  if(!forecast) return;
-  const summary = weatherSummaryText(forecast);
-  const sunText = forecast.sunrise && forecast.sunset
-    ? ` · 🌅 ${forecast.sunrise} 🌇 ${forecast.sunset}` : '';
-  // Wind stays HTML-only in the in-app panel, same as sunrise/sunset above —
-  // genuinely useful context for mountain passes and ferry crossings, but
-  // not essential enough to widen the terse plain-text summary reused by
-  // the exports.
-  const windText = forecast.windMax != null
-    ? ` · 💨 ${formatSpeedKmh(forecast.windMax)} max wind` : '';
-  el.innerHTML = `<p class="stats-sub">${summary}${sunText}${windText}</p>`;
+  if(weatherWithinHorizon(date)){
+    const forecast = await fetchWeather(ref.lat, ref.lon, date);
+    if(token !== weatherRequestToken) return; // a newer day was selected meanwhile
+    if(!forecast) return;
+    const summary = weatherSummaryText(forecast);
+    const sunText = forecast.sunrise && forecast.sunset
+      ? ` · 🌅 ${forecast.sunrise} 🌇 ${forecast.sunset}` : '';
+    // Wind stays HTML-only in the in-app panel, same as sunrise/sunset above —
+    // genuinely useful context for mountain passes and ferry crossings, but
+    // not essential enough to widen the terse plain-text summary reused by
+    // the exports.
+    const windText = forecast.windMax != null
+      ? ` · 💨 ${formatSpeedKmh(forecast.windMax)} max wind` : '';
+    el.innerHTML = `<p class="stats-sub">${summary}${sunText}${windText}</p>`;
+  }else if(isFutureBeyondHorizon(date)){
+    const normal = await fetchClimateNormal(ref.lat, ref.lon, date);
+    if(token !== weatherRequestToken) return;
+    if(!normal) return;
+    el.innerHTML = `<p class="stats-sub climate-normal">${climateSummaryText(normal)}</p>`;
+  }
 }
 
 // Whole-trip weather strip: a compact per-day forecast row in the trip
@@ -4228,30 +4502,66 @@ async function renderWeather(){
 // fetches sequentially rather than all at once — a keyless public API is
 // worth being gentle with, same reasoning as the printable itinerary's
 // sequential per-day routing fetches.
+// Real <button>s, not styled divs: spotting a rainy day in the strip and
+// wanting to open it is the obvious next move, and a button gets keyboard
+// and screen-reader support for free — the same reasoning that made the
+// day tabs focusable.
+function weatherChipHtml(day, title, icon, temp, isClimate){
+  return `<button type="button" class="weather-chip${isClimate?' climate':''}${day===activeDay?' active':''}"`
+    + ` data-day="${day}" title="${escapeHtml(title)}"${day===activeDay?' aria-current="true"':''}>`
+    + `<span class="wc-day">D${day}</span><span class="wc-icon">${icon}</span>`
+    + `<span class="wc-temp">${temp}</span></button>`;
+}
 let weatherStripToken = 0;
 async function renderTripWeatherStrip(){
   const el = document.getElementById('weatherStrip');
   if(!el) return;
   el.innerHTML = '';
   if(!DAYS.length) return;
-  const eligibleDays = DAYS.filter(d=>weatherWithinHorizon(DAY_DATES[d]));
+  // Days beyond the live forecast horizon still get a chip — a dashed,
+  // "~"-prefixed climate-normal estimate instead of a real forecast — so a
+  // trip planned months out isn't just blank past day ~16.
+  const eligibleDays = DAYS.filter(d=>weatherWithinHorizon(DAY_DATES[d]) || isFutureBeyondHorizon(DAY_DATES[d]));
   if(!eligibleDays.length) return;
   const token = ++weatherStripToken;
+  const badgesBefore = DAYS.map(d=>rainBadgeHtml(d)).join('|');
   const chips = [];
   for(const d of eligibleDays){
     const ids = getRouteIds(d);
     const ref = ids.length ? byId[ids[0]] : null;
     if(!ref) continue;
-    const forecast = await fetchWeather(ref.lat, ref.lon, DAY_DATES[d]);
-    if(token !== weatherStripToken) return; // trip/day changed mid-fetch — discard
-    if(!forecast) continue;
-    const icon = (WEATHER_CODE_LABELS[forecast.code] || '🌡️').split(' ')[0];
-    const title = `Day ${d}${forecast.precip > 0 ? ` — ${forecast.precip}mm rain expected` : ''}`;
-    chips.push(`<div class="weather-chip${d===activeDay?' active':''}" title="${escapeHtml(title)}">`
-      + `<span class="wc-day">D${d}</span><span class="wc-icon">${icon}</span><span class="wc-temp">${forecast.tMax}°/${forecast.tMin}°</span></div>`);
+    const date = DAY_DATES[d];
+    if(weatherWithinHorizon(date)){
+      const forecast = await fetchWeather(ref.lat, ref.lon, date);
+      if(token !== weatherStripToken) return; // trip/day changed mid-fetch — discard
+      if(!forecast) continue;
+      const icon = (WEATHER_CODE_LABELS[forecast.code] || '🌡️').split(' ')[0];
+      const title = `Go to day ${d}${forecast.precip > 0 ? ` — ${forecast.precip}mm rain expected` : ''}`;
+      chips.push(weatherChipHtml(d, title, icon, `${forecast.tMax}°/${forecast.tMin}°`, false));
+    }else{
+      const normal = await fetchClimateNormal(ref.lat, ref.lon, date);
+      if(token !== weatherStripToken) return;
+      if(!normal) continue;
+      const title = `Go to day ${d} — estimated from the past ${normal.years} years, not a live forecast`;
+      chips.push(weatherChipHtml(d, title, '~', `${normal.tMax}°/${normal.tMin}°`, true));
+    }
   }
   if(token !== weatherStripToken) return;
   el.innerHTML = chips.length ? `<div class="weather-strip-row">${chips.join('')}</div>` : '';
+  el.querySelectorAll('.weather-chip').forEach(chip=>{
+    chip.addEventListener('click', ()=>{ activeDay = Number(chip.dataset.day); renderAll(); });
+  });
+  // fetchWeather() populated weatherCache along the way — the rain badges on
+  // day tabs and the rainy-day count in the trip overview only ever read that
+  // cache, so refresh both now that it has fresh data. Only when a badge
+  // actually changed, though: renderTabs() rebuilds every tab element, which
+  // would otherwise drop keyboard focus out of the tab bar and re-run
+  // scrollIntoView() on a trip with no rainy days at all.
+  if(DAYS.map(d=>rainBadgeHtml(d)).join('|') === badgesBefore) return;
+  const focusWasInTabs = document.getElementById('tabs').contains(document.activeElement);
+  renderTabs();
+  if(focusWasInTabs) document.querySelector('#tabs .tab[tabindex="0"]')?.focus();
+  renderTripOverview();
 }
 
 async function fetchFromProxy(ids){
@@ -4542,6 +4852,13 @@ function weatherWithinHorizon(date){
   const diffDays = Math.round((new Date(date + 'T00:00:00') - new Date(new Date().toDateString())) / 86400000);
   return diffDays >= 0 && diffDays <= 15;
 }
+// A future day past the live forecast horizon — the climate-normal fallback
+// applies here, not to days already behind you (nothing to plan for there).
+function isFutureBeyondHorizon(date){
+  if(!date) return false;
+  const diffDays = Math.round((new Date(date + 'T00:00:00') - new Date(new Date().toDateString())) / 86400000);
+  return diffDays > 15;
+}
 async function buildDayItinerary(day){
   const ids = getRouteIds(day);
   const meta = getDayMeta(day);
@@ -4613,11 +4930,13 @@ function renderPrintableItinerary(trip, days){
         ? '<p class="t-total t-warn">Driving times unavailable for this day — showing stop order only.</p>'
         : '<p class="t-total">No driving this day.</p>';
     const weatherHtml = d.weather ? `<p class="t-total t-weather">${weatherSummaryText(d.weather)}</p>` : '';
+    const daylightText = d.routed && d.end ? daylightOverrunText(d.weather, parseClock(d.end)) : '';
     return `<div class="day-block">
       <h2>Day ${d.day}${d.date ? ` — ${formatDayDate(d.date)}` : ''}${d.ferry ? ' ⛴' : ''}</h2>
       ${weatherHtml}
       <table>${rows}</table>
       ${totalsHtml}
+      ${daylightText ? `<p class="t-total t-warn">${escapeHtml(daylightText)}</p>` : ''}
       ${d.ferry ? '<p class="t-total t-warn">⛴ This day includes a ferry crossing — check schedules and reservations ahead of time.</p>' : ''}
       ${notesHtml}
     </div>`;
@@ -4665,6 +4984,22 @@ async function printTripItinerary(){
     document.getElementById('errorNote').textContent = 'Load a trip first.';
     return;
   }
+  // Mid-trip, the whole-trip printout carries days already behind you —
+  // dead weight in your hand (or your battery, since this build's whole
+  // point is being useful with no signal). Offer to print just what's left
+  // whenever there's a real split: at least one day already past *and* at
+  // least one still ahead. A trip with no dates, not yet started, or
+  // already fully over just prints everything, same as before.
+  const today = todayStr();
+  const pastDays = DAYS.filter(d=>DAY_DATES[d] && DAY_DATES[d] < today);
+  const remainingDays = DAYS.filter(d=>!DAY_DATES[d] || DAY_DATES[d] >= today);
+  let daysToPrint = DAYS;
+  if(pastDays.length && remainingDays.length){
+    const wantsRemaining = confirm(`This trip has ${pastDays.length} day${pastDays.length===1?'':'s'} `
+      + `already past. Print only the ${remainingDays.length} remaining day${remainingDays.length===1?'':'s'} `
+      + `instead of the whole trip?\n\nOK = remaining days only · Cancel = whole trip`);
+    if(wantsRemaining) daysToPrint = remainingDays;
+  }
   const win = window.open('', '_blank');
   if(!win){
     document.getElementById('errorNote').textContent = 'Could not open a new tab — check your popup blocker.';
@@ -4677,9 +5012,9 @@ async function printTripItinerary(){
   btn.textContent = 'Building…';
   try{
     const days = [];
-    for(const day of DAYS){
+    for(const [i, day] of daysToPrint.entries()){
       const msgEl = win.document.getElementById('loadingMsg');
-      if(msgEl) msgEl.textContent = `Fetching driving times… (day ${day} of ${DAYS.length})`;
+      if(msgEl) msgEl.textContent = `Fetching driving times… (${i+1}/${daysToPrint.length}, Day ${day})`;
       days.push(await buildDayItinerary(day));
     }
     win.document.open();
