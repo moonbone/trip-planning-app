@@ -311,7 +311,11 @@ The user's own real trip currently loaded into the app is a Norway road trip, Au
   long-drive/ferry badges beside it rather than a third independent weather call path.
   `renderTripWeatherStrip` (which does the fetching, for every day in horizon) calls
   `renderTabs()`/`renderTripOverview()` once it finishes, so the badges appear as soon as
-  the cache is warm. `cachedForecast(day)` is the shared read-only cache lookup both the
+  the cache is warm — but only when a badge actually changed (it diffs the rendered badge
+  strings before/after its fetches), and it restores keyboard focus into the tab bar
+  afterward. Both matter because `renderTabs()` rebuilds every tab element from scratch:
+  an unconditional call would drop focus out of the tab bar mid-interaction and re-run its
+  `scrollIntoView()` even on a trip with no rainy days at all. `cachedForecast(day)` is the shared read-only cache lookup both the
   rain badge and the daylight warning below go through. A **daylight warning** (🌇 in the
   active day's drive summary and in the printable itinerary) fires when a routed day's
   computed end time falls after that day's sunset — genuinely relevant at northern

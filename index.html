@@ -4509,6 +4509,7 @@ async function renderTripWeatherStrip(){
   const eligibleDays = DAYS.filter(d=>weatherWithinHorizon(DAY_DATES[d]) || isFutureBeyondHorizon(DAY_DATES[d]));
   if(!eligibleDays.length) return;
   const token = ++weatherStripToken;
+  const badgesBefore = DAYS.map(d=>rainBadgeHtml(d)).join('|');
   const chips = [];
   for(const d of eligibleDays){
     const ids = getRouteIds(d);
@@ -4534,11 +4535,16 @@ async function renderTripWeatherStrip(){
   }
   if(token !== weatherStripToken) return;
   el.innerHTML = chips.length ? `<div class="weather-strip-row">${chips.join('')}</div>` : '';
-  // fetchWeather() populated weatherCache along the way (for every in-horizon
-  // day, whether or not this call is still the latest) — the rain badges on
-  // day tabs and the rainy-day count in the trip overview only ever read
-  // that cache, so refresh both now that it has fresh data.
+  // fetchWeather() populated weatherCache along the way — the rain badges on
+  // day tabs and the rainy-day count in the trip overview only ever read that
+  // cache, so refresh both now that it has fresh data. Only when a badge
+  // actually changed, though: renderTabs() rebuilds every tab element, which
+  // would otherwise drop keyboard focus out of the tab bar and re-run
+  // scrollIntoView() on a trip with no rainy days at all.
+  if(DAYS.map(d=>rainBadgeHtml(d)).join('|') === badgesBefore) return;
+  const focusWasInTabs = document.getElementById('tabs').contains(document.activeElement);
   renderTabs();
+  if(focusWasInTabs) document.querySelector('#tabs .tab[tabindex="0"]')?.focus();
   renderTripOverview();
 }
 
