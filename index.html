@@ -1339,6 +1339,10 @@
   }
   .status-new{background:var(--border); color:var(--ink-soft);}
   .status-in_progress{background:#F0D9A0; color:#6B4E00;}
+  /* A human explicitly greenlit this ticket for the nightly beta agent to
+     build even though it didn't come from one of its auto-trusted
+     submitters — distinct green so it reads as "go" at a glance. */
+  .status-approved{background:#BFE3B0; color:#2B5A1F;}
   .status-processed{background:var(--accent-light); color:var(--accent-dark);}
   .status-done{background:var(--accent); color:#fff;}
   /* Fixed purple regardless of viewing environment — a deliberate callback
@@ -4806,7 +4810,7 @@ document.getElementById('syncFromMainlineBtn').addEventListener('click', async (
 // Any characters are allowed; the server strips control chars and every
 // render path HTML-escapes, so nothing needs rejecting here beyond
 // required fields and length.
-const STATUS_LABELS = { new:'New', in_progress:'In progress', in_beta:'In beta', processed:'Processed', done:'Done' };
+const STATUS_LABELS = { new:'New', in_progress:'In progress', approved:'Approved', in_beta:'In beta', processed:'Processed', done:'Done' };
 
 function validateTicketClient(subject, description){
   subject = subject.trim();
