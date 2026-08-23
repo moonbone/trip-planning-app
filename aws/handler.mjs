@@ -26,7 +26,7 @@ import {
   isSyncAvailable, syncAllFromMainline,
 } from './store.mjs';
 
-const TICKET_STATUSES = ['new', 'in_progress', 'in_beta', 'processed', 'done'];
+const TICKET_STATUSES = ['new', 'in_progress', 'approved', 'in_beta', 'processed', 'done'];
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 // deploy.sh copies the repo's index.html next to this file before zipping,
@@ -147,7 +147,7 @@ export const handler = async (event) => {
       return { statusCode: 204, headers: corsHeaders() };
     }
     if (method === 'GET') {
-      return handleListTickets();
+      return handleListTickets(event);
     }
     if (method === 'POST') {
       return handleCreateTicket(event);
@@ -680,9 +680,16 @@ async function handleAdminApi(event, method, rawPath) {
   return jsonError(404, 'Not found');
 }
 
-async function handleListTickets() {
-  // Public listing: submitter emails are private, never expose them here.
-  const tickets = (await listTickets()).map(({ email, ...pub }) => pub);
+async function handleListTickets(event) {
+  // Public listing: submitter emails are private, never exposed — unless
+  // the caller presents the same x-admin-token used for the status PATCH
+  // below. The nightly beta agent needs this to tell whether a ticket came
+  // from a trusted submitter (see CLAUDE.md's "Beta deployment" section);
+  // it already holds this token for exactly one other purpose.
+  const adminToken = process.env.ADMIN_TOKEN;
+  const given = event?.headers?.['x-admin-token'] ?? event?.headers?.['X-Admin-Token'];
+  const includeEmail = !!adminToken && given === adminToken;
+  const tickets = (await listTickets()).map(({ email, ...pub }) => (includeEmail ? { ...pub, email } : pub));
   return {
     statusCode: 200,
     headers: { ...JSON_HEADERS, ...corsHeaders() },
