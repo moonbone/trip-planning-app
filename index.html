@@ -3876,11 +3876,22 @@ function hotelRow(hotelId, label){
 // stop; no special-casing beyond the icon needed there either. Same for
 // amenity=atm/bank — genuinely useful in areas that aren't as card-friendly
 // as Norway, and nothing about the query needs to change to pick them up.
+// viewpoint/attraction/hotel/guest_house/hostel live under OSM's separate
+// `tourism` key rather than `amenity` — genuinely useful mid-road-trip too
+// (a scenic overlook worth a stop, or somewhere to sleep if plans change),
+// so they're a second Overpass clause rather than one more entry in the
+// existing amenity regex. `r.amenity` on a result holds whichever tag value
+// actually matched (amenity or tourism), and the icon lookup below checks
+// both maps for it.
 const NEARBY_AMENITY_ICONS = {
   fuel: '⛽', restaurant: '🍽️', cafe: '☕', fast_food: '🍔',
   parking: '🅿️', toilets: '🚻', supermarket: '🛒',
   pharmacy: '💊', hospital: '🏥', charging_station: '🔌',
   atm: '🏧', bank: '🏦',
+};
+const NEARBY_TOURISM_ICONS = {
+  viewpoint: '👁️', attraction: '🎡',
+  hotel: '🏨', guest_house: '🛏️', hostel: '🛏️',
 };
 const NEARBY_RADIUS_M = 1500;
 const NEARBY_RESULT_CAP = 15;
@@ -3889,7 +3900,7 @@ function nearbyLink(placeId){
   const btn = document.createElement('button');
   btn.type = 'button';
   btn.className = 'nearby-btn';
-  btn.title = `Find nearby fuel, food, parking, restrooms, EV charging, a pharmacy/hospital, or an ATM/bank near ${byId[placeId].name}`;
+  btn.title = `Find nearby fuel, food, parking, restrooms, EV charging, a pharmacy/hospital, an ATM/bank, a viewpoint or attraction, or lodging near ${byId[placeId].name}`;
   btn.setAttribute('aria-label', `Find places near ${byId[placeId].name}`);
   btn.textContent = '🔎';
   btn.addEventListener('click', (e)=>{ e.stopPropagation(); openNearbyModal(placeId); });
@@ -3897,9 +3908,12 @@ function nearbyLink(placeId){
 }
 
 async function fetchNearbyAmenities(lat, lon){
-  const types = Object.keys(NEARBY_AMENITY_ICONS).join('|');
-  const query = `[out:json][timeout:12];node(around:${NEARBY_RADIUS_M},${lat},${lon})`
-    + `[amenity~"^(${types})$"];out ${NEARBY_RESULT_CAP * 3};`;
+  const amenityTypes = Object.keys(NEARBY_AMENITY_ICONS).join('|');
+  const tourismTypes = Object.keys(NEARBY_TOURISM_ICONS).join('|');
+  const query = `[out:json][timeout:12];(`
+    + `node(around:${NEARBY_RADIUS_M},${lat},${lon})[amenity~"^(${amenityTypes})$"];`
+    + `node(around:${NEARBY_RADIUS_M},${lat},${lon})[tourism~"^(${tourismTypes})$"];`
+    + `);out ${NEARBY_RESULT_CAP * 3};`;
   const res = await fetch('https://overpass-api.de/api/interpreter', {
     method: 'POST',
     headers: {'Content-Type': 'application/x-www-form-urlencoded'},
@@ -3915,7 +3929,7 @@ async function fetchNearbyAmenities(lat, lon){
     .map(el => ({
       name: el.tags.name,
       lat: el.lat, lon: el.lon,
-      amenity: el.tags.amenity,
+      amenity: el.tags.amenity || el.tags.tourism,
       // OSM's opening_hours syntax is a small language of its own
       // ("Mo-Fr 08:00-20:00; Sa 10:00-16:00; PH off"). Deliberately shown
       // verbatim rather than parsed into an is-it-open-now answer: a
@@ -3951,7 +3965,7 @@ async function openNearbyModal(placeId){
 function renderNearbyList(){
   const el = document.getElementById('nearbyList');
   if(!nearbyResults.length){
-    el.innerHTML = `<div class="empty-note">No named fuel, food, parking, or restroom spots found within ${NEARBY_RADIUS_M}m.</div>`;
+    el.innerHTML = `<div class="empty-note">No named fuel, food, parking, restroom, viewpoint, or lodging spots found within ${NEARBY_RADIUS_M}m.</div>`;
     return;
   }
   el.innerHTML = '';
@@ -3966,7 +3980,7 @@ function renderNearbyList(){
     const distText = meters < 1000 ? `${meters} m` : formatDistanceKm(r.distanceKm, 1);
     const icon = document.createElement('span');
     icon.className = 'nearby-icon';
-    icon.textContent = NEARBY_AMENITY_ICONS[r.amenity] || '📍';
+    icon.textContent = NEARBY_AMENITY_ICONS[r.amenity] || NEARBY_TOURISM_ICONS[r.amenity] || '📍';
     const name = document.createElement('span');
     name.className = 'nearby-name';
     name.textContent = r.name;
