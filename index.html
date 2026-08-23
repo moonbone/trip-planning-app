@@ -4902,7 +4902,7 @@ async function buildDayItinerary(day){
       t += legMin;
     }
     const stay = stayMinutes(day, id);
-    result.stops.push({name: p.name, overnight: !!p.overnight, stay, arrival: route ? fmtClock(t) : null, legMin, legKm});
+    result.stops.push({name: p.name, lat: p.lat, lon: p.lon, overnight: !!p.overnight, stay, arrival: route ? fmtClock(t) : null, legMin, legKm});
     t += stay;
   });
   if(route){
@@ -5159,6 +5159,7 @@ function buildTripIcs(days){
     if(d.routed) descParts.push(`${Math.floor(d.driveMin/60)}h ${d.driveMin%60}m driving \u00b7 ${formatDistanceKm(d.distanceKm)}`);
     if(d.weather) descParts.push('Forecast: ' + weatherSummaryText(d.weather));
     if(d.notes.length) descParts.push('Notes: ' + d.notes.join('; '));
+    const geoRef = overnightStop || firstStop;
     return [
       'BEGIN:VEVENT',
       `UID:tripplan-day${d.day}-${dtstart}@tripplanner`,
@@ -5167,7 +5168,11 @@ function buildTripIcs(days){
       `DTEND:${dtend}`,
       `SUMMARY:${icsEscape(summary)}`,
       `DESCRIPTION:${icsEscape(descParts.join('\n\n'))}`,
-      `LOCATION:${icsEscape((overnightStop || firstStop).name)}`,
+      `LOCATION:${icsEscape(geoRef.name)}`,
+      // RFC 5545 GEO: plain decimal lat;lon — lets a calendar app that reads
+      // it (most mobile ones do) offer a "navigate here" action of its own,
+      // same value the LOCATION text names.
+      `GEO:${geoRef.lat};${geoRef.lon}`,
       'END:VEVENT',
     ].map(icsFold).join('\r\n');
   });
