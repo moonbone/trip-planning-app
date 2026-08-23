@@ -5078,6 +5078,11 @@ function renderPrintableItinerary(trip, days){
   .t-weather{margin:0.2rem 0 0.6rem;}
   .t-warn{color:#a05a00;}
   .t-notes{font-size:0.9rem;color:#555;margin-top:0.3rem;}
+  .t-packing{page-break-inside:avoid;margin-bottom:1.6rem;}
+  .t-packing table{width:auto;}
+  .t-packing td{padding:2px 0.6rem 2px 0;}
+  .t-packing .t-check{width:1.4em;color:#555;}
+  .t-packing .t-packed{color:#999;text-decoration:line-through;}
   .print-btn{position:fixed;top:1rem;right:1rem;padding:0.5rem 1rem;border-radius:6px;border:none;background:#C0552E;color:#fff;cursor:pointer;font-size:0.95rem;}
   @media print{ .no-print{display:none;} body{margin:0;max-width:none;} }
 </style></head>
@@ -5089,6 +5094,10 @@ function renderPrintableItinerary(trip, days){
     ${totalKm ? `<b>${formatDistanceKm(totalKm)}</b> total driving · <b>${hrs}h ${mins}m</b> total driving time${fuelCostText(totalKm, fuel)}` : 'Driving totals unavailable'}
     ${unrouted ? ` · ${unrouted} day${unrouted>1?'s':''} without routing data` : ''}
   </div>
+  ${packingList.length ? `<div class="t-packing">
+    <h2>Packing checklist</h2>
+    <table>${packingList.map(it=>`<tr><td class="t-check">${it.checked ? '☑' : '☐'}</td><td class="${it.checked ? 't-packed' : ''}">${escapeHtml(it.text)}</td></tr>`).join('')}</table>
+  </div>` : ''}
   ${dayHtml}
 </body></html>`;
 }
