@@ -573,6 +573,28 @@
   .packing-item .remove-btn{
     flex-shrink:0;
   }
+  .packing-suggestion{
+    font-size:12px;
+    color:var(--ink-soft);
+  }
+  .packing-suggestion:empty{display:none;}
+  .packing-suggest-list{
+    background:var(--bg);
+    border:1px solid var(--border);
+    border-radius:6px;
+    padding:2px 9px;
+    margin-top:4px;
+  }
+  .packing-suggest-item{
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    gap:8px;
+    padding:5px 0;
+    border-bottom:1px solid var(--border);
+    font-size:13px;
+  }
+  .packing-suggest-item:last-child{border-bottom:none;}
   .packing-add-row{
     display:flex;
     gap:6px;
@@ -1555,9 +1577,10 @@
 <div class="info-modal-overlay" id="packingModal" style="display:none;">
   <div class="info-modal">
     <button class="info-close" id="packingModalClose" title="Close">×</button>
-    <h2>🎒 Packing checklist</h2>
+    <h2>🎒 Packing checklist <button class="link-btn" id="packingSuggestBtn" title="Suggest items to pack based on this trip's weather forecast">💡 Suggest from forecast</button></h2>
     <p class="packing-progress" id="packingProgress"></p>
     <div id="packingListEl"></div>
+    <div id="packingSuggestion" class="packing-suggestion"></div>
     <div class="packing-add-row">
       <input type="text" id="packingInput" maxlength="200" placeholder="Add an item…">
       <button class="reset-btn" id="packingAddBtn">Add</button>
@@ -3030,12 +3053,93 @@ function openPackingModal(){
     return;
   }
   document.getElementById('packingError').textContent = '';
+  document.getElementById('packingSuggestion').innerHTML = '';
   renderPackingList();
   document.getElementById('packingModal').style.display = '';
 }
 function closePackingModal(){
   document.getElementById('packingModal').style.display = 'none';
 }
+
+// "Suggest from forecast": rather than a dedicated packing-advice feature
+// with its own rules engine, this just reads the same per-day forecast the
+// weather panel/strip already fetch (via fetchWeather's existing cache — a
+// day already looked at in this session costs no extra call) and maps a
+// handful of real trip-wide conditions to concrete items. Deliberately
+// coarse (whole-trip flags, not "pack a rain jacket only for day 3") — a
+// packing list is assembled once before departure, not re-planned per day.
+// Climate-normal (beyond-forecast-horizon) days are skipped: a 3-year
+// average is honest enough for "what should the weather roughly be", but
+// not for "should I pack a rain jacket for this specific trip", the same
+// judgment call that already kept climate normals out of the exports.
+const PACKING_COLD_MAX_C = 5;   // pack warm layers if any day's low is at/below this
+const PACKING_HOT_MIN_C = 25;   // pack sun protection if any day's high is at/above this
+const PACKING_WINDY_MIN_KMH = 40; // pack a windbreaker if any day's max wind is at/above this
+const PACKING_SUGGEST_RULES = [
+  {flag: 'rain', items: ['Rain jacket', 'Umbrella']},
+  {flag: 'cold', items: ['Warm layers', 'Gloves']},
+  {flag: 'hot', items: ['Sunscreen', 'Sun hat']},
+  {flag: 'windy', items: ['Windbreaker']},
+];
+async function suggestPackingFromWeather(){
+  const el = document.getElementById('packingSuggestion');
+  const forecastDays = DAYS.filter(d=>weatherWithinHorizon(DAY_DATES[d]));
+  if(!forecastDays.length){
+    el.innerHTML = '<div class="empty-note">No live forecast available yet for this trip’s dates.</div>';
+    return;
+  }
+  el.innerHTML = '<div class="empty-note">Checking the forecast…</div>';
+  const flags = {rain:false, cold:false, hot:false, windy:false};
+  for(const d of forecastDays){
+    const ids = getRouteIds(d);
+    const ref = ids.length ? byId[ids[0]] : null;
+    if(!ref) continue;
+    const forecast = await fetchWeather(ref.lat, ref.lon, DAY_DATES[d]);
+    if(!forecast) continue;
+    if(forecast.precip >= RAIN_WARN_MM) flags.rain = true;
+    if(forecast.tMin <= PACKING_COLD_MAX_C) flags.cold = true;
+    if(forecast.tMax >= PACKING_HOT_MIN_C) flags.hot = true;
+    if(forecast.windMax != null && forecast.windMax >= PACKING_WINDY_MIN_KMH) flags.windy = true;
+  }
+  const already = new Set(packingList.map(it=>it.text.trim().toLowerCase()));
+  const suggestions = [];
+  PACKING_SUGGEST_RULES.forEach(rule=>{
+    if(!flags[rule.flag]) return;
+    rule.items.forEach(item=>{
+      if(!already.has(item.toLowerCase()) && !suggestions.includes(item)) suggestions.push(item);
+    });
+  });
+  if(!suggestions.length){
+    el.innerHTML = '<div class="empty-note">Nothing new to suggest — the forecast looks mild, or you’ve already packed for it.</div>';
+    return;
+  }
+  el.innerHTML = '<p class="section-label">Suggested from the forecast</p>';
+  const list = document.createElement('div');
+  list.className = 'packing-suggest-list';
+  suggestions.forEach(item=>{
+    const row = document.createElement('div');
+    row.className = 'packing-suggest-item';
+    const span = document.createElement('span');
+    span.textContent = item;
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'link-btn';
+    btn.textContent = '+ Add';
+    btn.onclick = ()=>{
+      commitPackingList([...packingList, {id: 'p' + newId(), text: item, checked:false}]);
+      row.remove();
+      if(!list.children.length) el.innerHTML = '<div class="empty-note">All suggested items added.</div>';
+    };
+    row.appendChild(span);
+    row.appendChild(btn);
+    list.appendChild(row);
+  });
+  el.appendChild(list);
+}
+document.getElementById('packingSuggestBtn').addEventListener('click', (e)=>{
+  e.preventDefault();
+  suggestPackingFromWeather();
+});
 
 // Trip budget: same flat-list-per-trip pattern as packing (whole-array PUT,
 // not per variant — costs don't depend on the route plan). Displays amounts
