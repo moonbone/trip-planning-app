@@ -3,6 +3,115 @@
 A running log of what each scheduled nightly session built on `beta`, so
 future runs don't duplicate or contradict prior work. Newest entry first.
 
+## 2026-08-23
+
+`beta` was at 389c158 going in (synced with master after the prior 3-night
+batch was promoted to production). Fetched the real feature-request backlog
+from mainline (`GET /tickets`): of 13 tickets, **zero were actionable** —
+every one is already `done` or `in_beta` from prior nights (the three most
+recent open-ended ones, `mt17lonuj2k12b`/`mswuwmi5itojje`/`msw6fddzu25mte`,
+were all marked `in_beta` weeks ago). One older numeric-id ticket (`9`,
+"Add laundry locations") shows `done` but no `laundry` string exists
+anywhere in `index.html` — left alone rather than second-guessed, since its
+status wasn't set by a nightly run and "done" isn't `new`/`in_progress`
+either way. **No mainline ticket was implemented or marked `in_beta`
+tonight** — nothing was left to take. All four changes below are
+own-initiative picks, each committed and pushed separately, each verified
+against the local dev-server with Playwright (fresh chromium, stubbed
+`window.L`, stubbed every external API this sandbox can't reach from a
+browser — the approach every prior night has used) before pushing.
+
+1. **Viewpoints, attractions, and lodging in the nearby-amenities lookup.**
+   The existing 🔎 lookup only ever queried OSM's `amenity` tag; viewpoints,
+   attractions, hotels, guest houses, and hostels live under a separate
+   `tourism` key, so they needed a second Overpass clause
+   (`NEARBY_TOURISM_ICONS`, alongside the existing `NEARBY_AMENITY_ICONS`)
+   rather than one more entry in the existing regex. Genuinely useful
+   mid-road-trip either way: a scenic overlook worth a quick stop, or
+   somewhere to sleep if plans change. A result's `amenity` field now holds
+   whichever tag actually matched, and the icon lookup checks both maps.
+
+2. **A GEO coordinate on each ICS calendar event.** Small, low-risk
+   addition: `LOCATION` was already a place-name string, and most mobile
+   calendar apps also read RFC 5545's `GEO:lat;lon` field to offer their own
+   "navigate here" action. Caught and fixed a real gap while building
+   this — `buildDayItinerary()`'s per-stop objects never carried
+   coordinates through to the result (only `name`/`overnight`/timing
+   fields), even though it already had every stop's `lat`/`lon` in hand
+   while building the route. Added them to the stop objects directly rather
+   than a parallel lookup inside the ICS builder, since other consumers of
+   `buildDayItinerary` (printable itinerary, GPX export) may as well have
+   coordinates available too.
+
+3. **Weather-based packing suggestions.** A "💡 Suggest from forecast"
+   button in the packing checklist modal reads the same per-day forecast
+   the weather panel/strip already fetch (reusing `fetchWeather`'s cache —
+   no extra calls for a day already looked at this session) and maps four
+   trip-wide conditions to concrete items: any rainy day → rain jacket +
+   umbrella, any cold day (low ≤5°C) → warm layers + gloves, any hot day
+   (high ≥25°C) → sunscreen + sun hat, any windy day (max wind ≥40km/h) →
+   windbreaker. Deliberately whole-trip rather than per-day — a packing
+   list gets assembled once before departure — and deliberately skips
+   climate-normal (beyond-16-day-horizon) days entirely: a 3-year average
+   is honest enough to *show*, not honest enough to tell someone what to
+   *pack*, same judgment call that already kept climate normals out of the
+   exports. Excludes items already on the list (case-insensitive), so
+   re-running it after packing doesn't re-suggest the same things; each
+   suggestion gets its own "+ Add" button, matching the nearby-amenities
+   and search-results modals' existing per-item pattern rather than a bulk
+   "add all."
+
+4. **The packing checklist in the printable itinerary.** The printable
+   itinerary exists specifically for offline use — several of this app's
+   features exist because these road trips regularly have no signal — so a
+   checklist someone can glance at (and check off by hand, on paper)
+   belongs alongside the day-by-day plan, not screen-only. Reuses the
+   already-loaded `packingList` global exactly the way `fuelCostText`/
+   `loadFuelSettings()` already do inside `renderPrintableItinerary`; only
+   rendered when the list has items, and a checked item shows struck
+   through, matching the in-app checklist's own display.
+
+30 checks total across two throwaway Playwright scripts (a two-day KML
+fixture with one rainy/cold day and one hot/windy day, stubbed Overpass/
+Open-Meteo/routing responses), all passing, re-run after every later change
+tonight to catch cross-feature regressions — none surfaced. Coverage worth
+noting: the nearby lookup's new icon rendering *and* the unnamed-node filter
+still working alongside the new tourism clause; the packing suggestions'
+full positive case (all four flags firing → all seven items), the
+add-then-shrinks flow, and case-insensitive dedup against a manually-typed
+item; the ICS GEO line's exact coordinates for both days plus a
+no-regression check that `LOCATION` is still present; and the printable
+itinerary's empty/non-empty/checked-item states for the new packing
+section. Also screenshotted the new packing-suggestion list and the
+nearby-amenities results (new hotel/viewpoint icons) in both light and dark
+mode — both read correctly.
+
+Re-learned the CLAUDE.md-documented dev-server gotcha once more, this time
+from the opposite direction: `pkill -f dev-server.mjs` killed the shell
+running the *next* command in the same tool call (the pattern matches the
+shell's own `/proc` cmdline, not just the target process), leaving the old
+server bound to 8787 and a *new* server crashing with `EADDRINUSE` on
+startup — which then silently served nothing while curl still returned
+200 from the stale process. Recovered by killing the old server's exact
+PID (from `ps aux`) rather than by pattern, then restarting. Future nights:
+prefer `kill <pid>` from a fresh `ps aux | grep dev-server` over any
+pattern-based kill in the same tool call that's about to start a new server.
+
+**Decided not to do, and why:**
+- **A bulk "add all suggested" button** for the weather-based packing
+  suggestions. Every other suggestion-list UI in this app (nearby
+  amenities, search results) uses individual per-item "+ Add" buttons —
+  matching that existing convention felt more consistent than introducing
+  a new bulk-action pattern for a list that's at most seven items.
+- **Wiring packing suggestions into the ICS/GPX exports.** Both are
+  calendar/GPS-device formats with no natural place for a checklist; the
+  printable itinerary (added tonight, item 4) is the export that actually
+  fits a checklist someone reads and checks off.
+- **Reopening ticket `9` ("Add laundry locations")** despite finding no
+  `laundry` string in the codebase. Its `done` status wasn't set by a
+  nightly run and isn't `new`/`in_progress` either way — not this session's
+  call to second-guess without knowing why the human closed it.
+
 ## 2026-08-22
 
 `beta` was at cae984f going in (last night's five: tab scroll/keyboard nav,

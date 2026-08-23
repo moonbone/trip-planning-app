@@ -97,7 +97,27 @@ The user's own real trip currently loaded into the app is a Norway road trip, Au
   (editor+; whole-array replace on every add/check/delete, same shallow read-modify-write
   pattern as `enrichment`, not per-item CRUD like comments — simpler since packing items
   don't need per-author tracking; server sanitizes/truncates each item's text and caps the
-  list at 300 items). A **trip budget** (💰 button next to packing, its own modal) follows
+  list at 300 items). A "💡 Suggest from forecast" button in the packing modal
+  (`suggestPackingFromWeather`) reads the same per-day forecast the weather panel/strip
+  already fetch (via `fetchWeather`'s existing cache — no extra API calls beyond what a
+  same-session visit already made) and maps a handful of whole-trip conditions to concrete
+  items: any day at/above `RAIN_WARN_MM` suggests a rain jacket and umbrella, any day whose
+  low is at/below `PACKING_COLD_MAX_C` (5°) suggests warm layers and gloves, any day whose
+  high is at/above `PACKING_HOT_MIN_C` (25°) suggests sunscreen and a sun hat, any day whose
+  max wind is at/above `PACKING_WINDY_MIN_KMH` (40) suggests a windbreaker
+  (`PACKING_SUGGEST_RULES`). Deliberately coarse and whole-trip rather than per-day — a
+  packing list gets assembled once before departure, not re-planned per day — and skips
+  climate-normal (beyond-forecast-horizon) days entirely, same reasoning as keeping those
+  out of the exports: a 3-year average is honest enough to show on screen, not honest enough
+  to tell someone what to pack. Excludes items already on the list (case-insensitive) so
+  re-running it after packing doesn't re-suggest the same things; each suggestion has its
+  own "+ Add" button rather than a bulk-add, matching how every other suggestion-list UI in
+  this app (nearby amenities, search results) already works. The printable itinerary
+  (`renderPrintableItinerary`) also includes the packing list, when it has items, as a
+  checkbox table right after the trip summary — reuses the already-loaded `packingList`
+  global the same way `fuelCostText`/`loadFuelSettings()` already do in that function, and a
+  checked item renders struck through, matching the in-app checklist's own display. A **trip
+  budget** (💰 button next to packing, its own modal) follows
   the exact same pattern one field over: a flat `{id, category, label, amount}` list per
   trip (not per variant), local key `tripplan-budget:<id>` or a `budgetItems` field via
   `PUT /api/trips/:id/budget` (editor+, whole-array replace, sanitized/capped at 300 items,
@@ -141,8 +161,12 @@ The user's own real trip currently loaded into the app is a Norway road trip, Au
   Every route-item row (stops and pinned hotels alike) has a small "🔎" button
   (`nearbyLink`/`openNearbyModal`) that looks up nearby fuel stations, restaurants, cafes,
   fast food, parking, restrooms, supermarkets, pharmacies, hospitals, EV charging
-  stations, ATMs, and banks — the amenity types actually relevant mid-road-trip, not a
-  general POI browser —
+  stations, ATMs, banks, viewpoints, tourist attractions, and lodging (hotels/guest
+  houses/hostels) — the amenity types actually relevant mid-road-trip, not a
+  general POI browser — the last three via a second Overpass clause since OSM tags them
+  under a separate `tourism` key rather than `amenity` (`NEARBY_TOURISM_ICONS`, matched
+  alongside `NEARBY_AMENITY_ICONS`; a result's `amenity` field holds whichever tag value
+  actually matched, and the icon lookup checks both maps) —
   within 1.5km of that stop, via Overpass
   (`overpass-api.de`, OSM's public query API: keyless, `Access-Control-Allow-Origin: *`,
   same no-auth client-side-callable trust model as Nominatim/Open-Meteo already used
@@ -220,7 +244,11 @@ The user's own real trip currently loaded into the app is a Norway road trip, Au
   on a phone calendar while the traveler's device is set to the trip's own timezone. A day's
   *last* stop (not just any stop flagged `overnight`) is used as "tonight's" destination, since
   the previous night's hotel is also flagged `overnight` where it appears pinned as that day's
-  *first* stop.
+  *first* stop. Each event also carries an RFC 5545 `GEO:lat;lon` line alongside its
+  `LOCATION` text, so a calendar app that reads it (most mobile ones do) can offer its own
+  "navigate here" action — needed `buildDayItinerary()`'s per-stop objects to actually carry
+  `lat`/`lon` through to the result (it already had the coordinates, just never kept them on
+  the returned stop).
   A fuel cost estimate (⛽ row above "Drive summary") takes a consumption (L/100km),
   price/liter, and currency label the user types in — one plain `tripplan-fuel-settings`
   localStorage key, deliberately *not* trip-scoped or synced (it's the car, not the trip)
