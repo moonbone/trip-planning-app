@@ -3,6 +3,114 @@
 A running log of what each scheduled nightly session built on `beta`, so
 future runs don't duplicate or contradict prior work. Newest entry first.
 
+## 2026-08-24
+
+`beta` was at 0689eb0 going in (synced with master after the admin-token
+email exposure + `approved` status change). Fetched the real
+feature-request backlog from mainline (`GET /tickets`, with the admin
+token): of 13 tickets, **zero were actionable** — every one is already
+`done` or `in_beta` from prior nights, and none are `new`/`in_progress`
+(so there was nothing eligible to note as an untrusted/unapproved ticket
+either — the backlog is simply exhausted for now). **No mainline ticket
+was implemented or marked `in_beta` tonight.** All three changes below are
+own-initiative picks, each committed and pushed separately, each verified
+against the local dev-server with Playwright (fresh chromium, a hand-
+written two-day KML fixture, stubbed `window.L` for the CDN-less sandbox)
+before pushing.
+
+1. **An accessibility pass: `aria-label` on every icon-only control that
+   was missing one, plus a real layout bug found while auditing them.**
+   The file had only 5 `aria-label` attributes total (the nearby-lookup
+   and up/down reorder buttons, from an earlier night) across dozens of
+   icon-only buttons — a screen reader announcing "×" or a bare emoji for
+   every modal close button, remove button, and nav link gives no real
+   information. Added `aria-label` to every modal's `×` close button, the
+   plan-variant controls, the theme toggle, the trip/day comment buttons,
+   and — since these are built per-row in JS rather than living in static
+   HTML — the route-item/packing/budget/comment/custom-place remove
+   buttons and the per-stop Google Maps nav link, each labeled with the
+   specific place/item name rather than a generic string repeated on every
+   row. While auditing that area, found a genuine pre-existing bug (not
+   introduced tonight): `.trip-row` had no `flex-wrap`, so the trip-file
+   panel's export/backup button rows — which have picked up more buttons
+   over many nights of feature work — already overflowed the fixed-width
+   left column by 100–250px, spilling invisibly underneath the map with no
+   scrollbar to reveal them. Confirmed with `scrollWidth` vs. the rendered
+   column width (not just a screenshot), and fixed with one `flex-wrap:wrap`
+   that resolves all three affected rows at once. 5 checks (aria-label
+   presence across static and dynamically-built controls), screenshotted
+   before/after the layout fix in both light and dark mode.
+
+2. **A "🧳 Essentials" button in the packing checklist, alongside the
+   existing weather-based suggestions.** A fresh packing list starts
+   completely empty, and "💡 Suggest from forecast" only ever suggests
+   conditional items (rain gear, sun protection) — the universal,
+   easy-to-forget essentials (passport/ID, chargers, medications, cash)
+   never get suggested regardless of weather. Added a fixed generic
+   `PACKING_ESSENTIALS` list through the same per-item "+ Add" UI,
+   factoring the shared rendering logic out into
+   `renderPackingSuggestionList(el, heading, items, emptyMessage)` so both
+   buttons write into the same `#packingSuggestion` container (triggering
+   one replaces whatever the other last showed) and can't drift apart in
+   behavior. Deliberately per-item "+ Add", not a bulk-add — matches this
+   app's existing suggestion-list convention (nearby amenities, search
+   results, weather suggestions) rather than introducing a new pattern, a
+   choice an earlier night's "decided not to do" already reasoned through
+   for the weather suggestions. 6 checks: suggestions render, adding one
+   lands it in the real packing list, it's excluded on re-open, unrelated
+   suggestions remain, and the pre-existing weather-suggestion button
+   still works unchanged. Screenshotted in both light and dark mode.
+
+3. **A "📤 Copy whole trip" button, alongside the existing per-day "Copy
+   day plan."** Every other export (print, GPX, ICS, backup) already
+   covers the whole trip; the copy/share button was the one export still
+   stuck at one day at a time, with no quick way to text a full itinerary
+   to travel companions without opening the print-preview tab.
+   `dayDescriptionText()` now takes an optional `day` parameter (defaults
+   to `activeDay`, so every existing call site — the per-day copy button,
+   the AI summary — is unaffected) so a new `tripDescriptionText()` can
+   reuse the identical per-day formatting for every day with at least one
+   stop, joined under the trip's name. Both the new button and the
+   existing "Copy day plan" now share one `shareOrCopyText(btn,
+   defaultLabel, title, text)` helper for the actual
+   share-sheet-then-clipboard-then-prompt fallback chain, pulled out of
+   what was previously "Copy day plan"'s own inline logic, so the two
+   can't diverge. 6 checks: per-day copy still copies only the active day
+   after the refactor (regression check), switching days changes what it
+   copies, a hotel-only day (no user-added stops, just the pinned wake/
+   sleep hotel) still produces real trip text rather than being treated as
+   empty, and the "Nothing to copy yet" state correctly requires no active
+   trip at all (a day with only hotel pins is not "empty").
+
+18 checks total, all passing, re-run against a freshly restarted
+dev-server as a final check before pushing (this file's own recurring
+`EADDRINUSE`/stale-server warning — restart and confirm the *served* HTML
+actually changed, don't assume a restart worked). Confirmed all three
+commits deployed successfully via `deploy-beta.yml` (checked the actual
+workflow run conclusions via the GitHub Actions API, not just watching for
+the push to complete) and spot-checked the live beta URL for each
+feature's new markup (`copyTripBtn`, `packingEssentialsBtn`,
+`flex-wrap:wrap`) after the final push.
+
+**Decided not to do, and why:**
+- **Reworking the trip-file panel's button rows beyond the flex-wrap fix**
+  (e.g. grouping into a dropdown, or a "more" overflow menu) now that
+  they're long enough to wrap across 2–3 lines on a narrow column.
+  Wrapping fixes the actual bug (buttons becoming invisible); a deeper
+  layout redesign is a separate, larger call about how many top-level
+  actions this panel should expose at all, not something to make
+  unilaterally while fixing an overflow bug.
+- **A bulk "add all" button for the essentials list**, same reasoning an
+  earlier night already gave for the weather suggestions: every other
+  suggestion-list UI in this app uses individual "+ Add" buttons, and a
+  ten-item list doesn't justify a new bulk-action pattern.
+- **Wiring "Copy whole trip" into the native share sheet's `files` option**
+  (sharing the printable itinerary as an actual file/PDF instead of plain
+  text). `navigator.share({files})` support is inconsistent enough across
+  browsers to be a separate, riskier feature than reusing the existing
+  text-based `shareOrCopyText` path this session already had verified
+  working end-to-end.
+
 ## 2026-08-23
 
 `beta` was at 389c158 going in (synced with master after the prior 3-night

@@ -112,7 +112,15 @@ The user's own real trip currently loaded into the app is a Norway road trip, Au
   to tell someone what to pack. Excludes items already on the list (case-insensitive) so
   re-running it after packing doesn't re-suggest the same things; each suggestion has its
   own "+ Add" button rather than a bulk-add, matching how every other suggestion-list UI in
-  this app (nearby amenities, search results) already works. The printable itinerary
+  this app (nearby amenities, search results) already works. A "🧳 Essentials" button right
+  next to it covers the other half of the gap: a fresh packing list starts completely empty,
+  and the weather suggestions only ever fire conditionally (rain gear, sun protection) — the
+  universal, easy-to-forget items (passport/ID, chargers, meds, cash) never get suggested
+  regardless of forecast. `PACKING_ESSENTIALS` is a fixed generic list rendered through the
+  same per-item "+ Add" UI, factored out as `renderPackingSuggestionList(el, heading, items,
+  emptyMessage)` and shared by both buttons — they write into the same `#packingSuggestion`
+  container, so triggering one replaces whatever the other last showed rather than stacking.
+  The printable itinerary
   (`renderPrintableItinerary`) also includes the packing list, when it has items, as a
   checkbox table right after the trip summary — reuses the already-loaded `packingList`
   global the same way `fuelCostText`/`loadFuelSettings()` already do in that function, and a
@@ -305,10 +313,17 @@ The user's own real trip currently loaded into the app is a Norway road trip, Au
   the source of truth rather than hand-building the new trip's index entry; the local-mode
   path writes the same `tripplan-*` keys `addTrip`/`addVariant` already use. A malformed
   or non-JSON file fails with an inline message instead of throwing.
-  A "📋 Copy day plan" button (col-right, always visible, no sign-in needed) copies the
-  same plain-text day rendition used for the AI summary (`dayDescriptionText`) to the
-  clipboard, falling back to a `prompt()` box if `navigator.clipboard` is blocked —
-  handy for texting a day's stops to travel companions without a signal. A
+  A "📋 Copy day plan" button (col-right, always visible, no sign-in needed) shares or copies
+  the same plain-text day rendition used for the AI summary (`dayDescriptionText`) — the
+  native share sheet where `navigator.share` is available (mostly phones), else the
+  clipboard, else a `prompt()` box if `navigator.clipboard` is blocked — handy for texting a
+  day's stops to travel companions without a signal. `dayDescriptionText(day = activeDay)`
+  takes an optional day so a "📤 Copy whole trip" button (col-left, trip-file panel, next to
+  Export calendar) can reuse the exact same per-day formatting for every day that has at
+  least one stop, joined under the trip's name (`tripDescriptionText`) — every other export
+  (print, GPX, ICS, backup) already covered the whole trip, but this one only ever covered
+  one day at a time. Both buttons share the actual share/clipboard/prompt fallback chain via
+  one `shareOrCopyText(btn, defaultLabel, title, text)` helper so they can't drift apart. A
   "🖨️ Print itinerary" button (col-left, trip-file panel) opens a new tab and builds a
   full, offline-printable day-by-day itinerary for every day in the trip: it fetches
   driving times per day independently of whatever's cached in `lastRoute` (via
@@ -469,6 +484,20 @@ The user's own real trip currently loaded into the app is a Norway road trip, Au
   past/future split (at least one day already before today, at least one still today-or-later)
   — asks once via `confirm()` before building the printable page; a trip with no dates, one
   not yet started, or one fully over skips the prompt and prints everything, unchanged.
+  An accessibility pass added `aria-label` to every icon-only control that only ever had a
+  `title` (or nothing at all): every modal's `×` close button, the plan-variant duplicate/
+  rename/delete buttons, the theme toggle, the trip/day comment buttons, and — since these
+  are built dynamically per row rather than living in static HTML — the route-item and
+  packing/budget/comment/custom-place `×` remove buttons and the per-stop Google Maps nav
+  link, all now set their `aria-label` at creation time alongside the row's own content (e.g.
+  the place or item name) rather than a generic label repeated on every row. The nearby-lookup
+  and up/down reorder buttons already had this from an earlier night; this just closes the
+  rest of the gap. Auditing that also surfaced a real, pre-existing layout bug: `.trip-row`
+  (the trip-file panel's export/backup button rows) had no `flex-wrap`, so as those rows
+  picked up more buttons over many nights they'd grown to overflow the fixed-width left
+  column by 100–250px, spilling invisibly underneath the map with no scrollbar to reveal
+  them — confirmed via `scrollWidth` vs. the rendered column width, not just eyeballing a
+  screenshot. `flex-wrap:wrap` on `.trip-row` fixes all three rows at once.
 - `aws/handler.mjs` — Lambda handler. Serves `index.html` at `GET /`, proxies
   `POST /route` to OpenRouteService using `process.env.ORS_API_KEY`, resolves shortened
   Google Maps links via `POST /resolve-maps-link` (host-allowlisted to Google's own
