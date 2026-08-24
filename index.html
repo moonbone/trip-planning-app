@@ -1585,8 +1585,8 @@
 
 <div class="info-modal-overlay" id="packingModal" style="display:none;">
   <div class="info-modal">
-    <button class="info-close" id="packingModalClose" title="Close">×</button>
-    <h2>🎒 Packing checklist <button class="link-btn" id="packingSuggestBtn" title="Suggest items to pack based on this trip's weather forecast">💡 Suggest from forecast</button></h2>
+    <button class="info-close" id="packingModalClose" title="Close" aria-label="Close packing checklist">×</button>
+    <h2>🎒 Packing checklist <button class="link-btn" id="packingSuggestBtn" title="Suggest items to pack based on this trip's weather forecast">💡 Suggest from forecast</button> <button class="link-btn" id="packingEssentialsBtn" title="Add commonly-forgotten road-trip essentials — documents, chargers, medications — regardless of weather">🧳 Essentials</button></h2>
     <p class="packing-progress" id="packingProgress"></p>
     <div id="packingListEl"></div>
     <div id="packingSuggestion" class="packing-suggestion"></div>
@@ -3111,19 +3111,27 @@ async function suggestPackingFromWeather(){
     if(forecast.tMax >= PACKING_HOT_MIN_C) flags.hot = true;
     if(forecast.windMax != null && forecast.windMax >= PACKING_WINDY_MIN_KMH) flags.windy = true;
   }
-  const already = new Set(packingList.map(it=>it.text.trim().toLowerCase()));
-  const suggestions = [];
+  const items = [];
   PACKING_SUGGEST_RULES.forEach(rule=>{
     if(!flags[rule.flag]) return;
-    rule.items.forEach(item=>{
-      if(!already.has(item.toLowerCase()) && !suggestions.includes(item)) suggestions.push(item);
-    });
+    rule.items.forEach(item=>{ if(!items.includes(item)) items.push(item); });
   });
+  renderPackingSuggestionList(el, 'Suggested from the forecast', items,
+    'Nothing new to suggest — the forecast looks mild, or you’ve already packed for it.');
+}
+// Shared by both suggestion sources above/below (weather-based and the
+// fixed essentials list right after): renders a "+ Add" per item, already-
+// on-the-list items excluded, into the same #packingSuggestion container —
+// so triggering one replaces whatever the other last showed rather than
+// stacking two lists.
+function renderPackingSuggestionList(el, heading, items, emptyMessage){
+  const already = new Set(packingList.map(it=>it.text.trim().toLowerCase()));
+  const suggestions = items.filter(item=>!already.has(item.toLowerCase()));
   if(!suggestions.length){
-    el.innerHTML = '<div class="empty-note">Nothing new to suggest — the forecast looks mild, or you’ve already packed for it.</div>';
+    el.innerHTML = `<div class="empty-note">${escapeHtml(emptyMessage)}</div>`;
     return;
   }
-  el.innerHTML = '<p class="section-label">Suggested from the forecast</p>';
+  el.innerHTML = `<p class="section-label">${escapeHtml(heading)}</p>`;
   const list = document.createElement('div');
   list.className = 'packing-suggest-list';
   suggestions.forEach(item=>{
@@ -3149,6 +3157,23 @@ async function suggestPackingFromWeather(){
 document.getElementById('packingSuggestBtn').addEventListener('click', (e)=>{
   e.preventDefault();
   suggestPackingFromWeather();
+});
+// A fresh packing list starts completely empty, and the weather-based
+// suggestions above only ever cover conditional items (rain gear, sun
+// protection) — not the universal, easy-to-forget essentials that apply
+// regardless of forecast. Deliberately a fixed generic list, not
+// trip-specific advice — same "still just a normal editable/removable
+// list item once added" spirit as the weather suggestions.
+const PACKING_ESSENTIALS = [
+  'Passport / ID', 'Driver’s license', 'Travel insurance documents',
+  'Phone charger', 'Car charger / adapter', 'Power bank',
+  'Medications', 'First aid kit', 'Cash & cards', 'Reusable water bottle',
+];
+document.getElementById('packingEssentialsBtn').addEventListener('click', (e)=>{
+  e.preventDefault();
+  renderPackingSuggestionList(document.getElementById('packingSuggestion'),
+    'Road-trip essentials', PACKING_ESSENTIALS,
+    'All essentials are already on your list.');
 });
 
 // Trip budget: same flat-list-per-trip pattern as packing (whole-array PUT,
