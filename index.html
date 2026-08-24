@@ -1433,6 +1433,7 @@
         <button class="reset-btn" id="printTripBtn" title="Open a printable, offline-friendly day-by-day itinerary in a new tab">🖨️ Print itinerary</button>
         <button class="reset-btn" id="exportGpxBtn" title="Download every stop and driving route as a GPX file, for GPS devices/apps like Garmin or OsmAnd">🗺️ Export GPX</button>
         <button class="reset-btn" id="exportIcsBtn" title="Download one calendar event per day — planned start time, driving time, and stops — to import into your phone's calendar">📅 Export calendar</button>
+        <button class="reset-btn" id="copyTripBtn" title="Copy the whole trip's day-by-day plan as plain text, or share it directly via your device's share sheet — handy for texting the full itinerary to travel companions">📤 Copy whole trip</button>
       </div>
       <div class="trip-row">
         <button class="reset-btn" id="backupTripBtn" title="Download everything about this trip — plan variants, custom places, place info, comments, packing list, budget — as one JSON file you can restore later">💾 Backup trip</button>
@@ -5790,10 +5791,14 @@ document.getElementById('tripNotesBtn').addEventListener('click', ()=>{
 });
 
 // ---- AI day summary (Bedrock, currently owner-only server-side) ----
-function dayDescriptionText(){
-  const ids = getRouteIds(activeDay);
-  const lines = [`Day ${activeDay}` + (DAY_DATES[activeDay] ? ` (${formatDayDate(DAY_DATES[activeDay])})` : '') + ':'];
-  const legMatch = lastRoute && lastRoute.day === activeDay
+// `day` defaults to activeDay so every existing call site (copy-day-plan,
+// the AI summary) is unaffected; tripDescriptionText() below is the only
+// caller that passes an explicit day, to build a whole-trip rendition
+// without duplicating this per-day formatting.
+function dayDescriptionText(day = activeDay){
+  const ids = getRouteIds(day);
+  const lines = [`Day ${day}` + (DAY_DATES[day] ? ` (${formatDayDate(DAY_DATES[day])})` : '') + ':'];
+  const legMatch = lastRoute && lastRoute.day === day
     && lastRoute.ids.join() === ids.join();
   ids.forEach((id, i)=>{
     const p = byId[id];
@@ -5802,7 +5807,7 @@ function dayDescriptionText(){
       const leg = lastRoute.route.legs[i-1];
       lines.push(`  (drive ${Math.round(leg.duration/60)} min, ${formatDistanceKm(leg.distance/1000)})`);
     }
-    const stay = stayMinutes(activeDay, id);
+    const stay = stayMinutes(day, id);
     const info = placeInfo[id];
     let line = `- ${p.name}` + (p.overnight ? ' [overnight hotel]' : '') + (stay ? ` — ${stay} min stop` : '');
     if(info && info.text){
@@ -5811,23 +5816,18 @@ function dayDescriptionText(){
     }
     lines.push(line);
   });
-  commentsFor({scope:'day', day: activeDay}).forEach(c=>lines.push(`Note: ${c.text}`));
+  commentsFor({scope:'day', day}).forEach(c=>lines.push(`Note: ${c.text}`));
   return lines.join('\n');
 }
-document.getElementById('copyDayBtn').addEventListener('click', async ()=>{
-  const btn = document.getElementById('copyDayBtn');
-  if(getRouteIds(activeDay).length < 1){
-    btn.textContent = 'Nothing to copy yet';
-    setTimeout(()=>{ btn.textContent = '📋 Copy day plan'; }, 1500);
-    return;
-  }
-  const text = dayDescriptionText();
-  const title = `Day ${activeDay}` + (DAY_DATES[activeDay] ? ` — ${formatDayDate(DAY_DATES[activeDay])}` : '');
-  // On a phone, the whole point of this button is texting today's plan to
-  // travel companions — the native share sheet (WhatsApp/SMS/Email/etc.)
-  // gets there in one tap instead of "copy, then switch app, then paste".
-  // Desktop browsers mostly don't implement navigator.share at all, so this
-  // silently falls through to the existing clipboard behavior there.
+// Shared by "Copy day plan" and "Copy whole trip": on a phone, the whole
+// point of either button is getting a plan to travel companions — the
+// native share sheet (WhatsApp/SMS/Email/etc.) gets there in one tap
+// instead of "copy, then switch app, then paste". Desktop browsers mostly
+// don't implement navigator.share at all, so this silently falls through
+// to the clipboard behavior there; a blocked clipboard (permissions,
+// non-HTTPS) falls through further to a manual-copy prompt so the text is
+// always reachable one way or another.
+async function shareOrCopyText(btn, defaultLabel, title, text){
   if(navigator.share){
     try{
       await navigator.share({title, text});
@@ -5842,13 +5842,45 @@ document.getElementById('copyDayBtn').addEventListener('click', async ()=>{
     await navigator.clipboard.writeText(text);
     btn.textContent = '✓ Copied';
   }catch(e){
-    // clipboard API can be blocked (permissions, non-HTTPS) — fall back to a
-    // manual-copy prompt so the text is still reachable.
-    window.prompt('Copy this day\'s plan:', text);
-    btn.textContent = '📋 Copy day plan';
+    window.prompt('Copy this text:', text);
+    btn.textContent = defaultLabel;
     return;
   }
-  setTimeout(()=>{ btn.textContent = '📋 Copy day plan'; }, 1500);
+  setTimeout(()=>{ btn.textContent = defaultLabel; }, 1500);
+}
+document.getElementById('copyDayBtn').addEventListener('click', async ()=>{
+  const btn = document.getElementById('copyDayBtn');
+  const defaultLabel = '📋 Copy day plan';
+  if(getRouteIds(activeDay).length < 1){
+    btn.textContent = 'Nothing to copy yet';
+    setTimeout(()=>{ btn.textContent = defaultLabel; }, 1500);
+    return;
+  }
+  const text = dayDescriptionText();
+  const title = `Day ${activeDay}` + (DAY_DATES[activeDay] ? ` — ${formatDayDate(DAY_DATES[activeDay])}` : '');
+  await shareOrCopyText(btn, defaultLabel, title, text);
+});
+// Every other export (print, GPX, ICS, backup) covers the whole trip;
+// "Copy day plan" only ever covered one day at a time. Reuses
+// dayDescriptionText(day) — the same per-day formatting the AI summary and
+// per-day copy already rely on — for every day that has at least one stop,
+// so a trip that's only partly planned doesn't get empty "Day N:" sections.
+function tripDescriptionText(){
+  const trip = activeTrip();
+  const header = trip ? trip.name : 'Trip plan';
+  const dayTexts = DAYS.filter(d => getRouteIds(d).length > 0).map(d => dayDescriptionText(d));
+  return [header, ...dayTexts].join('\n\n');
+}
+document.getElementById('copyTripBtn').addEventListener('click', async ()=>{
+  const btn = document.getElementById('copyTripBtn');
+  const defaultLabel = '📤 Copy whole trip';
+  const trip = activeTrip();
+  if(!trip || !DAYS.some(d => getRouteIds(d).length > 0)){
+    btn.textContent = 'Nothing to copy yet';
+    setTimeout(()=>{ btn.textContent = defaultLabel; }, 1500);
+    return;
+  }
+  await shareOrCopyText(btn, defaultLabel, trip.name, tripDescriptionText());
 });
 document.getElementById('aiSummaryBtn').addEventListener('click', async ()=>{
   const btn = document.getElementById('aiSummaryBtn');
