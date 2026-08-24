@@ -314,7 +314,12 @@
     color:var(--ink);
   }
   .route-tools select{max-width:130px;}
-  .trip-row{display:flex; gap:6px; align-items:center;}
+  /* flex-wrap so a trip-row's buttons (which have grown over many nights'
+     features — export/backup/copy actions in particular) wrap onto extra
+     lines in the fixed-width left column instead of silently overflowing
+     underneath the map, unclickable and invisible without a horizontal
+     scroll nobody would think to try. */
+  .trip-row{display:flex; flex-wrap:wrap; gap:6px; align-items:center;}
   .trip-row select{flex:1; min-width:0;}
   #variantTools{display:flex; align-items:center; gap:4px;}
   .kml-panel .source-note{margin-top:0;}
@@ -1396,7 +1401,7 @@
     <p>Pick places for each day, reorder them, get real driving times.</p>
   </div>
   <div class="header-actions">
-    <button class="view-toggle-btn theme-toggle-btn" id="themeToggleBtn" title="Toggle dark mode">🌙</button>
+    <button class="view-toggle-btn theme-toggle-btn" id="themeToggleBtn" title="Toggle dark mode" aria-label="Toggle dark mode">🌙</button>
     <span class="sync-status" id="syncStatus" style="display:none;"><span class="spinner"></span><span id="syncStatusText"></span></span>
     <span class="user-badge" id="userBadge" style="display:none;"></span>
     <button class="view-toggle-btn" id="backofficeBtn" style="display:none;">Backoffice</button>
@@ -1416,9 +1421,9 @@
       <p class="source-note" id="kmlStatus"></p>
       <div class="trip-row" id="tripRow">
         <select id="tripSelect"></select>
-        <button class="reset-btn" id="tripNotesBtn" title="Trip comments">💬</button>
-        <button class="reset-btn" id="packingBtn" title="Packing checklist">🎒</button>
-        <button class="reset-btn" id="budgetBtn" title="Trip budget">💰</button>
+        <button class="reset-btn" id="tripNotesBtn" title="Trip comments" aria-label="Trip comments">💬</button>
+        <button class="reset-btn" id="packingBtn" title="Packing checklist" aria-label="Packing checklist">🎒</button>
+        <button class="reset-btn" id="budgetBtn" title="Trip budget" aria-label="Trip budget">💰</button>
         <button class="reset-btn" id="shareTripBtn" style="display:none;">Share</button>
         <button class="reset-btn" id="deleteTripBtn">Delete trip</button>
       </div>
@@ -1451,9 +1456,9 @@
       <div class="route-tools">
         <span id="variantTools">
           <select id="variantSelect" title="Plan variant"></select>
-          <button class="add-btn" id="variantAddBtn" title="Duplicate this variant">+</button>
-          <button class="add-btn" id="variantRenameBtn" title="Rename variant">✏️</button>
-          <button class="remove-btn" id="variantDeleteBtn" title="Delete variant">×</button>
+          <button class="add-btn" id="variantAddBtn" title="Duplicate this variant" aria-label="Duplicate this plan variant">+</button>
+          <button class="add-btn" id="variantRenameBtn" title="Rename variant" aria-label="Rename this plan variant">✏️</button>
+          <button class="remove-btn" id="variantDeleteBtn" title="Delete variant" aria-label="Delete this plan variant">×</button>
         </span>
         <label class="start-label">Start <input type="time" id="dayStartInput"></label>
         <label class="ferry-label" title="Flag this day as including a ferry crossing — shows a reminder on the tab, in the drive summary, and in the printable itinerary">
@@ -1462,7 +1467,7 @@
         <button class="reset-btn" id="addPlaceBtn" title="Add your own place (e.g. a laundromat) by clicking the map">＋ Place</button>
         <button class="reset-btn" id="addPlaceFromMapsBtn" title="Import a place by pasting a Google Maps link or coordinates">📍 From Maps</button>
         <button class="reset-btn" id="searchPlaceBtn" title="Add a place by searching its name or address">🔍 Search</button>
-        <button class="reset-btn" id="dayNotesBtn" title="Comments for this day">💬</button>
+        <button class="reset-btn" id="dayNotesBtn" title="Comments for this day" aria-label="Comments for this day">💬</button>
         <button class="reset-btn" id="optimizeOrderBtn" title="Reorder this day's stops to shorten the straight-line route (a starting point — recalculate driving times after)">🔀 Optimize order</button>
         <button class="reset-btn" id="resetDayBtn">Reset day</button>
       </div>
@@ -1563,7 +1568,7 @@
 
 <div class="info-modal-overlay" id="infoModal" style="display:none;">
   <div class="info-modal">
-    <button class="info-close" id="infoModalClose" title="Close">×</button>
+    <button class="info-close" id="infoModalClose" title="Close" aria-label="Close place info">×</button>
     <h2 id="infoTitle"></h2>
     <img id="infoImage" alt="" style="display:none;">
     <p class="info-text" id="infoText" dir="auto"></p>
@@ -1595,7 +1600,7 @@
 
 <div class="info-modal-overlay" id="budgetModal" style="display:none;">
   <div class="info-modal">
-    <button class="info-close" id="budgetModalClose" title="Close">×</button>
+    <button class="info-close" id="budgetModalClose" title="Close" aria-label="Close trip budget">×</button>
     <h2>💰 Trip budget <button class="link-btn budget-csv-btn" id="budgetCsvBtn" title="Download all logged costs as a spreadsheet-ready CSV file">⬇️ CSV</button></h2>
     <p class="budget-total" id="budgetTotal"></p>
     <div class="budget-convert-row">
@@ -1628,7 +1633,7 @@
 
 <div class="info-modal-overlay" id="nearbyModal" style="display:none;">
   <div class="info-modal">
-    <button class="info-close" id="nearbyModalClose" title="Close">×</button>
+    <button class="info-close" id="nearbyModalClose" title="Close" aria-label="Close nearby places">×</button>
     <h2 id="nearbyTitle">Nearby</h2>
     <div id="nearbyList"></div>
     <div class="error-note" id="nearbyError"></div>
@@ -1637,7 +1642,7 @@
 
 <div class="info-modal-overlay" id="searchResultsModal" style="display:none;">
   <div class="info-modal search-results-modal">
-    <button class="info-close" id="searchResultsClose" title="Close">×</button>
+    <button class="info-close" id="searchResultsClose" title="Close" aria-label="Close search results">×</button>
     <h2>Confirm place</h2>
     <div id="searchResultsList" class="search-results-list"></div>
     <div id="searchResultPreview" class="search-result-preview" style="display:none;">
@@ -3037,6 +3042,7 @@ function renderPackingList(){
     del.className = 'remove-btn';
     del.textContent = '×';
     del.title = 'Remove item';
+    del.setAttribute('aria-label', `Remove "${item.text}" from packing list`);
     del.onclick = ()=>commitPackingList(packingList.filter(it=>it.id !== item.id));
     row.appendChild(cb);
     row.appendChild(span);
@@ -3329,6 +3335,7 @@ function renderBudgetList(){
     del.className = 'remove-btn';
     del.textContent = '×';
     del.title = 'Remove item';
+    del.setAttribute('aria-label', `Remove "${item.label}" from budget`);
     del.onclick = ()=>commitBudgetItems(budgetItems.filter(it=>it.id !== item.id));
     row.appendChild(cat);
     row.appendChild(label);
@@ -3427,6 +3434,7 @@ function renderComments(){
       del.className = 'remove-btn';
       del.textContent = '×';
       del.title = 'Delete comment';
+      del.setAttribute('aria-label', 'Delete comment');
       del.onclick = async ()=>{
         try{
           if(remoteMode){
@@ -3709,6 +3717,7 @@ function renderMasterList(){
       del.className = 'remove-btn';
       del.textContent = '×';
       del.title = 'Delete this custom place';
+      del.setAttribute('aria-label', `Delete custom place "${p.name}"`);
       del.onclick = async ()=>{
         const ok = await confirmDialog('Delete place', `Delete "${p.name}" and remove it from all days?`);
         if(!ok) return;
@@ -3955,6 +3964,7 @@ function segmentNavLink(toId){
   a.target = '_blank';
   a.rel = 'noopener';
   a.title = `Google Maps: navigate to ${byId[toId].name} from your location`;
+  a.setAttribute('aria-label', a.title);
   a.textContent = '➤';
   return a;
 }
@@ -4255,6 +4265,8 @@ function renderRouteList(){
     const rm = document.createElement('button');
     rm.className = 'remove-btn';
     rm.textContent = '×';
+    rm.title = `Remove "${p.name}" from Day ${activeDay}`;
+    rm.setAttribute('aria-label', rm.title);
     rm.onclick = ()=>{
       const removedDay = activeDay, removedId = id, removedIdx = i;
       plans[activeDay].splice(i,1);
