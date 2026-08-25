@@ -214,6 +214,21 @@ The user's own real trip currently loaded into the app is a Norway road trip, Au
   An AI "Summarize day" button (signed-in UI, server-gated
   to one account) posts a text rendition of the day to `/api/ai/summarize-day`, which calls
   Claude on Bedrock via `aws/ai.mjs` (SDK bundled in Lambda runtime only — locally it 502s).
+  A "📊 Trip summary" button (`generateTripSummary`, trip-file panel) opens a whole-trip
+  retrospective in a new tab, same `window.open('', '_blank')` + placeholder + async-fill +
+  `document.write` pattern as `printTripItinerary` — driving totals, ferry crossings
+  auto-detected from `fetchRouteForSummary`'s ORS `extra_info: ['waycategory']` call (bit
+  value 8 = Ferry; never hand-flagged per day), weather (real recorded data via
+  `fetchHistoricalWeather`'s Open-Meteo archive-api call for days already past, live forecast
+  within the existing ~16-day horizon, climate-normal average beyond it), an optional AI
+  recap (signed-in owner account only, `/api/ai/summarize-trip`, mirrors summarize-day),
+  and a Leaflet map (loaded via CDN inside the new tab) with each day's route in its own
+  color (`tripDayColor` sweeps hue 200→420°, skipping the 80–170° green band so lines stay
+  legible against the OSM basemap), ferry sub-segments overlaid as dashed lines, and a
+  distinct 🏨 marker per unique overnight hotel. Deliberately does not try to auto-detect
+  "this day was a flight" or "this leg was a private, non-routable ferry" — those need a
+  human to notice; the summary only ever shows what the trip's own routing/weather data
+  says.
   A "📍 From Maps" button lets you paste a Google Maps link (or raw `lat, lon`) to add a
   custom place without clicking the map: `parseGoogleMapsCoords` pulls coordinates out of
   long-form URLs client-side (`!3d/!4d` pin, `@lat,lon` view center, or `q=`/`ll=` params).
@@ -532,8 +547,8 @@ The user's own real trip currently loaded into the app is a Norway road trip, Au
 - `aws/handler.mjs` — Lambda handler. Serves `index.html` at `GET /`, proxies
   `POST /route` to OpenRouteService using `process.env.ORS_API_KEY` (an optional
   `extra_info` array is forwarded too, validated against ORS's own enum — e.g.
-  `["waycategory"]` flags ferry segments in the response; not used by the client UI
-  today, added for one-off trip-stats analysis), resolves shortened
+  `["waycategory"]` flags ferry segments in the response, used by the trip summary's
+  `fetchRouteForSummary` to auto-detect ferry crossings), resolves shortened
   Google Maps links via `POST /resolve-maps-link` (host-allowlisted to Google's own
   shorteners, so it can only ever follow a Google-issued redirect), and handles
   `GET /tickets` + `POST /tickets` for feature requests. One function, one Function URL,

@@ -134,6 +134,10 @@ export const handler = async (event) => {
     return handleSummarizeDay(event);
   }
 
+  if (method === 'POST' && rawPath === '/api/ai/summarize-trip') {
+    return handleSummarizeTrip(event);
+  }
+
   if (rawPath.startsWith('/api/trips')) {
     return handleTripsApi(event, method, rawPath);
   }
@@ -349,6 +353,9 @@ async function handleGoogleLogin(event) {
 // admins manage tickets/users, not who gets access to a paid model).
 const AI_OWNER_EMAIL = 'moonbone@gmail.com';
 const MAX_AI_INPUT_BYTES = 20 * 1024;
+// A whole-trip description (every day's stops/notes concatenated) is
+// naturally bigger than one day's — same account gate, roomier cap.
+const MAX_TRIP_AI_INPUT_BYTES = 60 * 1024;
 
 async function handleSummarizeDay(event) {
   const session = sessionFromEvent(event, process.env.SESSION_SECRET);
@@ -380,6 +387,40 @@ async function handleSummarizeDay(event) {
     return ok({ summary });
   } catch (e) {
     console.error('bedrock summarize-day failed', e);
+    return jsonError(502, 'AI summary failed: ' + e.message);
+  }
+}
+
+async function handleSummarizeTrip(event) {
+  const session = sessionFromEvent(event, process.env.SESSION_SECRET);
+  if (!session) return jsonError(401, 'Sign in required');
+  if ((session.email || '').toLowerCase() !== AI_OWNER_EMAIL) {
+    return jsonError(403, 'This feature is not available for your account yet');
+  }
+
+  let body;
+  try {
+    body = JSON.parse(event.body || '{}');
+  } catch {
+    return jsonError(400, 'Invalid JSON body');
+  }
+  const text = typeof body.text === 'string' ? body.text.trim() : '';
+  if (!text) return jsonError(400, 'Missing trip description text');
+  if (Buffer.byteLength(text, 'utf8') > MAX_TRIP_AI_INPUT_BYTES) {
+    return jsonError(400, `Trip description too large (max ${MAX_TRIP_AI_INPUT_BYTES} bytes)`);
+  }
+
+  try {
+    const summary = await askClaude(
+      'Write a warm, engaging recap of this entire road trip, in 4-6 short paragraphs. '
+      + 'Capture the overall arc of the journey day by day, standout stops, and the flow '
+      + 'from place to place. Respond in Hebrew (the itinerary details may be in any language). '
+      + `Do not invent details not present below.\n\n${text}`,
+      { maxTokens: 900 },
+    );
+    return ok({ summary });
+  } catch (e) {
+    console.error('bedrock summarize-trip failed', e);
     return jsonError(502, 'AI summary failed: ' + e.message);
   }
 }

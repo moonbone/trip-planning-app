@@ -1451,6 +1451,7 @@
         <button class="reset-btn" id="exportGpxBtn" title="Download every stop and driving route as a GPX file, for GPS devices/apps like Garmin or OsmAnd">🗺️ Export GPX</button>
         <button class="reset-btn" id="exportIcsBtn" title="Download one calendar event per day — planned start time, driving time, and stops — to import into your phone's calendar">📅 Export calendar</button>
         <button class="reset-btn" id="copyTripBtn" title="Copy the whole trip's day-by-day plan as plain text, or share it directly via your device's share sheet — handy for texting the full itinerary to travel companions">📤 Copy whole trip</button>
+        <button class="reset-btn" id="tripSummaryBtn" title="Open a full trip summary in a new tab — driving totals, auto-detected ferry crossings, weather, and a map of every day's route">📊 Trip summary</button>
       </div>
       <div class="trip-row">
         <button class="reset-btn" id="backupTripBtn" title="Download everything about this trip — plan variants, custom places, place info, comments, packing list, budget — as one JSON file you can restore later">💾 Backup trip</button>
@@ -4670,6 +4671,35 @@ function climateSummaryText(normal){
   const precipText = normal.precip > 0 ? ` · ~${normal.precip}mm rain` : '';
   return `~${normal.tMax}°/${normal.tMin}°C${precipText} (avg of the past ${normal.years} years — not a live forecast)`;
 }
+// Real recorded weather for a day that's already happened — same Open-Meteo
+// archive endpoint fetchClimateNormal uses, but for the exact date instead
+// of averaging a window across past years. Used by the trip summary, where
+// "what actually happened" on a past day is more useful than a forecast.
+let historicalWeatherCache = {};
+async function fetchHistoricalWeather(lat, lon, date){
+  const key = `${lat.toFixed(2)},${lon.toFixed(2)},${date}`;
+  if(key in historicalWeatherCache) return historicalWeatherCache[key];
+  try{
+    const url = 'https://archive-api.open-meteo.com/v1/archive?latitude=' + lat + '&longitude=' + lon +
+      '&daily=temperature_2m_max,temperature_2m_min,precipitation_sum,weathercode,windspeed_10m_max' +
+      '&timezone=auto&start_date=' + date + '&end_date=' + date;
+    const res = await fetch(url);
+    if(!res.ok) throw new Error('HTTP ' + res.status);
+    const data = await res.json();
+    const d = data.daily;
+    if(!d || !d.time || !d.time.length) throw new Error('no archive data');
+    const result = {
+      tMax: Math.round(d.temperature_2m_max[0]), tMin: Math.round(d.temperature_2m_min[0]),
+      precip: d.precipitation_sum[0], code: d.weathercode[0],
+      windMax: d.windspeed_10m_max ? d.windspeed_10m_max[0] : null,
+    };
+    historicalWeatherCache[key] = result;
+    return result;
+  }catch(e){
+    historicalWeatherCache[key] = null;
+    return null;
+  }
+}
 // Plain-text "☀️ Clear · 18°/9°C · 3mm rain" summary — no sunrise/sunset
 // (those stay HTML-only in the in-app panel), so this is reusable anywhere
 // a forecast needs to show up as plain text: the printable itinerary and
@@ -4831,6 +4861,54 @@ async function fetchFromOSRM(ids){
     }catch(e){ lastErr = e; }
   }
   throw new Error(lastErr ? lastErr.message : 'all free routing servers failed');
+}
+
+// Same route as fetchFromProxy, but also asks ORS for waycategory extra_info
+// so ferry crossings can be drawn distinctly on the trip summary map —
+// auto-detected from the routing data itself (bit value 8 = Ferry), never
+// hand-flagged per day. Falls back to the plain OSRM route on proxy failure,
+// same as every other export — just without ferry detection, since the free
+// fallback routers don't offer extra_info.
+async function fetchRouteForSummary(ids){
+  try{
+    const coordinates = ids.map(id=>{ const p=byId[id]; return [p.lon,p.lat]; });
+    const avoid = loadRouteAvoid();
+    const body = {coordinates, extra_info:['waycategory']};
+    if(avoid.length) body.options = {avoid_features: avoid};
+    const res = await fetch(PROXY_URL,{
+      method:'POST',
+      headers:{ 'Content-Type':'application/json' },
+      body: JSON.stringify(body)
+    });
+    if(!res.ok) throw new Error('Proxy HTTP ' + res.status);
+    const geo = await res.json();
+    const feat = geo.features && geo.features[0];
+    if(!feat) throw new Error('Proxy returned no route');
+    const segs = feat.properties.segments;
+    const coords = feat.geometry.coordinates;
+    const wc = feat.properties.extras && feat.properties.extras.waycategory;
+    const ferryRanges = [];
+    let ferryKm = 0;
+    if(wc && wc.values){
+      wc.values.forEach(([from, to, cat])=>{
+        if(cat === 8 || (cat & 8)) ferryRanges.push(coords.slice(from, to+1).map(([lon,lat])=>[lat,lon]));
+      });
+    }
+    if(wc && wc.summary){
+      const ferrySummary = wc.summary.find(x=>x.value===8 || (x.value & 8));
+      if(ferrySummary) ferryKm = ferrySummary.distance / 1000;
+    }
+    return {
+      distance: feat.properties.summary.distance,
+      duration: feat.properties.summary.duration,
+      geometry: feat.geometry,
+      legs: segs.map(s=>({distance:s.distance, duration:s.duration})),
+      ferryRanges, ferryKm,
+    };
+  }catch(e){
+    const route = await fetchFromOSRM(ids);
+    return {...route, ferryRanges: [], ferryKm: 0};
+  }
 }
 
 function setView(view){
@@ -5336,6 +5414,259 @@ async function exportTripGpx(){
   }
 }
 
+// ---- Trip summary ----
+// A whole-trip retrospective: driving totals, auto-detected ferry crossings
+// (via fetchRouteForSummary's waycategory check — never hand-flagged),
+// weather (real recorded data for days already past, live forecast within
+// Open-Meteo's horizon, climate-normal average beyond it), an optional AI
+// recap, and a map of every day's route in its own color. Deliberately does
+// NOT try to guess "this day was a flight" or "this leg was a private
+// ferry" the way a one-off manual analysis might — everything shown here
+// comes straight from the trip's own routing/weather data.
+// Colors sweep hue 200→420(=60)°, i.e. cyan→blue→purple→magenta→red→orange,
+// deliberately skipping the 80–170° green/olive band so day lines stay
+// legible against the green-and-tan OSM basemap.
+function tripDayColor(index, total){
+  const t = total > 1 ? index / (total - 1) : 0;
+  const hue = (200 + t * 220) % 360;
+  return `hsl(${hue.toFixed(0)}, 70%, 45%)`;
+}
+
+async function buildTripSummaryData(onProgress){
+  const trip = activeTrip();
+  const days = [];
+  for(const [i, day] of DAYS.entries()){
+    if(onProgress) onProgress(i + 1, DAYS.length, day);
+    const ids = getRouteIds(day);
+    const date = DAY_DATES[day] || null;
+    const meta = getDayMeta(day);
+    const wref = ids.length ? byId[ids[0]] : null;
+    let weather = null, weatherKind = null;
+    if(wref && date){
+      if(date < todayStr()){
+        weather = await fetchHistoricalWeather(wref.lat, wref.lon, date);
+        weatherKind = 'actual';
+      }else if(weatherWithinHorizon(date)){
+        weather = await fetchWeather(wref.lat, wref.lon, date);
+        weatherKind = 'forecast';
+      }else if(isFutureBeyondHorizon(date)){
+        weather = await fetchClimateNormal(wref.lat, wref.lon, date);
+        weatherKind = 'normal';
+      }
+    }
+    let route = null;
+    if(ids.length >= 2){
+      try{ route = await fetchRouteForSummary(ids); }catch(e){ route = null; }
+    }
+    days.push({
+      day, date, ferryFlag: !!meta.ferry,
+      stopNames: ids.map(id=>byId[id] && byId[id].name).filter(Boolean),
+      wakeId: wakeHotelId(day), sleepId: sleepHotelId(day),
+      routed: !!route,
+      distanceKm: route ? route.distance / 1000 : null,
+      driveMin: route ? Math.round(route.duration / 60) : null,
+      geometry: route ? route.geometry : null,
+      ferryRanges: route ? route.ferryRanges : [],
+      ferryKm: route ? route.ferryKm : 0,
+      weather, weatherKind,
+    });
+  }
+  return {trip: {...trip, tripStart: TRIP_START}, days};
+}
+
+function tripSummaryWeatherHtml(d){
+  if(!d.weather) return '';
+  if(d.weatherKind === 'normal'){
+    const precipText = d.weather.precip > 0 ? ` · ~${d.weather.precip}mm` : '';
+    return `<span class="sm-weather">🌡️ ~${d.weather.tMax}°/${d.weather.tMin}°C${precipText} <em>(avg, not real)</em></span>`;
+  }
+  const label = WEATHER_CODE_LABELS[d.weather.code] || '🌡️';
+  const precipText = d.weather.precip > 0 ? ` · ${Math.round(d.weather.precip)}mm` : '';
+  const tag = d.weatherKind === 'forecast' ? ' <em>(forecast)</em>' : '';
+  return `<span class="sm-weather">${label} ${d.weather.tMax}°/${d.weather.tMin}°C${precipText}${tag}</span>`;
+}
+
+function renderTripSummaryPage(data, recap){
+  const trip = data.trip;
+  const totalDays = data.days.length;
+  const routedDays = data.days.filter(d=>d.routed);
+  const totalKm = routedDays.reduce((s,d)=>s + d.distanceKm, 0);
+  const totalMin = routedDays.reduce((s,d)=>s + d.driveMin, 0);
+  const drivingDaysCount = data.days.filter(d=>(d.distanceKm || 0) > 0.05).length;
+  const restDaysCount = totalDays - drivingDaysCount;
+  const ferryTotalKm = data.days.reduce((s,d)=>s + (d.ferryKm || 0), 0);
+  const ferryDaysCount = data.days.filter(d=>d.ferryKm > 0.1 || d.ferryFlag).length;
+  const hotelIds = [...new Set(data.days.flatMap(d=>[d.wakeId, d.sleepId]).filter(Boolean))];
+  const rainDaysCount = data.days.filter(d=>d.weather && d.weather.precip >= RAIN_WARN_MM).length;
+  const hrs = Math.floor(totalMin / 60), mins = totalMin % 60;
+
+  const mapDays = data.days.map((d,i)=>({
+    day: d.day, color: tripDayColor(i, totalDays),
+    coords: d.geometry ? d.geometry.coordinates.map(([lon,lat])=>[lat,lon]) : null,
+    ferryRanges: d.ferryRanges || [],
+  })).filter(d=>d.coords);
+
+  const hotels = hotelIds.map(id=>{
+    const p = byId[id];
+    if(!p) return null;
+    const nights = data.days.filter(d=>d.sleepId === id).length;
+    return {name: p.name, lat: p.lat, lon: p.lon, nights};
+  }).filter(Boolean);
+
+  const legendHtml = data.days.map((d,i)=>
+    `<span class="sm-legend-item"><span class="sm-legend-swatch" style="background:${tripDayColor(i, totalDays)}"></span>D${d.day}</span>`
+  ).join('')
+  + (mapDays.some(d=>d.ferryRanges.length) ? '<span class="sm-legend-item"><span class="sm-legend-dash"></span>⛴ Ferry</span>' : '')
+  + (hotels.length ? '<span class="sm-legend-item"><span class="sm-legend-hotel">🏨</span>Overnight stay</span>' : '');
+
+  const dayCardsHtml = data.days.map((d,i)=>{
+    const color = tripDayColor(i, totalDays);
+    const driveText = d.routed
+      ? `${formatDistanceKm(d.distanceKm)} · ${Math.floor(d.driveMin/60)}h ${d.driveMin%60}m driving`
+      : (d.stopNames.length >= 2 ? 'Driving times unavailable' : 'No driving this day');
+    const ferryText = d.ferryKm > 0.1
+      ? ` · ⛴ ${d.ferryKm.toFixed(1)}km ferry`
+      : (d.ferryFlag ? ' · ⛴ ferry day' : '');
+    const stopsText = d.stopNames.map(n=>escapeHtml(n)).join(' → ');
+    return `<div class="sm-day">
+      <div class="sm-day-swatch" style="background:${color}"></div>
+      <div class="sm-day-body">
+        <div class="sm-day-head"><b>Day ${d.day}</b>${d.date ? ` — ${formatDayDate(d.date)}` : ''} ${tripSummaryWeatherHtml(d)}</div>
+        <div class="sm-day-stops" dir="auto">${stopsText}</div>
+        <div class="sm-day-meta">${driveText}${ferryText}</div>
+      </div>
+    </div>`;
+  }).join('');
+
+  const recapHtml = recap
+    ? `<div class="sm-recap"><h2>✨ Trip recap</h2><p dir="auto">${escapeHtml(recap).trim().replace(/\n+/g, '</p><p dir="auto">')}</p></div>`
+    : '';
+
+  return `<!doctype html>
+<html><head><meta charset="utf-8">
+<title>${escapeHtml(trip.name)} — trip summary</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css" />
+<style>
+  body{font-family:-apple-system,Segoe UI,Helvetica,Arial,sans-serif;max-width:960px;margin:2rem auto;padding:0 1.5rem;color:#222;line-height:1.45;}
+  h1{margin-bottom:0.2rem;}
+  h2{font-size:1.15rem;margin:1.6rem 0 0.6rem;}
+  .sm-sub{color:#666;margin-top:0;}
+  .sm-stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:0.7rem;margin:1rem 0 1.5rem;}
+  .sm-stat{background:#f4f2ee;border-radius:8px;padding:0.7rem 0.9rem;}
+  .sm-stat-num{font-size:1.4rem;font-weight:700;color:#C0552E;}
+  .sm-stat-label{font-size:0.8rem;color:#666;}
+  #sm-map{height:420px;border-radius:10px;margin:0.5rem 0;background:#eee;}
+  .sm-legend{display:flex;flex-wrap:wrap;align-items:center;gap:0.5rem 1rem;font-size:0.82rem;color:#555;margin:0.6rem 0 1.2rem;}
+  .sm-legend-item{display:flex;align-items:center;gap:0.35rem;}
+  .sm-legend-swatch{width:14px;height:4px;border-radius:2px;display:inline-block;}
+  .sm-legend-dash{width:14px;height:0;border-top:3px dashed #1baf7a;display:inline-block;}
+  .sm-legend-hotel{width:15px;height:15px;border-radius:50%;background:#fff;border:2px solid #C0552E;display:inline-flex;align-items:center;justify-content:center;font-size:8px;line-height:1;}
+  .sm-recap{background:#f4f2ee;border-radius:8px;padding:0.9rem 1.1rem;margin:0.8rem 0 1.5rem;}
+  .sm-recap p{margin:0.5rem 0;}
+  .sm-day{display:flex;gap:0.7rem;padding:0.6rem 0;border-top:1px solid #eee;}
+  .sm-day-swatch{width:6px;border-radius:3px;flex:none;}
+  .sm-day-head{font-size:0.95rem;}
+  .sm-day-stops{color:#444;font-size:0.9rem;margin:0.2rem 0;}
+  .sm-day-meta{color:#777;font-size:0.85rem;}
+  .sm-weather{color:#555;font-size:0.85rem;margin-inline-start:0.4rem;}
+  .sm-weather em{font-style:normal;color:#999;}
+</style></head>
+<body>
+  <h1>${escapeHtml(trip.name)}</h1>
+  <p class="sm-sub">${totalDays} day${totalDays===1?'':'s'}${trip.tripStart ? ` · starting ${trip.tripStart}` : ''} · trip summary</p>
+  <div class="sm-stats">
+    <div class="sm-stat"><div class="sm-stat-num">${totalKm ? formatDistanceKm(totalKm) : '—'}</div><div class="sm-stat-label">total driving</div></div>
+    <div class="sm-stat"><div class="sm-stat-num">${totalMin ? `${hrs}h ${mins}m` : '—'}</div><div class="sm-stat-label">driving time</div></div>
+    <div class="sm-stat"><div class="sm-stat-num">${drivingDaysCount}</div><div class="sm-stat-label">driving days</div></div>
+    <div class="sm-stat"><div class="sm-stat-num">${restDaysCount}</div><div class="sm-stat-label">rest days</div></div>
+    <div class="sm-stat"><div class="sm-stat-num">${ferryDaysCount}</div><div class="sm-stat-label">ferry crossings${ferryTotalKm > 0.1 ? ` (${ferryTotalKm.toFixed(1)}km)` : ''}</div></div>
+    <div class="sm-stat"><div class="sm-stat-num">${hotelIds.length}</div><div class="sm-stat-label">places stayed</div></div>
+    <div class="sm-stat"><div class="sm-stat-num">${rainDaysCount}</div><div class="sm-stat-label">rainy days</div></div>
+  </div>
+  <div id="sm-map"></div>
+  <div class="sm-legend">${legendHtml}</div>
+  ${recapHtml}
+  <h2>Day by day</h2>
+  ${dayCardsHtml}
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"><\/script>
+  <script>
+    (function(){
+      var mapDays = ${JSON.stringify(mapDays)};
+      var hotels = ${JSON.stringify(hotels)};
+      var map = L.map('sm-map');
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        attribution: '&copy; OpenStreetMap contributors', maxZoom: 18,
+      }).addTo(map);
+      var bounds = [];
+      mapDays.forEach(function(d){
+        L.polyline(d.coords, {color: d.color, weight: 4, opacity: 0.85}).addTo(map);
+        d.coords.forEach(function(c){ bounds.push(c); });
+      });
+      mapDays.forEach(function(d){
+        (d.ferryRanges || []).forEach(function(fr){
+          L.polyline(fr, {color: '#1baf7a', weight: 5, opacity: 0.95, dashArray: '2,10', lineCap: 'round'}).addTo(map);
+        });
+      });
+      var hotelIcon = L.divIcon({
+        className: '',
+        html: '<div style="background:#fff;border:2px solid #C0552E;border-radius:50%;width:26px;height:26px;display:flex;align-items:center;justify-content:center;font-size:14px;box-shadow:0 1px 4px rgba(0,0,0,0.35);">🏨</div>',
+        iconSize: [26,26], iconAnchor: [13,13],
+      });
+      hotels.forEach(function(h){
+        L.marker([h.lat, h.lon], {icon: hotelIcon}).addTo(map)
+          .bindTooltip(h.name + ' · ' + h.nights + ' night' + (h.nights === 1 ? '' : 's'));
+        bounds.push([h.lat, h.lon]);
+      });
+      if(bounds.length) map.fitBounds(bounds, {padding:[24,24]});
+      else map.setView([60.5, 7.5], 6);
+    })();
+  <\/script>
+</body></html>`;
+}
+
+async function generateTripSummary(){
+  const trip = activeTrip();
+  if(!trip || !DAYS.length){
+    document.getElementById('errorNote').textContent = 'Load a trip first.';
+    return;
+  }
+  const win = window.open('', '_blank');
+  if(!win){
+    document.getElementById('errorNote').textContent = 'Could not open a new tab — check your popup blocker.';
+    return;
+  }
+  win.document.write('<!doctype html><title>Building trip summary…</title><body style="font-family:sans-serif;padding:2rem;color:#555"><p id="loadingMsg">Gathering trip data…</p></body>');
+  const btn = document.getElementById('tripSummaryBtn');
+  const prevLabel = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = 'Building…';
+  try{
+    const data = await buildTripSummaryData((i, total, day)=>{
+      const msgEl = win.document.getElementById('loadingMsg');
+      if(msgEl) msgEl.textContent = `Gathering trip data… (${i}/${total}, Day ${day})`;
+    });
+    let recap = null;
+    if(currentUser){
+      const msgEl = win.document.getElementById('loadingMsg');
+      if(msgEl) msgEl.textContent = 'Generating AI recap…';
+      try{
+        const res = await api('/api/ai/summarize-trip', {method:'POST', body: JSON.stringify({text: tripDescriptionText()})});
+        recap = res.summary;
+      }catch(e){
+        recap = null; // AI recap is a nice-to-have; the rest of the summary still ships without it
+      }
+    }
+    win.document.open();
+    win.document.write(renderTripSummaryPage(data, recap));
+    win.document.close();
+  }catch(e){
+    win.document.body.innerHTML = '<p style="font-family:sans-serif;color:#900;padding:2rem;">Could not build trip summary: ' + escapeHtml(e.message) + '</p>';
+  }finally{
+    btn.disabled = false;
+    btn.textContent = prevLabel;
+  }
+}
+
 // ---- ICS calendar export ----
 // One VEVENT per day, spanning that day's planned start time to its
 // computed end time — reuses buildDayItinerary(), the same per-day
@@ -5789,6 +6120,7 @@ document.getElementById('shareTripBtn').addEventListener('click', async ()=>{
 });
 document.getElementById('deleteTripBtn').addEventListener('click', ()=>deleteTrip(tripsIndex.activeTripId));
 document.getElementById('printTripBtn').addEventListener('click', printTripItinerary);
+document.getElementById('tripSummaryBtn').addEventListener('click', generateTripSummary);
 document.getElementById('exportGpxBtn').addEventListener('click', exportTripGpx);
 document.getElementById('exportIcsBtn').addEventListener('click', exportTripIcs);
 document.getElementById('backupTripBtn').addEventListener('click', exportTripBackup);
