@@ -200,6 +200,18 @@ async function handleRoute(event) {
     orsBody.options = { avoid_features: avoid };
   }
 
+  // Optional passthrough for ORS's extra_info (e.g. "waycategory" to flag
+  // ferry segments) — validated against ORS's own enum so this can't become
+  // an arbitrary-field-injection proxy into the upstream request.
+  const ORS_EXTRA_INFO_VALUES = new Set([
+    'steepness', 'suitability', 'surface', 'waycategory', 'waytype', 'tollways',
+    'traildifficulty', 'osmid', 'roadaccessrestrictions', 'countryinfo', 'green', 'noise', 'shadow',
+  ]);
+  if (Array.isArray(body.extra_info)) {
+    const extraInfo = body.extra_info.filter((v) => ORS_EXTRA_INFO_VALUES.has(v));
+    if (extraInfo.length) orsBody.extra_info = extraInfo;
+  }
+
   try {
     const orsRes = await fetch('https://api.openrouteservice.org/v2/directions/driving-car/geojson', {
       method: 'POST',
