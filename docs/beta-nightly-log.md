@@ -3,6 +3,86 @@
 A running log of what each scheduled nightly session built on `beta`, so
 future runs don't duplicate or contradict prior work. Newest entry first.
 
+## 2026-08-25
+
+`beta` was at 5d67816 going in. Fetched the real feature-request backlog from
+mainline (`GET /tickets`, with the admin token): of 13 tickets, **zero were
+actionable** — every one is already `done` or `in_beta` from prior nights,
+and none are `new`/`in_progress` (so there was nothing to note as an
+untrusted/unapproved ticket either — same "backlog exhausted" state as last
+night). **No mainline ticket was implemented or marked `in_beta` tonight.**
+All three changes below are own-initiative picks.
+
+1. **Avoid-ferries/tolls/highways routing preference.** A small checkbox
+   row above "Calculate driving times" (⛴ Avoid ferries / 💰 Avoid tolls /
+   🛣️ Avoid highways) lets the driver steer the calculated route away from
+   any of the three — genuinely useful road-trip context (a car that can't
+   take a ferry, a driver who'd rather skip a paid tunnel). A personal
+   setting like fuel settings and the km/mi toggle, not trip data: one
+   plain `tripplan-route-avoid` localStorage key, applies across every
+   trip. `fetchFromProxy()` forwards the checked options as
+   `options.avoid_features` in the `/route` POST body; `aws/handler.mjs`
+   allowlists them against OpenRouteService's actual supported values
+   before forwarding upstream, since it's client-controlled input reaching
+   an external API call — a bogus value just gets dropped rather than
+   passed through. The free OSRM fallback (used when the proxy is
+   unreachable) has no equivalent option and silently ignores the
+   preference, so `calculateRoute()`'s fallback error note says so rather
+   than implying the avoided route was actually honored.
+
+2. **Snow/ice warning badge.** A ❄️ badge — day tab, trip-overview count,
+   same diff-before-rerendering logic in `renderTripWeatherStrip` — follows
+   the existing 🌧️ rain badge's exact pattern one flag over: fires when a
+   day's cached forecast reports one of Open-Meteo's snow weather codes
+   (`SNOW_CODES`), reading the same `weatherCache` the rain badge already
+   populates rather than an extra fetch. Deliberately not gated to a
+   "winter months" date range — mountain-pass altitude can bring snow
+   outside the season a fixed range would assume, and this is a generic
+   trip planner, not Norway-specific. Also added a matching `snow` flag to
+   the weather-based packing suggestion, alongside the existing
+   rain/cold/hot/windy ones, suggesting winter boots and an ice scraper.
+
+3. **Per-place comments now show up in exports.** Day-scoped and
+   trip-scoped comments were already pulled into the "Copy day plan"/AI-
+   summary text and the printable itinerary; comments left on an
+   individual place (via the info modal opened by clicking a stop) were
+   only ever visible back inside that same modal — the same gap the day/
+   trip comments already had closed, just one scope over. Each stop's own
+   comments now show as an indented "Note:" line in the copy/AI text, and
+   as an italic row under that stop in the printable itinerary
+   (`.t-place-notes`). Deliberately left out of the ICS calendar
+   description, unlike day notes — a calendar event body should stay
+   short, and day notes already cover "the one thing to remember about
+   this day" there.
+
+All three verified locally against the file-based dev-server
+(`AUTH_DEV_FAKE=1`) with Playwright, stubbing Leaflet (no CDN access in
+this sandbox — a fluent Proxy stub answers any chained Leaflet call rather
+than enumerating every method the app happens to use) and stubbing
+Open-Meteo responses to force a snow day. Confirmed: the avoid-preference
+checkboxes persist and reach the `/route` proxy body correctly, and the
+fallback note appears when the preference can't be honored; the snow badge
+renders on the right day's tab, the trip-overview count, and the packing
+suggestion; a place comment added through the info modal shows up in both
+`dayDescriptionText()` and `buildDayItinerary()`'s per-stop `notes`, and
+renders correctly in the printable itinerary's HTML. Also re-ran all three
+together in one combined regression pass to confirm they don't interfere
+with each other. Both new commits deployed successfully via
+`deploy-beta.yml`; spot-checked the live beta HTML for `routeAvoidRow` and
+`SNOW_CODES` after pushing.
+
+**Decided not to do, and why:**
+- **Extending the per-place comment export to the ICS calendar
+  description.** Considered it for consistency with the day-notes case,
+  but a calendar event body is meant to stay short and skimmable — piling
+  every stop's comments into one event description would work against
+  that, unlike a single day-level note.
+- **A broader "routing avoid" set** (fords, steps — OpenRouteService
+  supports a few more `avoid_features` values). Scoped to the three that
+  are actually relevant to a road trip in a car (ferries/tolls/highways);
+  the rest are edge cases for other travel modes this app doesn't plan
+  for.
+
 ## 2026-08-24
 
 `beta` was at 0689eb0 going in (synced with master after the admin-token
