@@ -1822,6 +1822,10 @@ const LONG_DRIVE_WARN_MIN = 270;
 // 5mm — enough to be a real rain day worth planning around, not just a
 // passing drizzle a forecast shows almost every day somewhere in its range.
 const RAIN_WARN_MM = 5;
+// Open-Meteo's WMO weather codes for any kind of snow — relevant year-round
+// for this app (not just a Norway-in-winter thing): mountain passes at
+// altitude can see snow well outside the "obviously winter" months.
+const SNOW_CODES = new Set([71, 73, 75, 77, 85, 86]);
 // Straight-line fallback speed for days that haven't been routed yet —
 // generous enough for winding rural/mountain roads and ferry waits, so the
 // estimate errs toward flagging rather than missing a genuinely long day.
@@ -1882,6 +1886,11 @@ function rainBadgeHtml(day){
   const forecast = cachedForecast(day);
   if(!forecast || forecast.precip < RAIN_WARN_MM) return '';
   return `<span class="dupe-badge" title="${escapeHtml(`Rain expected — ~${forecast.precip}mm forecast for this day.`)}">🌧️</span>`;
+}
+function snowBadgeHtml(day){
+  const forecast = cachedForecast(day);
+  if(!forecast || !SNOW_CODES.has(forecast.code)) return '';
+  return `<span class="dupe-badge" title="${escapeHtml('Snow expected — check road/tire conditions for this day.')}">❄️</span>`;
 }
 
 // Finishing a driving day after dark is a real road-trip concern on
@@ -3134,6 +3143,7 @@ const PACKING_HOT_MIN_C = 25;   // pack sun protection if any day's high is at/a
 const PACKING_WINDY_MIN_KMH = 40; // pack a windbreaker if any day's max wind is at/above this
 const PACKING_SUGGEST_RULES = [
   {flag: 'rain', items: ['Rain jacket', 'Umbrella']},
+  {flag: 'snow', items: ['Winter boots', 'Ice scraper']},
   {flag: 'cold', items: ['Warm layers', 'Gloves']},
   {flag: 'hot', items: ['Sunscreen', 'Sun hat']},
   {flag: 'windy', items: ['Windbreaker']},
@@ -3146,7 +3156,7 @@ async function suggestPackingFromWeather(){
     return;
   }
   el.innerHTML = '<div class="empty-note">Checking the forecast…</div>';
-  const flags = {rain:false, cold:false, hot:false, windy:false};
+  const flags = {rain:false, snow:false, cold:false, hot:false, windy:false};
   for(const d of forecastDays){
     const ids = getRouteIds(d);
     const ref = ids.length ? byId[ids[0]] : null;
@@ -3154,6 +3164,7 @@ async function suggestPackingFromWeather(){
     const forecast = await fetchWeather(ref.lat, ref.lon, DAY_DATES[d]);
     if(!forecast) continue;
     if(forecast.precip >= RAIN_WARN_MM) flags.rain = true;
+    if(SNOW_CODES.has(forecast.code)) flags.snow = true;
     if(forecast.tMin <= PACKING_COLD_MAX_C) flags.cold = true;
     if(forecast.tMax >= PACKING_HOT_MIN_C) flags.hot = true;
     if(forecast.windMax != null && forecast.windMax >= PACKING_WINDY_MIN_KMH) flags.windy = true;
@@ -3628,7 +3639,7 @@ function renderTabs(){
     t.setAttribute('aria-selected', d===activeDay ? 'true' : 'false');
     t.tabIndex = d===activeDay ? 0 : -1;
     const dateHtml = DAY_DATES[d] ? `<div class="tab-date">${formatDayDate(DAY_DATES[d])}</div>` : '';
-    t.innerHTML = `<span class="num">${d}</span>Day ${d}${longDriveBadgeHtml(d)}${ferryBadgeHtml(d)}${rainBadgeHtml(d)}${dateHtml}`;
+    t.innerHTML = `<span class="num">${d}</span>Day ${d}${longDriveBadgeHtml(d)}${ferryBadgeHtml(d)}${rainBadgeHtml(d)}${snowBadgeHtml(d)}${dateHtml}`;
     const activate = ()=>{ activeDay=d; renderAll(); };
     t.onclick = activate;
     t.onkeydown = (e)=>{
@@ -4459,6 +4470,7 @@ function renderTripOverview(){
   const longDays = driveEstimates.filter(est=>est.min >= LONG_DRIVE_WARN_MIN).length;
   const ferryDays = DAYS.filter(d=>getDayMeta(d).ferry).length;
   const rainDays = DAYS.filter(d=>rainBadgeHtml(d)).length;
+  const snowDays = DAYS.filter(d=>snowBadgeHtml(d)).length;
   let totalDriveLine = '';
   if(driveEstimates.length){
     const totalMin = driveEstimates.reduce((s,e)=>s+e.min,0);
@@ -4471,7 +4483,7 @@ function renderTripOverview(){
   el.innerHTML = `
     ${tripCountdownLine()}
     <p class="stats-total">${DAYS.length} day${DAYS.length===1?'':'s'}${TRIP_START ? ` · starts ${TRIP_START}` : ''}</p>
-    <p class="stats-sub">${totalPlaces} place${totalPlaces===1?'':'s'} · ${hotelIds.size} overnight stop${hotelIds.size===1?'':'s'}${incompleteDays ? ` · ${incompleteDays} day${incompleteDays===1?'':'s'} need${incompleteDays===1?'s':''} at least one stop` : ''}${longDays ? ` · ⚠️ ${longDays} long driving day${longDays===1?'':'s'}` : ''}${ferryDays ? ` · ⛴ ${ferryDays} ferry day${ferryDays===1?'':'s'}` : ''}${rainDays ? ` · 🌧️ ${rainDays} rainy day${rainDays===1?'':'s'}` : ''}</p>
+    <p class="stats-sub">${totalPlaces} place${totalPlaces===1?'':'s'} · ${hotelIds.size} overnight stop${hotelIds.size===1?'':'s'}${incompleteDays ? ` · ${incompleteDays} day${incompleteDays===1?'':'s'} need${incompleteDays===1?'s':''} at least one stop` : ''}${longDays ? ` · ⚠️ ${longDays} long driving day${longDays===1?'':'s'}` : ''}${ferryDays ? ` · ⛴ ${ferryDays} ferry day${ferryDays===1?'':'s'}` : ''}${rainDays ? ` · 🌧️ ${rainDays} rainy day${rainDays===1?'':'s'}` : ''}${snowDays ? ` · ❄️ ${snowDays} snowy day${snowDays===1?'':'s'}` : ''}</p>
     ${totalDriveLine}
   `;
 }
@@ -4730,7 +4742,7 @@ async function renderTripWeatherStrip(){
   const eligibleDays = DAYS.filter(d=>weatherWithinHorizon(DAY_DATES[d]) || isFutureBeyondHorizon(DAY_DATES[d]));
   if(!eligibleDays.length) return;
   const token = ++weatherStripToken;
-  const badgesBefore = DAYS.map(d=>rainBadgeHtml(d)).join('|');
+  const badgesBefore = DAYS.map(d=>rainBadgeHtml(d)+snowBadgeHtml(d)).join('|');
   const chips = [];
   for(const d of eligibleDays){
     const ids = getRouteIds(d);
@@ -4763,7 +4775,7 @@ async function renderTripWeatherStrip(){
   // actually changed, though: renderTabs() rebuilds every tab element, which
   // would otherwise drop keyboard focus out of the tab bar and re-run
   // scrollIntoView() on a trip with no rainy days at all.
-  if(DAYS.map(d=>rainBadgeHtml(d)).join('|') === badgesBefore) return;
+  if(DAYS.map(d=>rainBadgeHtml(d)+snowBadgeHtml(d)).join('|') === badgesBefore) return;
   const focusWasInTabs = document.getElementById('tabs').contains(document.activeElement);
   renderTabs();
   if(focusWasInTabs) document.querySelector('#tabs .tab[tabindex="0"]')?.focus();

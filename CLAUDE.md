@@ -369,8 +369,19 @@ The user's own real trip currently loaded into the app is a Norway road trip, Au
   strings before/after its fetches), and it restores keyboard focus into the tab bar
   afterward. Both matter because `renderTabs()` rebuilds every tab element from scratch:
   an unconditional call would drop focus out of the tab bar mid-interaction and re-run its
-  `scrollIntoView()` even on a trip with no rainy days at all. `cachedForecast(day)` is the shared read-only cache lookup both the
-  rain badge and the daylight warning below go through. A **daylight warning** (🌇 in the
+  `scrollIntoView()` even on a trip with no rainy days at all. A **snow badge** (❄️,
+  everywhere the rain badge appears — day tab, trip overview count, the same
+  `renderTripWeatherStrip` diff-before-rerendering logic) follows the exact same pattern
+  one flag over: `snowBadgeHtml` fires when `cachedForecast(day).code` is one of
+  Open-Meteo's snow WMO codes (`SNOW_CODES` — light/heavy snow, snow grains, snow
+  showers), also a cheap synchronous `weatherCache` read, never its own fetch.
+  Deliberately year-round, not gated to any season/month, since mountain-pass altitude
+  can see snow outside the "obviously winter" months a fixed date range would assume.
+  The weather-based packing suggestion (`suggestPackingFromWeather`) gained a matching
+  `snow` flag alongside `rain`/`cold`/`hot`/`windy`, suggesting winter boots and an ice
+  scraper for a trip with a forecasted snow day. `cachedForecast(day)` is the shared
+  read-only cache lookup the rain badge, snow badge, and the daylight warning below all
+  go through. A **daylight warning** (🌇 in the
   active day's drive summary and in the printable itinerary) fires when a routed day's
   computed end time falls after that day's sunset — genuinely relevant at northern
   latitudes, where the daylight window swings by hours across a season. Sunset is already
