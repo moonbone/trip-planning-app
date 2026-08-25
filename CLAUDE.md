@@ -442,7 +442,10 @@ The user's own real trip currently loaded into the app is a Norway road trip, Au
   — asks once via `confirm()` before building the printable page; a trip with no dates, one
   not yet started, or one fully over skips the prompt and prints everything, unchanged.
 - `aws/handler.mjs` — Lambda handler. Serves `index.html` at `GET /`, proxies
-  `POST /route` to OpenRouteService using `process.env.ORS_API_KEY`, resolves shortened
+  `POST /route` to OpenRouteService using `process.env.ORS_API_KEY` (an optional
+  `extra_info` array is forwarded too, validated against ORS's own enum — e.g.
+  `["waycategory"]` flags ferry segments in the response; not used by the client UI
+  today, added for one-off trip-stats analysis), resolves shortened
   Google Maps links via `POST /resolve-maps-link` (host-allowlisted to Google's own
   shorteners, so it can only ever follow a Google-issued redirect), and handles
   `GET /tickets` + `POST /tickets` for feature requests. One function, one Function URL,
