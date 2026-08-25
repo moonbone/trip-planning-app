@@ -588,23 +588,55 @@
     gap:14px;
     margin-bottom:6px;
   }
-  .trip-summary-day-item{
+  .ts-day-group{
+    border-bottom:1px solid var(--border);
+  }
+  .ts-day-header{
     display:flex;
     align-items:flex-start;
-    gap:8px;
+    gap:6px;
     padding:7px 2px;
-    border-bottom:1px solid var(--border);
-    cursor:pointer;
   }
-  .trip-summary-day-item input[type=checkbox]{
+  .ts-day-header input[type=checkbox]{
     flex-shrink:0;
     width:16px;height:16px;
     margin-top:2px;
+  }
+  .ts-day-toggle{
+    flex-shrink:0;
+    background:none;
+    border:none;
+    cursor:pointer;
+    font-size:11px;
+    color:var(--ink-soft);
+    padding:2px 4px;
+    line-height:1.4;
+  }
+  .ts-day-label{
+    flex:1;
+    cursor:default;
   }
   .ts-day-preview{
     display:block;
     font-size:12px;
     color:var(--ink-soft);
+  }
+  .ts-place-list{
+    padding:0 0 6px 40px;
+    display:flex;
+    flex-direction:column;
+    gap:4px;
+  }
+  .ts-place-item{
+    display:flex;
+    align-items:center;
+    gap:7px;
+    font-size:12.5px;
+    cursor:pointer;
+  }
+  .ts-place-item input[type=checkbox]{
+    width:14px;height:14px;
+    flex-shrink:0;
   }
   .packing-suggest-list{
     background:var(--bg);
@@ -1682,9 +1714,10 @@
   <div class="info-modal">
     <button class="info-close" id="tripSummaryModalClose" title="Close" aria-label="Close trip summary options">×</button>
     <h2>📊 Trip summary</h2>
-    <p class="source-note">Choose which days to include — handy for splitting a long trip into
-      separate summaries (e.g. the road trip vs. a city add-on). Run this again with a different
-      selection to get another summary.</p>
+    <p class="source-note">Choose which days — and, expanded, which individual stops or hotels —
+      to include. Handy for dropping a mistaken or duplicate place, or for splitting a long trip
+      into separate summaries (e.g. the road trip vs. a city add-on). Run this again with a
+      different selection to get another summary.</p>
     <div class="trip-summary-select-row">
       <button class="link-btn" id="tripSummarySelectAllBtn">Select all</button>
       <button class="link-btn" id="tripSummarySelectNoneBtn">Select none</button>
@@ -5472,12 +5505,29 @@ function tripDayColor(index, total){
   return `hsl(${hue.toFixed(0)}, 70%, 45%)`;
 }
 
-async function buildTripSummaryData(onProgress, dayList = DAYS){
+// Full, unfiltered selection — every day, every place getRouteIds(day)
+// would normally include — used as the default when the caller doesn't
+// hand in a picker's subset.
+function fullDaySelections(){
+  const sel = {};
+  DAYS.forEach(day=>{ sel[day] = getRouteIds(day); });
+  return sel;
+}
+
+// daySelections: {[day]: idsArray} — an explicit, already-ordered subset of
+// that day's places (from getRouteIds(day)) to include. A day absent from
+// the map, or mapped to an empty array, is skipped entirely. Hotels are
+// just places here too — excluding one from a day's array un-pins it from
+// that day's route/map marker like any other dropped stop.
+async function buildTripSummaryData(onProgress, daySelections = fullDaySelections()){
   const trip = activeTrip();
+  const dayEntries = Object.entries(daySelections)
+    .map(([day, ids])=>[Number(day), ids])
+    .filter(([, ids])=>ids && ids.length)
+    .sort((a,b)=>a[0]-b[0]);
   const days = [];
-  for(const [i, day] of dayList.entries()){
-    if(onProgress) onProgress(i + 1, dayList.length, day);
-    const ids = getRouteIds(day);
+  for(const [i, [day, ids]] of dayEntries.entries()){
+    if(onProgress) onProgress(i + 1, dayEntries.length, day);
     const date = DAY_DATES[day] || null;
     const meta = getDayMeta(day);
     const wref = ids.length ? byId[ids[0]] : null;
@@ -5498,10 +5548,15 @@ async function buildTripSummaryData(onProgress, dayList = DAYS){
     if(ids.length >= 2){
       try{ route = await fetchRouteForSummary(ids); }catch(e){ route = null; }
     }
+    const wake = wakeHotelId(day), sleep = sleepHotelId(day);
     days.push({
       day, date, ferryFlag: !!meta.ferry,
       stopNames: ids.map(id=>byId[id] && byId[id].name).filter(Boolean),
-      wakeId: wakeHotelId(day), sleepId: sleepHotelId(day),
+      // Only credited as this day's overnight marker if that hotel is still
+      // among the checked places — an excluded hotel shouldn't still pin a
+      // 🏨 marker on the summary map.
+      wakeId: ids.includes(wake) ? wake : null,
+      sleepId: ids.includes(sleep) ? sleep : null,
       routed: !!route,
       distanceKm: route ? route.distance / 1000 : null,
       driveMin: route ? Math.round(route.duration / 60) : null,
@@ -5511,7 +5566,13 @@ async function buildTripSummaryData(onProgress, dayList = DAYS){
       weather, weatherKind,
     });
   }
-  return {trip: {...trip, tripStart: TRIP_START}, days, isPartial: dayList.length !== DAYS.length};
+  const totalAvailable = DAYS.reduce((s,d)=>s + getRouteIds(d).length, 0);
+  const totalSelected = dayEntries.reduce((s,[,ids])=>s + ids.length, 0);
+  return {
+    trip: {...trip, tripStart: TRIP_START}, days,
+    isPartial: totalSelected !== totalAvailable,
+    placesSelected: totalSelected, placesAvailable: totalAvailable,
+  };
 }
 
 function tripSummaryWeatherHtml(d){
@@ -5613,7 +5674,7 @@ function renderTripSummaryPage(data, recap){
 </style></head>
 <body>
   <h1>${escapeHtml(trip.name)}</h1>
-  <p class="sm-sub">${data.isPartial ? `${totalDays} of ${DAYS.length} days selected` : `${totalDays} day${totalDays===1?'':'s'}`}${trip.tripStart ? ` · starting ${trip.tripStart}` : ''} · trip summary</p>
+  <p class="sm-sub">${data.isPartial ? `${totalDays} of ${DAYS.length} days · ${data.placesSelected} of ${data.placesAvailable} places selected` : `${totalDays} day${totalDays===1?'':'s'}`}${trip.tripStart ? ` · starting ${trip.tripStart}` : ''} · trip summary</p>
   <div class="sm-stats">
     <div class="sm-stat"><div class="sm-stat-num">${totalKm ? formatDistanceKm(totalKm) : '—'}</div><div class="sm-stat-label">total driving</div></div>
     <div class="sm-stat"><div class="sm-stat-num">${totalMin ? `${hrs}h ${mins}m` : '—'}</div><div class="sm-stat-label">driving time</div></div>
@@ -5664,9 +5725,9 @@ function renderTripSummaryPage(data, recap){
 </body></html>`;
 }
 
-async function generateTripSummary(dayList = DAYS){
+async function generateTripSummary(daySelections = fullDaySelections()){
   const trip = activeTrip();
-  if(!trip || !dayList.length){
+  if(!trip || !Object.values(daySelections).some(ids=>ids && ids.length)){
     document.getElementById('errorNote').textContent = 'Load a trip first.';
     return;
   }
@@ -5684,13 +5745,13 @@ async function generateTripSummary(dayList = DAYS){
     const data = await buildTripSummaryData((i, total, day)=>{
       const msgEl = win.document.getElementById('loadingMsg');
       if(msgEl) msgEl.textContent = `Gathering trip data… (${i}/${total}, Day ${day})`;
-    }, dayList);
+    }, daySelections);
     let recap = null;
     if(currentUser){
       const msgEl = win.document.getElementById('loadingMsg');
       if(msgEl) msgEl.textContent = 'Generating AI recap…';
       try{
-        const res = await api('/api/ai/summarize-trip', {method:'POST', body: JSON.stringify({text: tripDescriptionText(dayList)})});
+        const res = await api('/api/ai/summarize-trip', {method:'POST', body: JSON.stringify({text: tripDescriptionText(daySelections)})});
         recap = res.summary;
       }catch(e){
         recap = null; // AI recap is a nice-to-have; the rest of the summary still ships without it
@@ -5707,17 +5768,45 @@ async function generateTripSummary(dayList = DAYS){
   }
 }
 
+// Day rows are a checkbox tree: a day-level checkbox that aggregates (and
+// toggles) all of that day's place checkboxes, collapsed by default behind
+// a ▸ toggle revealing each stop/hotel individually — so a wrongly-added
+// duplicate place, or a hotel night that shouldn't count, can be dropped
+// without dropping the whole day.
 function renderTripSummaryDayList(){
   const el = document.getElementById('tripSummaryDayList');
   el.innerHTML = DAYS.map(day=>{
     const ids = getRouteIds(day);
+    const placesHtml = ids.map(id=>{
+      const p = byId[id];
+      if(!p) return '';
+      const label = (p.overnight ? '🏨 ' : '') + p.name;
+      return `<label class="ts-place-item">
+        <input type="checkbox" class="ts-place-check" data-day="${day}" value="${escapeHtml(id)}" checked>
+        <span dir="auto">${escapeHtml(label)}</span>
+      </label>`;
+    }).join('');
     const names = ids.map(id=>byId[id] && byId[id].name).filter(Boolean);
     const preview = names.length ? names.join(' → ') : 'No stops planned';
-    return `<label class="trip-summary-day-item">
-      <input type="checkbox" class="ts-day-check" value="${day}" checked>
-      <span><b>Day ${day}</b>${DAY_DATES[day] ? ` — ${formatDayDate(DAY_DATES[day])}` : ''}<span class="ts-day-preview" dir="auto">${escapeHtml(preview)}</span></span>
-    </label>`;
+    return `<div class="ts-day-group">
+      <div class="ts-day-header">
+        <input type="checkbox" class="ts-day-check" data-day="${day}" checked>
+        <button type="button" class="ts-day-toggle" data-day="${day}" aria-expanded="false" aria-label="Show individual places for Day ${day}">▸</button>
+        <span class="ts-day-label"><b>Day ${day}</b>${DAY_DATES[day] ? ` — ${formatDayDate(DAY_DATES[day])}` : ''}<span class="ts-day-preview" dir="auto">${escapeHtml(preview)}</span></span>
+      </div>
+      <div class="ts-place-list" data-day="${day}" style="display:none;">${placesHtml}</div>
+    </div>`;
   }).join('');
+}
+// Keeps a day's aggregate checkbox (checked/indeterminate/unchecked) in
+// sync with the checked state of its own place checkboxes.
+function updateTsDayCheckState(day){
+  const dayCb = document.querySelector(`.ts-day-check[data-day="${day}"]`);
+  if(!dayCb) return;
+  const placeCbs = [...document.querySelectorAll(`.ts-place-check[data-day="${day}"]`)];
+  const checkedCount = placeCbs.filter(cb=>cb.checked).length;
+  dayCb.checked = placeCbs.length > 0 && checkedCount === placeCbs.length;
+  dayCb.indeterminate = checkedCount > 0 && checkedCount < placeCbs.length;
 }
 function openTripSummaryModal(){
   const trip = activeTrip();
@@ -6192,19 +6281,52 @@ document.getElementById('tripSummaryModal').addEventListener('click', (e)=>{
   if(e.target === e.currentTarget) closeTripSummaryModal();
 });
 document.getElementById('tripSummarySelectAllBtn').addEventListener('click', ()=>{
-  document.querySelectorAll('.ts-day-check').forEach(cb=>{ cb.checked = true; });
+  document.querySelectorAll('.ts-place-check').forEach(cb=>{ cb.checked = true; });
+  document.querySelectorAll('.ts-day-check').forEach(cb=>{ cb.checked = true; cb.indeterminate = false; });
 });
 document.getElementById('tripSummarySelectNoneBtn').addEventListener('click', ()=>{
-  document.querySelectorAll('.ts-day-check').forEach(cb=>{ cb.checked = false; });
+  document.querySelectorAll('.ts-place-check').forEach(cb=>{ cb.checked = false; });
+  document.querySelectorAll('.ts-day-check').forEach(cb=>{ cb.checked = false; cb.indeterminate = false; });
+});
+// Delegated on the list container since rows are rebuilt per modal open.
+document.getElementById('tripSummaryDayList').addEventListener('change', (e)=>{
+  if(e.target.classList.contains('ts-place-check')){
+    updateTsDayCheckState(e.target.dataset.day);
+  }else if(e.target.classList.contains('ts-day-check')){
+    const day = e.target.dataset.day;
+    const checked = e.target.checked;
+    document.querySelectorAll(`.ts-place-check[data-day="${day}"]`).forEach(cb=>{ cb.checked = checked; });
+    e.target.indeterminate = false;
+  }
+});
+document.getElementById('tripSummaryDayList').addEventListener('click', (e)=>{
+  const btn = e.target.closest('.ts-day-toggle');
+  if(!btn) return;
+  const day = btn.dataset.day;
+  const list = document.querySelector(`.ts-place-list[data-day="${day}"]`);
+  const expanded = btn.getAttribute('aria-expanded') === 'true';
+  btn.setAttribute('aria-expanded', String(!expanded));
+  btn.textContent = expanded ? '▸' : '▾';
+  if(list) list.style.display = expanded ? 'none' : '';
 });
 document.getElementById('tripSummaryGenerateBtn').addEventListener('click', ()=>{
-  const selected = [...document.querySelectorAll('.ts-day-check:checked')].map(cb=>Number(cb.value)).sort((a,b)=>a-b);
-  if(!selected.length){
-    document.getElementById('tripSummaryError').textContent = 'Select at least one day.';
+  const daySelections = {};
+  DAYS.forEach(day=>{
+    // Checkbox values are always strings, but KML-derived place ids are
+    // numbers (only custom places are 'c'-prefixed strings) — filter
+    // getRouteIds(day)'s correctly-typed ids by string-matching against the
+    // checked values, rather than using the checkbox values as ids
+    // directly, so downstream === / .includes() id comparisons still work.
+    const checkedValues = new Set([...document.querySelectorAll(`.ts-place-check[data-day="${day}"]:checked`)].map(cb=>cb.value));
+    const ids = getRouteIds(day).filter(id=>checkedValues.has(String(id)));
+    if(ids.length) daySelections[day] = ids;
+  });
+  if(!Object.keys(daySelections).length){
+    document.getElementById('tripSummaryError').textContent = 'Select at least one place.';
     return;
   }
   closeTripSummaryModal();
-  generateTripSummary(selected);
+  generateTripSummary(daySelections);
 });
 document.getElementById('exportGpxBtn').addEventListener('click', exportTripGpx);
 document.getElementById('exportIcsBtn').addEventListener('click', exportTripIcs);
@@ -6282,8 +6404,8 @@ document.getElementById('tripNotesBtn').addEventListener('click', ()=>{
 // the AI summary) is unaffected; tripDescriptionText() below is the only
 // caller that passes an explicit day, to build a whole-trip rendition
 // without duplicating this per-day formatting.
-function dayDescriptionText(day = activeDay){
-  const ids = getRouteIds(day);
+function dayDescriptionText(day = activeDay, idsOverride = null){
+  const ids = idsOverride || getRouteIds(day);
   const lines = [`Day ${day}` + (DAY_DATES[day] ? ` (${formatDayDate(DAY_DATES[day])})` : '') + ':'];
   const legMatch = lastRoute && lastRoute.day === day
     && lastRoute.ids.join() === ids.join();
@@ -6353,10 +6475,23 @@ document.getElementById('copyDayBtn').addEventListener('click', async ()=>{
 // dayDescriptionText(day) — the same per-day formatting the AI summary and
 // per-day copy already rely on — for every day that has at least one stop,
 // so a trip that's only partly planned doesn't get empty "Day N:" sections.
-function tripDescriptionText(dayList = DAYS){
+// Accepts either a plain array of day numbers (every place on that day, the
+// "Copy whole trip" default) or a {[day]: idsArray} selection map (the trip
+// summary's day/place picker) — the latter lets the AI recap honor the same
+// place-level exclusions as the rest of the summary.
+function tripDescriptionText(daysOrSelections = DAYS){
   const trip = activeTrip();
   const header = trip ? trip.name : 'Trip plan';
-  const dayTexts = dayList.filter(d => getRouteIds(d).length > 0).map(d => dayDescriptionText(d));
+  let dayTexts;
+  if(Array.isArray(daysOrSelections)){
+    dayTexts = daysOrSelections.filter(d => getRouteIds(d).length > 0).map(d => dayDescriptionText(d));
+  }else{
+    dayTexts = Object.entries(daysOrSelections)
+      .map(([day, ids])=>[Number(day), ids])
+      .filter(([, ids])=>ids && ids.length)
+      .sort((a,b)=>a[0]-b[0])
+      .map(([day, ids])=>dayDescriptionText(day, ids));
+  }
   return [header, ...dayTexts].join('\n\n');
 }
 document.getElementById('copyTripBtn').addEventListener('click', async ()=>{

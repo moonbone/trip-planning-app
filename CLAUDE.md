@@ -228,15 +228,28 @@ The user's own real trip currently loaded into the app is a Norway road trip, Au
   distinct 🏨 marker per unique overnight hotel. Deliberately does not try to auto-detect
   "this day was a flight" or "this leg was a private, non-routable ferry" — those need a
   human to notice; the summary only ever shows what the trip's own routing/weather data
-  says. The button opens a day-picker modal (`openTripSummaryModal`, all days checked by
-  default, "Select all"/"Select none" shortcuts) rather than generating immediately —
-  `buildTripSummaryData`/`tripDescriptionText` both take an optional day-number list
-  (defaulting to `DAYS`, so every other caller of `tripDescriptionText` is unaffected) —
-  so a long trip can be summarized as a subset (e.g. just the road-trip days) or run
-  multiple times with different selections to get separate summaries for distinct legs
-  of a trip (e.g. the road trip vs. a city add-on), each opening its own tab. A partial
-  selection shows "N of M days selected" in the subtitle and "(partial)" in the tab title
-  so multiple summary tabs stay distinguishable.
+  says. The button opens a picker modal (`openTripSummaryModal`) rather than generating
+  immediately — a checkbox tree, one collapsible group per day (▸ toggle, collapsed by
+  default, `renderTripSummaryDayList`), each containing a checkbox per individual place —
+  stops *and* hotels alike, so a wrongly-added duplicate or an unwanted overnight can be
+  dropped without dropping the whole day. A day's own checkbox is a derived aggregate
+  (`updateTsDayCheckState`, checked/indeterminate/unchecked from its children, native
+  `.indeterminate`) that also acts as a per-day select-all/none when clicked; top-level
+  "Select all"/"Select none" reach every place checkbox across every day. `buildTripSummaryData`
+  and `tripDescriptionText` (so the AI recap prompt reflects the same exclusions) both take
+  a `{[day]: idsArray}` selection map — an explicit, already-filtered subset of that day's
+  `getRouteIds(day)` — defaulting to `fullDaySelections()` (every day, every place) when
+  called without one. Checkbox `value`s are always strings even though KML-derived place ids
+  are plain numbers, so the Generate handler filters the correctly-typed `getRouteIds(day)`
+  array by a string-matched `Set` of checked values rather than using checkbox values as ids
+  directly — needed so the excluded-hotel check (`ids.includes(wakeHotelId(day))`) still
+  works. Excluding a hotel un-pins its 🏨 marker from *that day's* map contribution only —
+  the same physical hotel can still appear via a neighboring day that still references it
+  (e.g. as day N+1's wake hotel), which is correct: the boundary is per-day, not per-place-
+  globally. Running the picker multiple times with different selections gets separate
+  summaries for distinct legs of a trip (e.g. the road trip vs. a city add-on), each opening
+  its own tab. A partial selection shows "N of M days · X of Y places selected" in the
+  subtitle and "(partial)" in the tab title so multiple summary tabs stay distinguishable.
   A "📍 From Maps" button lets you paste a Google Maps link (or raw `lat, lon`) to add a
   custom place without clicking the map: `parseGoogleMapsCoords` pulls coordinates out of
   long-form URLs client-side (`!3d/!4d` pin, `@lat,lon` view center, or `q=`/`ll=` params).
