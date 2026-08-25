@@ -851,6 +851,23 @@
     cursor:pointer;
   }
   .ferry-label input{margin:0;}
+  .route-avoid-row{
+    display:flex;
+    flex-wrap:wrap;
+    align-items:center;
+    gap:10px;
+    margin:6px 0;
+    font-size:11px;
+    font-weight:600;
+    color:var(--ink-soft);
+  }
+  .route-avoid-row label{
+    display:flex;
+    align-items:center;
+    gap:4px;
+    cursor:pointer;
+  }
+  .route-avoid-row input{margin:0;}
   .stay-input{
     width:52px;
     border:1px solid var(--border);
@@ -1474,6 +1491,11 @@
       </div>
     </div>
     <div id="routeList"></div>
+    <div class="route-avoid-row" id="routeAvoidRow" title="Routing preference — a personal setting, saved in this browser, applies to every trip. Only affects the calculated route, not the free fallback routers used when the proxy is unavailable.">
+      <label><input type="checkbox" id="avoidFerries" data-avoid="ferries"> ⛴ Avoid ferries</label>
+      <label><input type="checkbox" id="avoidTollways" data-avoid="tollways"> 💰 Avoid tolls</label>
+      <label><input type="checkbox" id="avoidHighways" data-avoid="highways"> 🛣️ Avoid highways</label>
+    </div>
     <button class="calc-btn" id="calcBtn">Calculate driving times</button>
     <div class="nav-btn-row">
       <button class="calc-btn suggest-nav-btn" id="suggestNavBtn">Navigate to next stop</button>
@@ -2442,6 +2464,30 @@ function syncFuelUnitToggle(unit){
   });
   document.getElementById('fuelConsumption').placeholder = unit === 'mpg' ? 'mpg (US)' : 'L/100km';
   document.getElementById('fuelPrice').placeholder = unit === 'mpg' ? 'price/gal' : 'price/L';
+}
+
+// Routing avoid-features (ferries/tollways/highways): a personal preference
+// about the car/driver, not trip data — same "one plain localStorage key,
+// applies to every trip" pattern as fuel settings and the km/mi toggle.
+// Passed to the /route proxy, which forwards it to OpenRouteService's
+// `options.avoid_features`. The free OSRM fallback used when the proxy is
+// unavailable has no equivalent option and silently ignores it — routing
+// still works, it just can't honor the preference on that path.
+const ROUTE_AVOID_OPTIONS = ['ferries', 'tollways', 'highways'];
+function loadRouteAvoid(){
+  let arr;
+  try{ arr = JSON.parse(localStorage.getItem('tripplan-route-avoid')) || []; }
+  catch(e){ arr = []; }
+  return Array.isArray(arr) ? arr.filter(v=>ROUTE_AVOID_OPTIONS.includes(v)) : [];
+}
+function saveRouteAvoid(arr){
+  try{ localStorage.setItem('tripplan-route-avoid', JSON.stringify(arr)); }
+  catch(e){ console.error('save failed', e); }
+}
+function applyRouteAvoidToInputs(arr){
+  document.querySelectorAll('#routeAvoidRow input[data-avoid]').forEach(cb=>{
+    cb.checked = arr.includes(cb.dataset.avoid);
+  });
 }
 
 // Distance unit (km/mi): a personal preference, not trip data, so it's one
@@ -4726,10 +4772,13 @@ async function renderTripWeatherStrip(){
 
 async function fetchFromProxy(ids){
   const coordinates = ids.map(id=>{ const p=byId[id]; return [p.lon,p.lat]; });
+  const avoid = loadRouteAvoid();
+  const body = {coordinates};
+  if(avoid.length) body.options = {avoid_features: avoid};
   const res = await fetch(PROXY_URL,{
     method:'POST',
     headers:{ 'Content-Type':'application/json' },
-    body: JSON.stringify({coordinates})
+    body: JSON.stringify(body)
   });
   if(!res.ok){
     const body = await res.text().catch(()=> '');
@@ -4974,7 +5023,11 @@ async function calculateRoute(){
   try{
     let route;
     try{ route = await fetchFromProxy(ids); }
-    catch(e){ errEl.textContent = 'Proxy failed (' + e.message + ') — trying free fallback…'; route = await fetchFromOSRM(ids); }
+    catch(e){
+      const avoidNote = loadRouteAvoid().length ? ' (avoid-route preference won\'t be honored on the fallback)' : '';
+      errEl.textContent = 'Proxy failed (' + e.message + ') — trying free fallback…' + avoidNote;
+      route = await fetchFromOSRM(ids);
+    }
 
     routeLayer.clearLayers();
     L.geoJSON(route.geometry, {
@@ -5959,6 +6012,15 @@ document.getElementById('variantRenameBtn').addEventListener('click', renameVari
 document.getElementById('variantDeleteBtn').addEventListener('click', deleteVariant);
 
 document.getElementById('calcBtn').addEventListener('click', calculateRoute);
+document.getElementById('routeAvoidRow').addEventListener('change', (e)=>{
+  const cb = e.target.closest('input[data-avoid]');
+  if(!cb) return;
+  const cur = loadRouteAvoid();
+  const next = cb.checked
+    ? [...new Set([...cur, cb.dataset.avoid])]
+    : cur.filter(v=>v !== cb.dataset.avoid);
+  saveRouteAvoid(next);
+});
 document.getElementById('resetDayBtn').addEventListener('click', resetDay);
 document.getElementById('optimizeOrderBtn').addEventListener('click', optimizeDayOrder);
 document.getElementById('dayStartInput').addEventListener('change', (e)=>{
@@ -6540,6 +6602,7 @@ if('serviceWorker' in navigator){
   initMap();
   watchLocation();
   applyFuelSettingsToInputs(loadFuelSettings());
+  applyRouteAvoidToInputs(loadRouteAvoid());
   syncUnitsToggle();
   applyTheme(localStorage.getItem('tripplan-theme'));
   // Same trip-loading logic as switching trips (parse KML, load enrichment/

@@ -187,6 +187,19 @@ async function handleRoute(event) {
     return jsonError(400, 'Body must include a coordinates array with at least 2 points');
   }
 
+  // Optional routing preference (ferries/tollways/highways to avoid) from the
+  // avoid-route toggle in index.html. Allowlisted against OpenRouteService's
+  // actual supported values rather than forwarded verbatim, since this is
+  // client-controlled input reaching an upstream API call.
+  const ORS_AVOID_FEATURES = new Set(['ferries', 'tollways', 'highways']);
+  const orsBody = { coordinates: body.coordinates };
+  const avoid = body.options && Array.isArray(body.options.avoid_features)
+    ? body.options.avoid_features.filter((v) => ORS_AVOID_FEATURES.has(v))
+    : [];
+  if (avoid.length) {
+    orsBody.options = { avoid_features: avoid };
+  }
+
   try {
     const orsRes = await fetch('https://api.openrouteservice.org/v2/directions/driving-car/geojson', {
       method: 'POST',
@@ -194,7 +207,7 @@ async function handleRoute(event) {
         Authorization: process.env.ORS_API_KEY,
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({ coordinates: body.coordinates }),
+      body: JSON.stringify(orsBody),
     });
     const text = await orsRes.text();
     return {

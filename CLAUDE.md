@@ -54,7 +54,18 @@ The user's own real trip currently loaded into the app is a Norway road trip, Au
   dropped them until you switched trips away and back — fixed by making startup
   call the same function).
   Calls `PROXY_URL` (currently `/route`, relative — assumes same-origin hosting) for
-  routing, falls back to public OSRM demo servers if the proxy fails. Below 860px width, the 3-column layout collapses to a
+  routing, falls back to public OSRM demo servers if the proxy fails. A small "Avoid
+  ferries / tolls / highways" checkbox row above "Calculate driving times"
+  (`#routeAvoidRow`) is a personal routing preference — same "one plain localStorage
+  key (`tripplan-route-avoid`), applies to every trip" pattern as fuel settings and the
+  km/mi toggle, not trip data. `fetchFromProxy` sends whatever's checked as
+  `options.avoid_features` in the `/route` POST body; `aws/handler.mjs`'s `handleRoute`
+  allowlists it against OpenRouteService's actual supported values (`ferries`,
+  `tollways`, `highways`) before forwarding to ORS, since it's client-controlled input
+  reaching an upstream API call. The free OSRM fallback used when the proxy is
+  unreachable has no equivalent option and silently ignores the preference — routing
+  still works on that path, it just can't honor it, and `calculateRoute()` says so in
+  the fallback error note when at least one avoid option is checked. Below 860px width, the 3-column layout collapses to a
   single column switched via a bottom tab bar (Places / Route / Summary); Leaflet needs
   `map.invalidateSize()` after its container is unhidden, which `setMobileSection` calls.
   A header toggle switches the whole page between this planner view and the feature-request
