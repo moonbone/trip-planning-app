@@ -228,7 +228,15 @@ The user's own real trip currently loaded into the app is a Norway road trip, Au
   distinct 🏨 marker per unique overnight hotel. Deliberately does not try to auto-detect
   "this day was a flight" or "this leg was a private, non-routable ferry" — those need a
   human to notice; the summary only ever shows what the trip's own routing/weather data
-  says.
+  says. The button opens a day-picker modal (`openTripSummaryModal`, all days checked by
+  default, "Select all"/"Select none" shortcuts) rather than generating immediately —
+  `buildTripSummaryData`/`tripDescriptionText` both take an optional day-number list
+  (defaulting to `DAYS`, so every other caller of `tripDescriptionText` is unaffected) —
+  so a long trip can be summarized as a subset (e.g. just the road-trip days) or run
+  multiple times with different selections to get separate summaries for distinct legs
+  of a trip (e.g. the road trip vs. a city add-on), each opening its own tab. A partial
+  selection shows "N of M days selected" in the subtitle and "(partial)" in the tab title
+  so multiple summary tabs stay distinguishable.
   A "📍 From Maps" button lets you paste a Google Maps link (or raw `lat, lon`) to add a
   custom place without clicking the map: `parseGoogleMapsCoords` pulls coordinates out of
   long-form URLs client-side (`!3d/!4d` pin, `@lat,lon` view center, or `q=`/`ll=` params).

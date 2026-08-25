@@ -583,6 +583,29 @@
     color:var(--ink-soft);
   }
   .packing-suggestion:empty{display:none;}
+  .trip-summary-select-row{
+    display:flex;
+    gap:14px;
+    margin-bottom:6px;
+  }
+  .trip-summary-day-item{
+    display:flex;
+    align-items:flex-start;
+    gap:8px;
+    padding:7px 2px;
+    border-bottom:1px solid var(--border);
+    cursor:pointer;
+  }
+  .trip-summary-day-item input[type=checkbox]{
+    flex-shrink:0;
+    width:16px;height:16px;
+    margin-top:2px;
+  }
+  .ts-day-preview{
+    display:block;
+    font-size:12px;
+    color:var(--ink-soft);
+  }
   .packing-suggest-list{
     background:var(--bg);
     border:1px solid var(--border);
@@ -1652,6 +1675,23 @@
       <button class="reset-btn" id="budgetAddBtn">Add</button>
     </div>
     <div class="error-note" id="budgetError"></div>
+  </div>
+</div>
+
+<div class="info-modal-overlay" id="tripSummaryModal" style="display:none;">
+  <div class="info-modal">
+    <button class="info-close" id="tripSummaryModalClose" title="Close" aria-label="Close trip summary options">×</button>
+    <h2>📊 Trip summary</h2>
+    <p class="source-note">Choose which days to include — handy for splitting a long trip into
+      separate summaries (e.g. the road trip vs. a city add-on). Run this again with a different
+      selection to get another summary.</p>
+    <div class="trip-summary-select-row">
+      <button class="link-btn" id="tripSummarySelectAllBtn">Select all</button>
+      <button class="link-btn" id="tripSummarySelectNoneBtn">Select none</button>
+    </div>
+    <div id="tripSummaryDayList"></div>
+    <div class="error-note" id="tripSummaryError"></div>
+    <button class="calc-btn" id="tripSummaryGenerateBtn">Generate summary</button>
   </div>
 </div>
 
@@ -5432,11 +5472,11 @@ function tripDayColor(index, total){
   return `hsl(${hue.toFixed(0)}, 70%, 45%)`;
 }
 
-async function buildTripSummaryData(onProgress){
+async function buildTripSummaryData(onProgress, dayList = DAYS){
   const trip = activeTrip();
   const days = [];
-  for(const [i, day] of DAYS.entries()){
-    if(onProgress) onProgress(i + 1, DAYS.length, day);
+  for(const [i, day] of dayList.entries()){
+    if(onProgress) onProgress(i + 1, dayList.length, day);
     const ids = getRouteIds(day);
     const date = DAY_DATES[day] || null;
     const meta = getDayMeta(day);
@@ -5471,7 +5511,7 @@ async function buildTripSummaryData(onProgress){
       weather, weatherKind,
     });
   }
-  return {trip: {...trip, tripStart: TRIP_START}, days};
+  return {trip: {...trip, tripStart: TRIP_START}, days, isPartial: dayList.length !== DAYS.length};
 }
 
 function tripSummaryWeatherHtml(d){
@@ -5544,7 +5584,7 @@ function renderTripSummaryPage(data, recap){
 
   return `<!doctype html>
 <html><head><meta charset="utf-8">
-<title>${escapeHtml(trip.name)} — trip summary</title>
+<title>${escapeHtml(trip.name)} — trip summary${data.isPartial ? ' (partial)' : ''}</title>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css" />
 <style>
   body{font-family:-apple-system,Segoe UI,Helvetica,Arial,sans-serif;max-width:960px;margin:2rem auto;padding:0 1.5rem;color:#222;line-height:1.45;}
@@ -5573,7 +5613,7 @@ function renderTripSummaryPage(data, recap){
 </style></head>
 <body>
   <h1>${escapeHtml(trip.name)}</h1>
-  <p class="sm-sub">${totalDays} day${totalDays===1?'':'s'}${trip.tripStart ? ` · starting ${trip.tripStart}` : ''} · trip summary</p>
+  <p class="sm-sub">${data.isPartial ? `${totalDays} of ${DAYS.length} days selected` : `${totalDays} day${totalDays===1?'':'s'}`}${trip.tripStart ? ` · starting ${trip.tripStart}` : ''} · trip summary</p>
   <div class="sm-stats">
     <div class="sm-stat"><div class="sm-stat-num">${totalKm ? formatDistanceKm(totalKm) : '—'}</div><div class="sm-stat-label">total driving</div></div>
     <div class="sm-stat"><div class="sm-stat-num">${totalMin ? `${hrs}h ${mins}m` : '—'}</div><div class="sm-stat-label">driving time</div></div>
@@ -5624,9 +5664,9 @@ function renderTripSummaryPage(data, recap){
 </body></html>`;
 }
 
-async function generateTripSummary(){
+async function generateTripSummary(dayList = DAYS){
   const trip = activeTrip();
-  if(!trip || !DAYS.length){
+  if(!trip || !dayList.length){
     document.getElementById('errorNote').textContent = 'Load a trip first.';
     return;
   }
@@ -5644,13 +5684,13 @@ async function generateTripSummary(){
     const data = await buildTripSummaryData((i, total, day)=>{
       const msgEl = win.document.getElementById('loadingMsg');
       if(msgEl) msgEl.textContent = `Gathering trip data… (${i}/${total}, Day ${day})`;
-    });
+    }, dayList);
     let recap = null;
     if(currentUser){
       const msgEl = win.document.getElementById('loadingMsg');
       if(msgEl) msgEl.textContent = 'Generating AI recap…';
       try{
-        const res = await api('/api/ai/summarize-trip', {method:'POST', body: JSON.stringify({text: tripDescriptionText()})});
+        const res = await api('/api/ai/summarize-trip', {method:'POST', body: JSON.stringify({text: tripDescriptionText(dayList)})});
         recap = res.summary;
       }catch(e){
         recap = null; // AI recap is a nice-to-have; the rest of the summary still ships without it
@@ -5665,6 +5705,32 @@ async function generateTripSummary(){
     btn.disabled = false;
     btn.textContent = prevLabel;
   }
+}
+
+function renderTripSummaryDayList(){
+  const el = document.getElementById('tripSummaryDayList');
+  el.innerHTML = DAYS.map(day=>{
+    const ids = getRouteIds(day);
+    const names = ids.map(id=>byId[id] && byId[id].name).filter(Boolean);
+    const preview = names.length ? names.join(' → ') : 'No stops planned';
+    return `<label class="trip-summary-day-item">
+      <input type="checkbox" class="ts-day-check" value="${day}" checked>
+      <span><b>Day ${day}</b>${DAY_DATES[day] ? ` — ${formatDayDate(DAY_DATES[day])}` : ''}<span class="ts-day-preview" dir="auto">${escapeHtml(preview)}</span></span>
+    </label>`;
+  }).join('');
+}
+function openTripSummaryModal(){
+  const trip = activeTrip();
+  if(!trip || !DAYS.length){
+    document.getElementById('errorNote').textContent = 'Load a trip first.';
+    return;
+  }
+  document.getElementById('tripSummaryError').textContent = '';
+  renderTripSummaryDayList();
+  document.getElementById('tripSummaryModal').style.display = '';
+}
+function closeTripSummaryModal(){
+  document.getElementById('tripSummaryModal').style.display = 'none';
 }
 
 // ---- ICS calendar export ----
@@ -6120,7 +6186,26 @@ document.getElementById('shareTripBtn').addEventListener('click', async ()=>{
 });
 document.getElementById('deleteTripBtn').addEventListener('click', ()=>deleteTrip(tripsIndex.activeTripId));
 document.getElementById('printTripBtn').addEventListener('click', printTripItinerary);
-document.getElementById('tripSummaryBtn').addEventListener('click', generateTripSummary);
+document.getElementById('tripSummaryBtn').addEventListener('click', openTripSummaryModal);
+document.getElementById('tripSummaryModalClose').addEventListener('click', closeTripSummaryModal);
+document.getElementById('tripSummaryModal').addEventListener('click', (e)=>{
+  if(e.target === e.currentTarget) closeTripSummaryModal();
+});
+document.getElementById('tripSummarySelectAllBtn').addEventListener('click', ()=>{
+  document.querySelectorAll('.ts-day-check').forEach(cb=>{ cb.checked = true; });
+});
+document.getElementById('tripSummarySelectNoneBtn').addEventListener('click', ()=>{
+  document.querySelectorAll('.ts-day-check').forEach(cb=>{ cb.checked = false; });
+});
+document.getElementById('tripSummaryGenerateBtn').addEventListener('click', ()=>{
+  const selected = [...document.querySelectorAll('.ts-day-check:checked')].map(cb=>Number(cb.value)).sort((a,b)=>a-b);
+  if(!selected.length){
+    document.getElementById('tripSummaryError').textContent = 'Select at least one day.';
+    return;
+  }
+  closeTripSummaryModal();
+  generateTripSummary(selected);
+});
 document.getElementById('exportGpxBtn').addEventListener('click', exportTripGpx);
 document.getElementById('exportIcsBtn').addEventListener('click', exportTripIcs);
 document.getElementById('backupTripBtn').addEventListener('click', exportTripBackup);
@@ -6268,10 +6353,10 @@ document.getElementById('copyDayBtn').addEventListener('click', async ()=>{
 // dayDescriptionText(day) — the same per-day formatting the AI summary and
 // per-day copy already rely on — for every day that has at least one stop,
 // so a trip that's only partly planned doesn't get empty "Day N:" sections.
-function tripDescriptionText(){
+function tripDescriptionText(dayList = DAYS){
   const trip = activeTrip();
   const header = trip ? trip.name : 'Trip plan';
-  const dayTexts = DAYS.filter(d => getRouteIds(d).length > 0).map(d => dayDescriptionText(d));
+  const dayTexts = dayList.filter(d => getRouteIds(d).length > 0).map(d => dayDescriptionText(d));
   return [header, ...dayTexts].join('\n\n');
 }
 document.getElementById('copyTripBtn').addEventListener('click', async ()=>{
