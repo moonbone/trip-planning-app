@@ -101,7 +101,16 @@ The user's own real trip currently loaded into the app is a Norway road trip, Au
   click, variant-scoped, 'c'-prefixed string ids), **place info enrichment** (imported JSON
   matched to places by title/proximity, shown in a modal — trip-scoped), **comments**
   per place/day/trip (trip-scoped; local key `tripplan-comments:<id>`, per-comment
-  POST/DELETE endpoints signed in), and a **packing checklist** (🎒 button next to trip
+  POST/DELETE endpoints signed in). Day-scoped comments were already pulled into the
+  "Copy day plan"/AI-summary text (`dayDescriptionText`) and the printable itinerary
+  (`buildDayItinerary`'s `notes`); place-scoped comments (added from the place-info
+  modal opened by clicking a stop) now are too — each stop's own comments show as an
+  indented `Note:` line in the copy/AI text and as an italic row under that stop in the
+  printable itinerary (`.t-place-notes`), the same "this was already visible in the app
+  but not in any export" gap the day/trip comments had already closed. Deliberately
+  left out of the ICS calendar description, unlike day notes — a calendar event body is
+  meant to stay short, and day notes already cover "the one thing to remember about
+  this day" there. And a **packing checklist** (🎒 button next to trip
   comments, its own modal): one flat `{id, text, checked}` list per trip, not per variant
   (what to pack doesn't depend on the route plan) — local key `tripplan-packing:<id>`,
   or a `packingList` field on the trip record signed in via `PUT /api/trips/:id/packing`

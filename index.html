@@ -5113,7 +5113,8 @@ async function buildDayItinerary(day){
       t += legMin;
     }
     const stay = stayMinutes(day, id);
-    result.stops.push({name: p.name, lat: p.lat, lon: p.lon, overnight: !!p.overnight, stay, arrival: route ? fmtClock(t) : null, legMin, legKm});
+    const notes = commentsFor({scope:'place', placeId:id}).map(c=>c.text);
+    result.stops.push({name: p.name, lat: p.lat, lon: p.lon, overnight: !!p.overnight, stay, arrival: route ? fmtClock(t) : null, legMin, legKm, notes});
     t += stay;
   });
   if(route){
@@ -5135,10 +5136,13 @@ function renderPrintableItinerary(trip, days){
   const fuel = loadFuelSettings();
   const dayHtml = days.filter(d=>d.stops.length).map(d=>{
     const rows = d.stops.map((s,i)=>{
+      const stopNotesRow = s.notes.length
+        ? `<tr class="t-leg"><td></td><td class="t-place-notes">${s.notes.map(n=>escapeHtml(n)).join(' · ')}</td></tr>`
+        : '';
       const stopRow = `<tr>
         <td class="t-time">${s.arrival || ''}</td>
         <td>${s.overnight ? '🏨 ' : ''}${escapeHtml(s.name)}${s.stay ? ` <span class="t-stay">(${s.stay} min stop)</span>` : ''}</td>
-      </tr>`;
+      </tr>${stopNotesRow}`;
       // the leg between stop i and i+1 is recorded as the *arrival* leg on
       // stop i+1 (it's the drive that got you there), not on stop i.
       const next = d.stops[i+1];
@@ -5185,6 +5189,7 @@ function renderPrintableItinerary(trip, days){
   .t-weather{margin:0.2rem 0 0.6rem;}
   .t-warn{color:#a05a00;}
   .t-notes{font-size:0.9rem;color:#555;margin-top:0.3rem;}
+  .t-place-notes{font-style:italic;}
   .t-packing{page-break-inside:avoid;margin-bottom:1.6rem;}
   .t-packing table{width:auto;}
   .t-packing td{padding:2px 0.6rem 2px 0;}
@@ -5880,6 +5885,7 @@ function dayDescriptionText(day = activeDay){
       line += ` — ${plain.slice(0, 200)}`;
     }
     lines.push(line);
+    commentsFor({scope:'place', placeId:id}).forEach(c=>lines.push(`  Note: ${c.text}`));
   });
   commentsFor({scope:'day', day}).forEach(c=>lines.push(`Note: ${c.text}`));
   return lines.join('\n');
