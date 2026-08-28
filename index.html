@@ -2830,11 +2830,21 @@ async function nominatimSearch(q){
 }
 async function geocodeAddress(query){
   let results = await nominatimSearch(query);
-  // "Business Name, Street, City" as one blob often fails to match —
-  // the street/city address alone (after the first comma) geocodes far
-  // more reliably, so retry with that if the full string comes up empty.
-  if(!results.length && query.includes(',')){
-    results = await nominatimSearch(query.slice(query.indexOf(',') + 1).trim());
+  // "Business Name, Street, City, Country" as one blob often fails to
+  // match even though the address alone would — and sometimes even that
+  // still fails (e.g. a business name Google shows translated/localized
+  // differently than how OSM has it tagged locally: "Langedrag Nature
+  // Park" vs OSM's Norwegian "Langedrag Naturpark"). Retry with
+  // progressively fewer leading segments — the business/POI name is
+  // almost always the leading one — stopping once only 2 segments are
+  // left so it doesn't degrade all the way down to just a country. Lands
+  // on the city/village centroid in the worst case, which is still a far
+  // more useful outcome than failing the import outright.
+  if(!results.length){
+    const parts = query.split(',').map(s=>s.trim()).filter(Boolean);
+    for(let i = 1; i <= parts.length - 2 && !results.length; i++){
+      results = await nominatimSearch(parts.slice(i).join(', '));
+    }
   }
   if(!results.length) throw new Error('no match found for "' + query + '"');
   return {lat: parseFloat(results[0].lat), lon: parseFloat(results[0].lon), name: query};

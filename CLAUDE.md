@@ -255,7 +255,13 @@ The user's own real trip currently loaded into the app is a Norway road trip, Au
   long-form URLs client-side (`!3d/!4d` pin, `@lat,lon` view center, or `q=`/`ll=` params).
   Newer share links reference a place by internal id instead (no coordinates anywhere in the
   URL) — those fall back to geocoding the place name/address via OpenStreetMap's free
-  Nominatim API. Shortened links (`maps.app.goo.gl`, `goo.gl`, `g.co` — what phones produce
+  Nominatim API. `geocodeAddress` retries with progressively fewer leading comma-separated
+  segments (down to a floor of 2, so it never degrades all the way to just a country) when
+  the full "Business Name, Street, City, Country" blob comes up empty — sometimes even the
+  street/city address alone still fails, e.g. a business name Google displays translated or
+  localized differently than how OSM has it tagged locally ("Langedrag Nature Park" vs OSM's
+  Norwegian "Langedrag Naturpark"); landing on the city/village centroid in that worst case
+  beats failing the import outright. Shortened links (`maps.app.goo.gl`, `goo.gl`, `g.co` — what phones produce
   from the Share button) carry neither, so those go through `POST /resolve-maps-link` first
   to follow the redirect server-side (a browser can't read a cross-origin redirect's
   destination). That same server call also scrapes the place's Open Graph photo/title
