@@ -479,7 +479,12 @@ The user's own real trip currently loaded into the app is a Norway road trip, Au
   gentle with. Each day's reference point is `getRouteIds(day)[0]`, i.e. that day's
   *starting* location (the previous night's hotel) — the same convention the single-day
   panel already uses, so e.g. day 2's forecast reflects where day 2 begins that morning
-  (day 1's hotel), not day 2's own destination. A day whose forecast fetch fails is
+  (day 1's hotel), not day 2's own destination. Fetches the *active* day first, then the
+  rest in day order, and paints the strip after each one lands (`chipsByDay`, keyed by day
+  so chips always render in day order regardless of fetch order) rather than building the
+  whole row and writing it once at the end — on a long trip the strip used to stay
+  completely blank until every day had loaded, so the day you were actually looking at
+  could be last to appear. A day whose forecast fetch fails is
   silently omitted from the strip rather than shown broken; the active day's chip is
   highlighted. Guarded by its own request token (`weatherStripToken`), same pattern as
   `weatherRequestToken`, so a trip/day switch mid-fetch discards the stale in-flight result.

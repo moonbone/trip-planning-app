@@ -4890,8 +4890,24 @@ async function renderTripWeatherStrip(){
   if(!eligibleDays.length) return;
   const token = ++weatherStripToken;
   const badgesBefore = DAYS.map(d=>rainBadgeHtml(d)+snowBadgeHtml(d)).join('|');
-  const chips = [];
-  for(const d of eligibleDays){
+  // Fetched one day at a time (still — a keyless public API is worth being
+  // gentle with), but in an order starting from the day actually on screen,
+  // and painted after each one — the whole strip used to stay blank until
+  // every day in the trip had loaded, so on a long trip you'd wait through
+  // several sequential fetches for days you weren't even looking at before
+  // your own day's chip appeared.
+  const fetchOrder = eligibleDays.includes(activeDay)
+    ? [activeDay, ...eligibleDays.filter(d=>d!==activeDay)]
+    : eligibleDays;
+  const chipsByDay = {};
+  const paintChips = ()=>{
+    const html = eligibleDays.map(d=>chipsByDay[d] || '').join('');
+    el.innerHTML = html ? `<div class="weather-strip-row">${html}</div>` : '';
+    el.querySelectorAll('.weather-chip').forEach(chip=>{
+      chip.addEventListener('click', ()=>{ activeDay = Number(chip.dataset.day); renderAll(); });
+    });
+  };
+  for(const d of fetchOrder){
     const ids = getRouteIds(d);
     const ref = ids.length ? byId[ids[0]] : null;
     if(!ref) continue;
@@ -4902,20 +4918,17 @@ async function renderTripWeatherStrip(){
       if(!forecast) continue;
       const icon = (WEATHER_CODE_LABELS[forecast.code] || '🌡️').split(' ')[0];
       const title = `Go to day ${d}${forecast.precip > 0 ? ` — ${forecast.precip}mm rain expected` : ''}`;
-      chips.push(weatherChipHtml(d, title, icon, `${forecast.tMax}°/${forecast.tMin}°`, false));
+      chipsByDay[d] = weatherChipHtml(d, title, icon, `${forecast.tMax}°/${forecast.tMin}°`, false);
     }else{
       const normal = await fetchClimateNormal(ref.lat, ref.lon, date);
       if(token !== weatherStripToken) return;
       if(!normal) continue;
       const title = `Go to day ${d} — estimated from the past ${normal.years} years, not a live forecast`;
-      chips.push(weatherChipHtml(d, title, '~', `${normal.tMax}°/${normal.tMin}°`, true));
+      chipsByDay[d] = weatherChipHtml(d, title, '~', `${normal.tMax}°/${normal.tMin}°`, true);
     }
+    paintChips(); // each day's chip appears the moment it's ready, not after the whole strip loads
   }
   if(token !== weatherStripToken) return;
-  el.innerHTML = chips.length ? `<div class="weather-strip-row">${chips.join('')}</div>` : '';
-  el.querySelectorAll('.weather-chip').forEach(chip=>{
-    chip.addEventListener('click', ()=>{ activeDay = Number(chip.dataset.day); renderAll(); });
-  });
   // fetchWeather() populated weatherCache along the way — the rain badges on
   // day tabs and the rainy-day count in the trip overview only ever read that
   // cache, so refresh both now that it has fresh data. Only when a badge
