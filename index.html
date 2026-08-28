@@ -1911,8 +1911,9 @@ const ESTIMATE_AVG_SPEED_KMH = 50;
 function dayDriveEstimate(day){
   const ids = getRouteIds(day);
   if(ids.length < 2) return null;
-  if(lastRoute && lastRoute.day === day && lastRoute.ids.join() === ids.join()){
-    return {min: Math.round(lastRoute.route.duration/60), km: lastRoute.route.distance/1000, exact:true};
+  const cached = routeCache[day];
+  if(cached && cached.ids.join() === ids.join()){
+    return {min: Math.round(cached.route.duration/60), km: cached.route.distance/1000, exact:true};
   }
   let km = 0;
   for(let i=1;i<ids.length;i++){
@@ -1993,7 +1994,12 @@ function daylightWarningHtml(day, endMin){
 let plans = {};
 // Per-day schedule settings: {start:'HH:MM', stay:{placeId:minutes}}
 let dayMeta = {};
-let lastRoute = null; // {day, ids, route} from the most recent calculation
+// {[day]: {ids, route}} — every day's most recently calculated route, kept
+// until that day's own plan (stop order or membership) changes; calculating
+// a different day no longer evicts this one. Local-only (never synced to
+// the server, even signed in) and persisted to localStorage per trip+variant
+// so it survives a reload — see routeCacheKey()/loadVariant()/saveRouteCache().
+let routeCache = {};
 let activeDay = 1;
 let dragRow = null;
 let map, routeLayer, markersLayer, locationLayer;
@@ -2044,6 +2050,14 @@ function saveTripsIndex(){
 function variantKey(tripId, variantId){
   return `tripplan-variant:${tripId}:${variantId}`;
 }
+// Separate from variantKey() deliberately: route cache is local-only, never
+// part of the {plans, dayMeta, customPlaces} blob synced to the server —
+// it's fully recomputable, and full route geometry for every day of a long
+// trip could easily blow past DynamoDB's 400KB item cap. Still keyed by
+// trip+variant so it survives a reload the same way the plan itself does.
+function routeCacheKey(tripId, variantId){
+  return `tripplan-routecache:${tripId}:${variantId}`;
+}
 // Loads the active variant into the live plans/dayMeta. A missing or
 // unreadable blob is seeded from the trip defaults and saved back — the
 // one path covering fresh variants, migration gaps, and corruption.
@@ -2053,6 +2067,7 @@ function loadVariant(){
   plans = null;
   dayMeta = {};
   customPlaces = [];
+  routeCache = {};
   if(trip && remoteMode){
     const state = remoteVariantState[`${tripsIndex.activeTripId}:${trip.activeVariantId}`];
     if(state && state.plans) plans = JSON.parse(JSON.stringify(state.plans));
@@ -2074,6 +2089,19 @@ function loadVariant(){
     plans = JSON.parse(JSON.stringify(DEFAULT_PLANS));
     if(trip) saveVariant();
   }
+  if(trip){
+    try{
+      const raw = localStorage.getItem(routeCacheKey(tripsIndex.activeTripId, trip.activeVariantId));
+      if(raw) routeCache = JSON.parse(raw) || {};
+    }catch(e){ routeCache = {}; }
+  }
+}
+function saveRouteCache(){
+  const trip = activeTrip();
+  if(!trip) return;
+  try{
+    localStorage.setItem(routeCacheKey(tripsIndex.activeTripId, trip.activeVariantId), JSON.stringify(routeCache));
+  }catch(e){ console.error('route cache save failed', e); }
 }
 function saveVariant(){
   const trip = activeTrip();
@@ -2193,7 +2221,7 @@ async function pushVariant(){
           dayMeta = JSON.parse(JSON.stringify(v.dayMeta || {}));
           customPlaces = JSON.parse(JSON.stringify(v.customPlaces || []));
           rebuildById();
-          lastRoute = null;
+          routeCache = {};
           renderAll();
         }
         document.getElementById('errorNote').textContent =
@@ -2261,7 +2289,7 @@ async function importLocalTrips(email){
       delete localIdx.trips[id];
       localStorage.removeItem('tripplan-trip-src:' + id);
       Object.keys(localStorage)
-        .filter(k=>k.startsWith(`tripplan-variant:${id}:`))
+        .filter(k=>k.startsWith(`tripplan-variant:${id}:`) || k.startsWith(`tripplan-routecache:${id}:`))
         .forEach(k=>localStorage.removeItem(k));
     });
     localIdx.activeTripId = Object.keys(localIdx.trips)[0] || null;
@@ -2294,7 +2322,6 @@ function exitRemoteMode(){
 }
 // (Re)applies the active trip of whichever index is current.
 function activateCurrentTrip(){
-  lastRoute = null;
   placeFilter = '';
   const searchInput = document.getElementById('placeSearchInput');
   if(searchInput) searchInput.value = '';
@@ -4336,10 +4363,10 @@ function renderRouteList(){
   // Per-leg drive times inline in the route list, available once a route was
   // calculated and the plan hasn't changed since (same guard as renderStats).
   const legByPair = {};
-  if(lastRoute && lastRoute.day === activeDay
-     && lastRoute.ids.join() === getRouteIds(activeDay).join()){
-    lastRoute.ids.forEach((id,i)=>{
-      if(i > 0) legByPair[`${lastRoute.ids[i-1]}>${id}`] = lastRoute.route.legs[i-1];
+  const cachedRoute = routeCache[activeDay];
+  if(cachedRoute && cachedRoute.ids.join() === getRouteIds(activeDay).join()){
+    cachedRoute.ids.forEach((id,i)=>{
+      if(i > 0) legByPair[`${cachedRoute.ids[i-1]}>${id}`] = cachedRoute.route.legs[i-1];
     });
   }
   const appendLegInfo = (fromId, toId)=>{
@@ -4487,6 +4514,22 @@ function renderMapMarkers(){
     addPin(p, i+1, '', `${i+1}. ${escapeHtml(p.name)}`);
   });
   if(bounds.length) map.fitBounds(bounds,{padding:[30,30]});
+  // Redraw a previously calculated route from routeCache, if this day still
+  // has one and the plan hasn't moved on since — otherwise switching away
+  // from an already-calculated day and back would silently drop the line
+  // even though the stats panel still shows the exact cached times.
+  const cached = routeCache[activeDay];
+  if(cached && cached.ids.join() === getRouteIds(activeDay).join()){
+    drawRouteOnMap(cached.route.geometry);
+  }
+}
+// Shared by calculateRoute() and renderMapMarkers()'s cache-hit redraw, so
+// the two can't drift into different line styles.
+function drawRouteOnMap(geometry){
+  L.geoJSON(geometry, {
+    style:{ color:'#C0552E', weight:4, opacity:0.85, dashArray:'1,8', lineCap:'round' }
+  }).addTo(routeLayer);
+  addRouteArrows(geometry);
 }
 
 function setMobileSection(section){
@@ -4568,17 +4611,18 @@ function renderTripOverview(){
 function renderStats(){
   const statsEl = document.getElementById('statsPanel');
   const currentIds = getRouteIds(activeDay);
-  if(!lastRoute || lastRoute.day !== activeDay || lastRoute.ids.join() !== currentIds.join()){
+  const cachedForDay = routeCache[activeDay];
+  if(!cachedForDay || cachedForDay.ids.join() !== currentIds.join()){
     // Distinguish "never calculated yet" from "was calculated, but the stop
     // list has since changed" — the latter is easy to miss (times just
     // silently disappear) unless the message says the plan moved on.
-    const stale = lastRoute && lastRoute.day === activeDay;
+    const stale = !!cachedForDay;
     statsEl.innerHTML = stale
       ? '<div class="empty-note">Stops changed since the last calculation — press "Calculate driving times" to update.</div>'
       : '<div class="empty-note">Select 2+ stops and calculate to see times.</div>';
     return;
   }
-  const {ids, route} = lastRoute;
+  const {ids, route} = cachedForDay;
   const meta = getDayMeta(activeDay);
   let t = parseClock(meta.start);
   let stayTotal = 0;
@@ -5193,13 +5237,11 @@ async function calculateRoute(){
     }
 
     routeLayer.clearLayers();
-    L.geoJSON(route.geometry, {
-      style:{ color:'#C0552E', weight:4, opacity:0.85, dashArray:'1,8', lineCap:'round' }
-    }).addTo(routeLayer);
-    addRouteArrows(route.geometry);
+    drawRouteOnMap(route.geometry);
     map.fitBounds(L.geoJSON(route.geometry).getBounds(),{padding:[30,30]});
 
-    lastRoute = {day: activeDay, ids, route};
+    routeCache[activeDay] = {ids, route};
+    saveRouteCache();
     renderRouteList(); // show the per-leg drive times inline
     renderStats();
     renderTripOverview(); // this day's exact distance now feeds the whole-trip total
@@ -5215,8 +5257,8 @@ async function calculateRoute(){
 
 // ---- Printable / offline itinerary export ----
 // Builds one day's stop list with clock times, fetching driving times from
-// the routing API independently of whatever day is currently active/cached
-// in lastRoute. Days that can't be routed (offline, API down, rate limit)
+// the routing API independently of whatever's currently cached in
+// routeCache. Days that can't be routed (offline, API down, rate limit)
 // still return a stop list — just without arrival times or leg distances —
 // so the export degrades gracefully instead of failing outright.
 // Same ~16-day Open-Meteo horizon and "day's starting point" reference as
@@ -6407,13 +6449,13 @@ document.getElementById('tripNotesBtn').addEventListener('click', ()=>{
 function dayDescriptionText(day = activeDay, idsOverride = null){
   const ids = idsOverride || getRouteIds(day);
   const lines = [`Day ${day}` + (DAY_DATES[day] ? ` (${formatDayDate(DAY_DATES[day])})` : '') + ':'];
-  const legMatch = lastRoute && lastRoute.day === day
-    && lastRoute.ids.join() === ids.join();
+  const dayCache = routeCache[day];
+  const legMatch = dayCache && dayCache.ids.join() === ids.join();
   ids.forEach((id, i)=>{
     const p = byId[id];
     if(!p) return;
     if(i > 0 && legMatch){
-      const leg = lastRoute.route.legs[i-1];
+      const leg = dayCache.route.legs[i-1];
       lines.push(`  (drive ${Math.round(leg.duration/60)} min, ${formatDistanceKm(leg.distance/1000)})`);
     }
     const stay = stayMinutes(day, id);
@@ -6975,7 +7017,7 @@ function clearActiveTrip(){
   packingList = [];
   budgetItems = [];
   rebuildById();
-  lastRoute = null;
+  routeCache = {};
 }
 
 function switchTrip(tripId){
@@ -7012,7 +7054,7 @@ async function deleteTrip(tripId){
     localStorage.removeItem(`tripplan-packing:${tripId}`);
     localStorage.removeItem(`tripplan-budget:${tripId}`);
     Object.keys(localStorage)
-      .filter(k=>k.startsWith(`tripplan-variant:${tripId}:`))
+      .filter(k=>k.startsWith(`tripplan-variant:${tripId}:`) || k.startsWith(`tripplan-routecache:${tripId}:`))
       .forEach(k=>localStorage.removeItem(k));
   }
   switchTrip(next);
@@ -7055,7 +7097,6 @@ async function addVariant(){
   trip.activeVariantId = variantId;
   saveTripsIndex();
   loadVariant();
-  lastRoute = null;
   renderAll();
 }
 
@@ -7065,7 +7106,6 @@ function switchVariant(variantId){
   trip.activeVariantId = variantId;
   saveTripsIndex();
   loadVariant();
-  lastRoute = null;
   renderAll();
 }
 
@@ -7084,9 +7124,11 @@ async function deleteVariant(){
   delete trip.variants[variantId];
   trip.activeVariantId = Object.keys(trip.variants)[0];
   saveTripsIndex();
-  if(!remoteMode) localStorage.removeItem(variantKey(tripsIndex.activeTripId, variantId));
+  if(!remoteMode){
+    localStorage.removeItem(variantKey(tripsIndex.activeTripId, variantId));
+    localStorage.removeItem(routeCacheKey(tripsIndex.activeTripId, variantId));
+  }
   loadVariant();
-  lastRoute = null;
   renderAll();
 }
 

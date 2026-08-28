@@ -382,7 +382,7 @@ The user's own real trip currently loaded into the app is a Norway road trip, Au
   one `shareOrCopyText(btn, defaultLabel, title, text)` helper so they can't drift apart. A
   "🖨️ Print itinerary" button (col-left, trip-file panel) opens a new tab and builds a
   full, offline-printable day-by-day itinerary for every day in the trip: it fetches
-  driving times per day independently of whatever's cached in `lastRoute` (via
+  driving times per day independently of whatever's cached in `routeCache` (via
   `buildDayItinerary`, reusing `fetchFromProxy`/`fetchFromOSRM`), and degrades
   gracefully per day if routing fails — still listing stops and stay durations, just
   without clock times, rather than failing the whole export. The tab is opened
@@ -398,8 +398,8 @@ The user's own real trip currently loaded into the app is a Norway road trip, Au
   warning (⚠️ badge on the day tab, a line in the active day's drive summary, a count in
   the trip overview, and a note in the printable itinerary) fires at 270+ minutes of
   driving (`LONG_DRIVE_WARN_MIN`) — the common "keep it under ~4.5h" road-trip guidance,
-  not anything Norway-specific. `dayDriveEstimate` uses the exact figure when a day
-  matches the last-calculated `lastRoute`, otherwise a straight-line/50kmh fallback
+  not anything Norway-specific. `dayDriveEstimate` uses the exact figure when a day has a
+  matching entry in `routeCache`, otherwise a straight-line/50kmh fallback
   (`ESTIMATE_AVG_SPEED_KMH`) so every day tab can be flagged without routing all of them
   up front — deliberately a rough overestimate for winding/mountain roads, so it favors
   flagging over missing a genuinely long day. A **rain badge** (🌧️ on the day tab, plus a
@@ -439,7 +439,7 @@ The user's own real trip currently loaded into the app is a Norway road trip, Au
   departure time, driving with an ETA, or done for the day — computed by walking the same
   start→drive→stay segments the timeline rows already render and comparing against the
   current wall clock. Only shown once a route is calculated for that day (arrival times
-  come from `lastRoute`, same guard `renderStats` already uses). A weather forecast line (col-right, between
+  come from `routeCache`, same guard `renderStats` already uses). A weather forecast line (col-right, between
   "Trip overview" and "Drive summary") shows the active day's forecast — high/low temp,
   precipitation, sunrise/sunset, max wind speed, a condition icon — for whichever place is
   first in that day's route
@@ -508,7 +508,7 @@ The user's own real trip currently loaded into the app is a Norway road trip, Au
   first replaces the toast rather than stacking — only the most recent removal is undoable.
   The "Trip overview" panel's stats now include a whole-trip driving total (time + km,
   summed via `dayDriveEstimate`, which already exists for the per-day long-drive badge) —
-  exact for any day matching `lastRoute`, straight-line-estimated otherwise, with a "≈" prefix
+  exact for any day cached in `routeCache`, straight-line-estimated otherwise, with a "≈" prefix
   and an "N/M days calculated exactly" note whenever at least one day is still an estimate.
   `dayDriveEstimate` itself now also returns `.km` (previously only `.min`/`.exact`) so this
   reuses the same routed-vs-estimated branch the long-drive badge already relies on rather than
@@ -537,6 +537,28 @@ The user's own real trip currently loaded into the app is a Norway road trip, Au
   "Stops changed since the last calculation — press Calculate driving times to update" instead
   of the same generic empty-state message, since previously the times just silently vanished
   with no hint the plan had moved on.
+  `routeCache` (`let routeCache = {}`, `{[day]: {ids, route}}`) holds *every* day's most
+  recently calculated route, not just the last one calculated — calculating day 5 used to
+  silently evict day 3's already-calculated times (the old single `lastRoute` variable);
+  now switching back to day 3 still shows exact figures. Staleness is lazy, not
+  event-driven: nothing needs to explicitly invalidate a cache entry when a stop is
+  added/removed/reordered — every read site (`renderStats`, `renderRouteList`'s inline leg
+  times, `dayDriveEstimate`, `dayDescriptionText`) already compares the cached entry's `ids`
+  against `getRouteIds(day)` right now and treats a mismatch as a miss, the same guard the
+  single-day version always used, just keyed per day instead of globally. Persisted to
+  localStorage per trip+variant (`routeCacheKey`, `tripplan-routecache:<tripId>:<variantId>`,
+  loaded inside `loadVariant()` alongside plans/dayMeta/customPlaces, saved from
+  `calculateRoute()`'s success path) so a calculated day survives a page reload — but
+  deliberately **local-only**, never folded into the `{plans, dayMeta, customPlaces}` blob
+  that gets `PUT` to the server when signed in: it's fully recomputable, and a full trip's
+  worth of route geometry could easily blow past DynamoDB's 400KB item cap. `deleteVariant`/
+  `deleteTrip` sweep the orphaned `tripplan-routecache:` key(s) alongside `tripplan-variant:`
+  the same way they already did for the plan itself. `renderMapMarkers()` (part of every
+  `renderAll()`, so every day switch and page load) also redraws the route line from a
+  matching `routeCache` entry via a shared `drawRouteOnMap(geometry)` helper it now shares
+  with `calculateRoute()` — otherwise the stats panel would show exact cached times while
+  the map itself went blank the moment you switched away from an already-calculated day and
+  back.
   A "Jump to today" button appears next to the trip-overview's "Day N of M — today" line
   (`tripCountdownLine()`) whenever today isn't the active day — `initialDay()` only
   auto-selects today's tab once, on page load, so navigating away to plan a different day
