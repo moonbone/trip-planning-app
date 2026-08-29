@@ -414,7 +414,9 @@ async function handleSummarizeTrip(event) {
     const summary = await askClaude(
       'Write a warm, engaging recap of this entire road trip, in 4-6 short paragraphs. '
       + 'Capture the overall arc of the journey day by day, standout stops, and the flow '
-      + 'from place to place. Respond in Hebrew (the itinerary details may be in any language). '
+      + 'from place to place — use any "Note:" lines below for concrete detail about what '
+      + 'was actually done or experienced at a stop, not just its name. '
+      + 'Respond in Hebrew (the itinerary details may be in any language). '
       + `Do not invent details not present below.\n\n${text}`,
       { maxTokens: 900 },
     );

@@ -946,6 +946,10 @@
     font-size:11px;
     color:var(--ink-soft);
   }
+  .leg.drive-leg.leg-skipped{
+    color:var(--rust);
+    font-style:italic;
+  }
   .leg.stop-leg b{
     font-family:'IBM Plex Mono',monospace;
     font-weight:600;
@@ -1104,6 +1108,29 @@
     font-size:11px;
     color:var(--ink-soft);
     padding:0 10px 6px 14px;
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    gap:8px;
+  }
+  .route-leg-skipped{
+    color:var(--rust);
+    font-style:italic;
+  }
+  .leg-skip-toggle{
+    font-family:inherit;
+    font-size:10px;
+    background:none;
+    border:1px solid var(--border);
+    border-radius:4px;
+    padding:1px 6px;
+    color:var(--ink-soft);
+    cursor:pointer;
+    flex-shrink:0;
+  }
+  .route-leg-skipped .leg-skip-toggle{
+    border-color:var(--rust);
+    color:var(--rust);
   }
   .route-item.hotel-stop{
     cursor:default;
@@ -1911,12 +1938,13 @@ const ESTIMATE_AVG_SPEED_KMH = 50;
 function dayDriveEstimate(day){
   const ids = getRouteIds(day);
   if(ids.length < 2) return null;
-  const cached = routeCache[day];
-  if(cached && cached.ids.join() === ids.join()){
+  const cached = validRouteCache(day);
+  if(cached){
     return {min: Math.round(cached.route.duration/60), km: cached.route.distance/1000, exact:true};
   }
   let km = 0;
   for(let i=1;i<ids.length;i++){
+    if(legSkipped(day, ids[i])) continue; // not a road — don't count it toward a driving estimate
     const a = byId[ids[i-1]], b = byId[ids[i]];
     if(a && b) km += haversineKm(a,b);
   }
@@ -1994,11 +2022,14 @@ function daylightWarningHtml(day, endMin){
 let plans = {};
 // Per-day schedule settings: {start:'HH:MM', stay:{placeId:minutes}}
 let dayMeta = {};
-// {[day]: {ids, route}} — every day's most recently calculated route, kept
-// until that day's own plan (stop order or membership) changes; calculating
-// a different day no longer evicts this one. Local-only (never synced to
-// the server, even signed in) and persisted to localStorage per trip+variant
-// so it survives a reload — see routeCacheKey()/loadVariant()/saveRouteCache().
+// {[day]: {sig, ids, route}} — every day's most recently calculated route,
+// kept until that day's own plan (stop order, membership, or which legs are
+// marked "not driven") changes; calculating a different day no longer
+// evicts this one. `route.legs[i-1]` (for ids[i-1]→ids[i]) is null wherever
+// that leg was skipped rather than routed — see combineSegmentResults().
+// Local-only (never synced to the server, even signed in) and persisted to
+// localStorage per trip+variant so it survives a reload — see
+// routeCacheKey()/loadVariant()/saveRouteCache().
 let routeCache = {};
 let activeDay = 1;
 let dragRow = null;
@@ -2408,11 +2439,56 @@ function migrateLegacyStorage(){
 function getDayMeta(day){
   if(!dayMeta[day]) dayMeta[day] = {start:'09:00', stay:{}};
   if(!dayMeta[day].stay) dayMeta[day].stay = {};
+  if(!dayMeta[day].noRoute) dayMeta[day].noRoute = {};
   return dayMeta[day];
 }
 function stayMinutes(day, id){
   const v = getDayMeta(day).stay[id];
   return Number.isFinite(v) && v > 0 ? v : 0;
+}
+// True when the leg *arriving* at this place is marked as not driven (a
+// ferry, flight, or other transfer the routing API has no business trying
+// to find a road for) — keyed by the arriving place's id, same convention
+// as `stay`, so it stays attached to the right place across reordering.
+function legSkipped(day, id){
+  return !!getDayMeta(day).noRoute[id];
+}
+// Splits any stop sequence for `day` into contiguous chunks at each
+// legSkipped() boundary — each chunk is routed independently (or, if it has
+// fewer than 2 places, not routed at all). A boundary is a place id, not a
+// position, so it stays correct across reordering as long as the flagged
+// place itself is still in `ids`. Takes an explicit `ids` array (rather
+// than always calling getRouteIds(day) itself) so callers working from a
+// filtered subset — the trip summary's day/place picker — can split that
+// subset the same way, not just a whole day.
+function splitIntoSegments(ids, day){
+  const segments = [];
+  let current = [];
+  ids.forEach(id=>{
+    if(current.length && legSkipped(day, id)){
+      segments.push(current);
+      current = [];
+    }
+    current.push(id);
+  });
+  if(current.length) segments.push(current);
+  return segments;
+}
+function getRouteSegments(day){
+  return splitIntoSegments(getRouteIds(day), day);
+}
+// routeCache's staleness signature: the plain stop-id sequence alone isn't
+// enough once "not driven" markers exist, since toggling one changes how
+// the day gets routed (segment split) without changing that sequence at
+// all — the same ids, differently sliced.
+function routeCacheSig(day){
+  const meta = getDayMeta(day);
+  const skipped = Object.keys(meta.noRoute).filter(id=>meta.noRoute[id]).sort().join(',');
+  return getRouteIds(day).join() + '|' + skipped;
+}
+function validRouteCache(day){
+  const cached = routeCache[day];
+  return cached && cached.sig === routeCacheSig(day) ? cached : null;
 }
 
 function todayStr(){
@@ -2480,9 +2556,15 @@ function nowBanner(ids, route, meta){
   const segs = [];
   ids.forEach((id,i)=>{
     if(i > 0){
-      const lm = Math.round(route.legs[i-1].duration/60);
-      segs.push({type:'drive', toId:id, start:t, end:t+lm});
-      t += lm;
+      const leg = route.legs[i-1];
+      // A skipped ("not driven") leg has no known duration — no drive
+      // segment to show, and the clock can't account for a ferry/flight
+      // it has no data on, so it just continues from here.
+      if(leg){
+        const lm = Math.round(leg.duration/60);
+        segs.push({type:'drive', toId:id, start:t, end:t+lm});
+        t += lm;
+      }
     }
     const stay = stayMinutes(activeDay, id);
     segs.push({type:'stop', id, start:t, end:t+stay});
@@ -4373,18 +4455,43 @@ function renderRouteList(){
   // Per-leg drive times inline in the route list, available once a route was
   // calculated and the plan hasn't changed since (same guard as renderStats).
   const legByPair = {};
-  const cachedRoute = routeCache[activeDay];
-  if(cachedRoute && cachedRoute.ids.join() === getRouteIds(activeDay).join()){
+  const cachedRoute = validRouteCache(activeDay);
+  if(cachedRoute){
     cachedRoute.ids.forEach((id,i)=>{
-      if(i > 0) legByPair[`${cachedRoute.ids[i-1]}>${id}`] = cachedRoute.route.legs[i-1];
+      if(i > 0) legByPair[`${cachedRoute.ids[i-1]}>${id}`] = cachedRoute.route.legs[i-1]; // may be null (not driven)
     });
   }
+  // Always rendered, whether or not a route has been calculated yet — the
+  // toggle needs to be settable *before* calculating, so calculateRoute()
+  // never tries to route across it in the first place (a ferry, flight, or
+  // other transfer the routing API has no business finding a road for).
   const appendLegInfo = (fromId, toId)=>{
-    const leg = legByPair[`${fromId}>${toId}`];
-    if(!leg) return;
+    const skipped = legSkipped(activeDay, toId);
     const div = document.createElement('div');
-    div.className = 'route-leg-info';
-    div.textContent = `↓ ${Math.round(leg.duration/60)} min · ${formatDistanceKm(leg.distance/1000)}`;
+    div.className = 'route-leg-info' + (skipped ? ' route-leg-skipped' : '');
+    const label = document.createElement('span');
+    if(skipped){
+      label.textContent = '🚫 Not driven — you\'ll get here another way';
+    }else{
+      const leg = legByPair[`${fromId}>${toId}`];
+      label.textContent = leg ? `↓ ${Math.round(leg.duration/60)} min · ${formatDistanceKm(leg.distance/1000)}` : '↓';
+    }
+    div.appendChild(label);
+    const toggle = document.createElement('button');
+    toggle.type = 'button';
+    toggle.className = 'leg-skip-toggle';
+    toggle.textContent = skipped ? 'Mark as driven' : 'Not driven';
+    toggle.title = skipped
+      ? 'Include this leg in routing again'
+      : 'Mark this leg as not driven (a ferry, flight, or other transfer) so calculating driving times skips it';
+    toggle.onclick = ()=>{
+      const meta = getDayMeta(activeDay);
+      if(skipped) delete meta.noRoute[toId];
+      else meta.noRoute[toId] = true;
+      saveState();
+      renderAll();
+    };
+    div.appendChild(toggle);
     el.appendChild(div);
   };
   if(wake) el.appendChild(hotelRow(wake, 'Start'));
@@ -4528,9 +4635,9 @@ function renderMapMarkers(){
   // has one and the plan hasn't moved on since — otherwise switching away
   // from an already-calculated day and back would silently drop the line
   // even though the stats panel still shows the exact cached times.
-  const cached = routeCache[activeDay];
-  if(cached && cached.ids.join() === getRouteIds(activeDay).join()){
-    drawRouteOnMap(cached.route.geometry);
+  const cached = validRouteCache(activeDay);
+  if(cached){
+    cached.route.segments.forEach(s=>{ if(s.route) drawRouteOnMap(s.route.geometry); });
   }
 }
 // Shared by calculateRoute() and renderMapMarkers()'s cache-hit redraw, so
@@ -4620,13 +4727,13 @@ function renderTripOverview(){
 // Hidden when the plan no longer matches what was last calculated.
 function renderStats(){
   const statsEl = document.getElementById('statsPanel');
-  const currentIds = getRouteIds(activeDay);
-  const cachedForDay = routeCache[activeDay];
-  if(!cachedForDay || cachedForDay.ids.join() !== currentIds.join()){
+  const cachedForDay = validRouteCache(activeDay);
+  if(!cachedForDay){
     // Distinguish "never calculated yet" from "was calculated, but the stop
-    // list has since changed" — the latter is easy to miss (times just
-    // silently disappear) unless the message says the plan moved on.
-    const stale = !!cachedForDay;
+    // list (or which legs are marked not-driven) has since changed" — the
+    // latter is easy to miss (times just silently disappear) unless the
+    // message says the plan moved on.
+    const stale = !!routeCache[activeDay];
     statsEl.innerHTML = stale
       ? '<div class="empty-note">Stops changed since the last calculation — press "Calculate driving times" to update.</div>'
       : '<div class="empty-note">Select 2+ stops and calculate to see times.</div>';
@@ -4640,10 +4747,14 @@ function renderStats(){
   ids.forEach((id,i)=>{
     if(i > 0){
       const leg = route.legs[i-1];
-      const lm = Math.round(leg.duration/60);
-      const lk = leg.distance/1000;
-      rows += `<div class="leg drive-leg"><span>drive</span><span class="leg-time">${lm} min · ${formatDistanceKm(lk)}</span></div>`;
-      t += lm;
+      if(leg){
+        const lm = Math.round(leg.duration/60);
+        const lk = leg.distance/1000;
+        rows += `<div class="leg drive-leg"><span>drive</span><span class="leg-time">${lm} min · ${formatDistanceKm(lk)}</span></div>`;
+        t += lm;
+      }else{
+        rows += `<div class="leg drive-leg leg-skipped"><span>🚫 not driven</span><span class="leg-time"></span></div>`;
+      }
     }
     const stay = stayMinutes(activeDay, id);
     rows += `<div class="leg stop-leg"><span><b>${fmtClock(t)}</b> ${escapeHtml(byId[id].name)}</span><span class="leg-time">${stay ? stay + ' min' : ''}</span></div>`;
@@ -5237,13 +5348,44 @@ async function submitTicket(e){
   }
 }
 
+// Combines independently-routed segments into one result shaped like a
+// single fetchFromProxy() response, so every existing consumer keeps
+// walking the full `ids` array + `route.legs[i-1]` unchanged — a null legs
+// entry means "not driven" (or a 1-place segment with nothing to route),
+// not "routing failed". segResults must be in the same order getRouteSegments()
+// produced them (calculateRoute() guarantees this by construction).
+function combineSegmentResults(ids, day, segResults){
+  const legs = [];
+  let segIdx = 0, posInSeg = 0;
+  for(let i = 1; i < ids.length; i++){
+    if(legSkipped(day, ids[i])){
+      legs.push(null);
+      segIdx++;
+      posInSeg = 0;
+    }else{
+      const seg = segResults[segIdx];
+      legs.push(seg && seg.route ? seg.route.legs[posInSeg] : null);
+      posInSeg++;
+    }
+  }
+  const distance = segResults.reduce((s,r)=>s + (r.route ? r.route.distance : 0), 0);
+  const duration = segResults.reduce((s,r)=>s + (r.route ? r.route.duration : 0), 0);
+  return {distance, duration, legs, segments: segResults};
+}
+
 async function calculateRoute(){
-  const ids = getRouteIds(activeDay);
+  const day = activeDay;
+  const ids = getRouteIds(day);
   const errEl = document.getElementById('errorNote');
-  const statsEl = document.getElementById('statsPanel');
   errEl.textContent = '';
   if(ids.length < 2){
     errEl.textContent = 'Add at least 2 stops to calculate a route.';
+    return;
+  }
+  const segments = getRouteSegments(day);
+  const routableSegments = segments.filter(s=>s.length >= 2);
+  if(!routableSegments.length){
+    errEl.textContent = 'Add at least 2 consecutive driving stops — everything here is marked "not driven".';
     return;
   }
   const btn = document.getElementById('calcBtn');
@@ -5251,19 +5393,30 @@ async function calculateRoute(){
   btn.innerHTML = '<span class="spinner"></span>Calculating…';
   document.getElementById('mapLoading').style.display = '';
   try{
-    let route;
-    try{ route = await fetchFromProxy(ids); }
-    catch(e){
-      const avoidNote = loadRouteAvoid().length ? ' (avoid-route preference won\'t be honored on the fallback)' : '';
-      errEl.textContent = 'Proxy failed (' + e.message + ') — trying free fallback…' + avoidNote;
-      route = await fetchFromOSRM(ids);
+    const segResults = [];
+    for(const segIds of segments){
+      if(segIds.length < 2){ segResults.push({ids: segIds, route: null}); continue; }
+      let route;
+      try{ route = await fetchFromProxy(segIds); }
+      catch(e){
+        const avoidNote = loadRouteAvoid().length ? ' (avoid-route preference won\'t be honored on the fallback)' : '';
+        errEl.textContent = 'Proxy failed (' + e.message + ') — trying free fallback…' + avoidNote;
+        route = await fetchFromOSRM(segIds);
+      }
+      segResults.push({ids: segIds, route});
     }
 
     routeLayer.clearLayers();
-    drawRouteOnMap(route.geometry);
-    map.fitBounds(L.geoJSON(route.geometry).getBounds(),{padding:[30,30]});
+    let bounds = null;
+    segResults.forEach(s=>{
+      if(!s.route) return;
+      drawRouteOnMap(s.route.geometry);
+      const b = L.geoJSON(s.route.geometry).getBounds();
+      bounds = bounds ? bounds.extend(b) : b;
+    });
+    if(bounds) map.fitBounds(bounds, {padding:[30,30]});
 
-    routeCache[activeDay] = {ids, route};
+    routeCache[day] = {sig: routeCacheSig(day), ids, route: combineSegmentResults(ids, day, segResults)};
     saveRouteCache();
     renderRouteList(); // show the per-leg drive times inline
     renderStats();
@@ -5314,23 +5467,41 @@ async function buildDayItinerary(day){
   }
   let route = null;
   if(ids.length >= 2){
-    try{ route = await fetchFromProxy(ids); }
-    catch(e){ try{ route = await fetchFromOSRM(ids); }catch(e2){ route = null; } }
+    // Routed per-segment, same as calculateRoute() — a day with a "not
+    // driven" leg (a ferry, flight, or other transfer) previously got
+    // routed as one straight-through sequence, which either failed outright
+    // or produced a nonsensical route across the gap, losing times for the
+    // whole day instead of just that one leg.
+    const segments = getRouteSegments(day);
+    const segResults = [];
+    let anyRouted = false;
+    for(const segIds of segments){
+      if(segIds.length < 2){ segResults.push({ids: segIds, route: null}); continue; }
+      let segRoute = null;
+      try{ segRoute = await fetchFromProxy(segIds); }
+      catch(e){ try{ segRoute = await fetchFromOSRM(segIds); }catch(e2){ segRoute = null; } }
+      if(segRoute) anyRouted = true;
+      segResults.push({ids: segIds, route: segRoute});
+    }
+    if(anyRouted) route = combineSegmentResults(ids, day, segResults);
   }
   let t = parseClock(meta.start);
   ids.forEach((id, i)=>{
     const p = byId[id];
     if(!p) return;
     let legMin = null, legKm = null;
-    if(i > 0 && route){
+    const skipped = i > 0 && legSkipped(day, id);
+    if(i > 0 && !skipped && route){
       const leg = route.legs[i-1];
-      legMin = Math.round(leg.duration/60);
-      legKm = leg.distance/1000; // raw km — formatted for display at each call site, per the active unit
-      t += legMin;
+      if(leg){
+        legMin = Math.round(leg.duration/60);
+        legKm = leg.distance/1000; // raw km — formatted for display at each call site, per the active unit
+        t += legMin;
+      }
     }
     const stay = stayMinutes(day, id);
     const notes = commentsFor({scope:'place', placeId:id}).map(c=>c.text);
-    result.stops.push({name: p.name, lat: p.lat, lon: p.lon, overnight: !!p.overnight, stay, arrival: route ? fmtClock(t) : null, legMin, legKm, notes});
+    result.stops.push({name: p.name, lat: p.lat, lon: p.lon, overnight: !!p.overnight, stay, arrival: route && !skipped ? fmtClock(t) : null, legMin, legKm, skipped, notes});
     t += stay;
   });
   if(route){
@@ -5363,7 +5534,11 @@ function renderPrintableItinerary(trip, days){
       // stop i+1 (it's the drive that got you there), not on stop i.
       const next = d.stops[i+1];
       const legRow = next
-        ? `<tr class="t-leg"><td></td><td>${next.legMin != null ? `↓ drive ${next.legMin} min · ${formatDistanceKm(next.legKm)}` : '↓ drive (time unavailable)'}</td></tr>`
+        ? `<tr class="t-leg"><td></td><td>${
+            next.skipped ? '🚫 not driven — you\'ll get here another way'
+            : next.legMin != null ? `↓ drive ${next.legMin} min · ${formatDistanceKm(next.legKm)}`
+            : '↓ drive (time unavailable)'
+          }</td></tr>`
         : '';
       return stopRow + legRow;
     }).join('');
@@ -5504,15 +5679,21 @@ async function buildTripGpx(trip){
   }
   const tracks = [];
   for(const day of DAYS){
-    const ids = getRouteIds(day);
-    if(ids.length < 2) continue;
-    let route = null;
-    try{ route = await fetchFromProxy(ids); }
-    catch(e){ try{ route = await fetchFromOSRM(ids); }catch(e2){ route = null; } }
-    const coords = route?.geometry?.coordinates;
-    if(!coords || !coords.length) continue;
-    const pts = coords.map(([lon,lat])=>`      <trkpt lat="${lat}" lon="${lon}"></trkpt>`).join('\n');
-    tracks.push(`  <trk><name>Day ${day}</name><trkseg>\n${pts}\n  </trkseg></trk>`);
+    // One <trk> per drivable segment, not per day — a day with a "not
+    // driven" leg (ferry, flight, etc.) shouldn't get one track drawn
+    // straight through the gap; separate tracks is exactly what a GPS
+    // device/app should show there anyway.
+    const segments = getRouteSegments(day).filter(s=>s.length >= 2);
+    for(const [i, segIds] of segments.entries()){
+      let route = null;
+      try{ route = await fetchFromProxy(segIds); }
+      catch(e){ try{ route = await fetchFromOSRM(segIds); }catch(e2){ route = null; } }
+      const coords = route?.geometry?.coordinates;
+      if(!coords || !coords.length) continue;
+      const pts = coords.map(([lon,lat])=>`      <trkpt lat="${lat}" lon="${lon}"></trkpt>`).join('\n');
+      const label = segments.length > 1 ? `Day ${day} (part ${i+1})` : `Day ${day}`;
+      tracks.push(`  <trk><name>${escapeHtml(label)}</name><trkseg>\n${pts}\n  </trkseg></trk>`);
+    }
   }
   return `<?xml version="1.0" encoding="UTF-8"?>
 <gpx version="1.1" creator="Trip Planner" xmlns="http://www.topografix.com/GPX/1/1">
@@ -5609,13 +5790,34 @@ async function buildTripSummaryData(onProgress, daySelections = fullDaySelection
         weatherKind = 'normal';
       }
     }
+    // Routed per drivable segment — not as one straight-through sequence —
+    // so a day with a "not driven" leg (a ferry, flight, etc.) doesn't lose
+    // its whole day's stats/map line just because one leg in the middle
+    // can't be routed by road. Each segment is a separate map polyline
+    // rather than one combined geometry, since there's a real gap between
+    // them, not a road.
     let route = null;
     if(ids.length >= 2){
-      try{ route = await fetchRouteForSummary(ids); }catch(e){ route = null; }
+      const segResults = [];
+      for(const segIds of splitIntoSegments(ids, day)){
+        if(segIds.length < 2) continue;
+        try{ segResults.push(await fetchRouteForSummary(segIds)); }
+        catch(e){ /* this segment failed; other segments may still succeed */ }
+      }
+      if(segResults.length){
+        route = {
+          distance: segResults.reduce((s,r)=>s + r.distance, 0),
+          duration: segResults.reduce((s,r)=>s + r.duration, 0),
+          geometries: segResults.map(r=>r.geometry),
+          ferryRanges: segResults.flatMap(r=>r.ferryRanges),
+          ferryKm: segResults.reduce((s,r)=>s + r.ferryKm, 0),
+        };
+      }
     }
     const wake = wakeHotelId(day), sleep = sleepHotelId(day);
     days.push({
       day, date, ferryFlag: !!meta.ferry,
+      stopIds: ids,
       stopNames: ids.map(id=>byId[id] && byId[id].name).filter(Boolean),
       // Only credited as this day's overnight marker if that hotel is still
       // among the checked places — an excluded hotel shouldn't still pin a
@@ -5625,7 +5827,7 @@ async function buildTripSummaryData(onProgress, daySelections = fullDaySelection
       routed: !!route,
       distanceKm: route ? route.distance / 1000 : null,
       driveMin: route ? Math.round(route.duration / 60) : null,
-      geometry: route ? route.geometry : null,
+      geometries: route ? route.geometries : [],
       ferryRanges: route ? route.ferryRanges : [],
       ferryKm: route ? route.ferryKm : 0,
       weather, weatherKind,
@@ -5652,7 +5854,7 @@ function tripSummaryWeatherHtml(d){
   return `<span class="sm-weather">${label} ${d.weather.tMax}°/${d.weather.tMin}°C${precipText}${tag}</span>`;
 }
 
-function renderTripSummaryPage(data, recap){
+function renderTripSummaryPage(data, recap, recapNote){
   const trip = data.trip;
   const totalDays = data.days.length;
   const routedDays = data.days.filter(d=>d.routed);
@@ -5668,9 +5870,11 @@ function renderTripSummaryPage(data, recap){
 
   const mapDays = data.days.map((d,i)=>({
     day: d.day, color: tripDayColor(i, totalDays),
-    coords: d.geometry ? d.geometry.coordinates.map(([lon,lat])=>[lat,lon]) : null,
+    // One polyline per drivable segment, not one per day — a day with a
+    // "not driven" leg has a real gap between segments, not a road.
+    coordsList: (d.geometries || []).map(g=>g.coordinates.map(([lon,lat])=>[lat,lon])),
     ferryRanges: d.ferryRanges || [],
-  })).filter(d=>d.coords);
+  })).filter(d=>d.coordsList.length);
 
   const hotels = hotelIds.map(id=>{
     const p = byId[id];
@@ -5693,7 +5897,11 @@ function renderTripSummaryPage(data, recap){
     const ferryText = d.ferryKm > 0.1
       ? ` · ⛴ ${d.ferryKm.toFixed(1)}km ferry`
       : (d.ferryFlag ? ' · ⛴ ferry day' : '');
-    const stopsText = d.stopNames.map(n=>escapeHtml(n)).join(' → ');
+    const stopsText = d.stopIds.map((id,idx)=>{
+      const name = escapeHtml((byId[id] && byId[id].name) || '');
+      if(idx === 0) return name;
+      return (legSkipped(d.day, id) ? ' 🚫 ' : ' → ') + name;
+    }).join('');
     return `<div class="sm-day">
       <div class="sm-day-swatch" style="background:${color}"></div>
       <div class="sm-day-body">
@@ -5706,7 +5914,9 @@ function renderTripSummaryPage(data, recap){
 
   const recapHtml = recap
     ? `<div class="sm-recap"><h2>✨ Trip recap</h2><p dir="auto">${escapeHtml(recap).trim().replace(/\n+/g, '</p><p dir="auto">')}</p></div>`
-    : '';
+    : recapNote
+      ? `<div class="sm-recap sm-recap-note"><h2>✨ Trip recap</h2><p>${escapeHtml(recapNote)}</p></div>`
+      : '';
 
   return `<!doctype html>
 <html><head><meta charset="utf-8">
@@ -5729,6 +5939,7 @@ function renderTripSummaryPage(data, recap){
   .sm-legend-hotel{width:15px;height:15px;border-radius:50%;background:#fff;border:2px solid #C0552E;display:inline-flex;align-items:center;justify-content:center;font-size:8px;line-height:1;}
   .sm-recap{background:#f4f2ee;border-radius:8px;padding:0.9rem 1.1rem;margin:0.8rem 0 1.5rem;}
   .sm-recap p{margin:0.5rem 0;}
+  .sm-recap-note p{color:#888;font-style:italic;}
   .sm-day{display:flex;gap:0.7rem;padding:0.6rem 0;border-top:1px solid #eee;}
   .sm-day-swatch{width:6px;border-radius:3px;flex:none;}
   .sm-day-head{font-size:0.95rem;}
@@ -5765,8 +5976,10 @@ function renderTripSummaryPage(data, recap){
       }).addTo(map);
       var bounds = [];
       mapDays.forEach(function(d){
-        L.polyline(d.coords, {color: d.color, weight: 4, opacity: 0.85}).addTo(map);
-        d.coords.forEach(function(c){ bounds.push(c); });
+        d.coordsList.forEach(function(coords){
+          L.polyline(coords, {color: d.color, weight: 4, opacity: 0.85}).addTo(map);
+          coords.forEach(function(c){ bounds.push(c); });
+        });
       });
       mapDays.forEach(function(d){
         (d.ferryRanges || []).forEach(function(fr){
@@ -5811,19 +6024,27 @@ async function generateTripSummary(daySelections = fullDaySelections()){
       const msgEl = win.document.getElementById('loadingMsg');
       if(msgEl) msgEl.textContent = `Gathering trip data… (${i}/${total}, Day ${day})`;
     }, daySelections);
-    let recap = null;
-    if(currentUser){
+    let recap = null, recapNote = null;
+    if(!currentUser){
+      recapNote = 'Sign in to include an AI-generated recap of the trip.';
+    }else{
       const msgEl = win.document.getElementById('loadingMsg');
       if(msgEl) msgEl.textContent = 'Generating AI recap…';
       try{
         const res = await api('/api/ai/summarize-trip', {method:'POST', body: JSON.stringify({text: tripDescriptionText(daySelections)})});
         recap = res.summary;
       }catch(e){
-        recap = null; // AI recap is a nice-to-have; the rest of the summary still ships without it
+        // AI recap is a nice-to-have; the rest of the summary still ships
+        // without it — but silently dropping it looked like it was just
+        // missing, with no way to tell "not signed in" from "not this
+        // account" from "the API call itself failed".
+        recapNote = e.status === 403
+          ? 'AI recap isn\'t enabled for your account yet.'
+          : 'Could not generate an AI recap: ' + e.message;
       }
     }
     win.document.open();
-    win.document.write(renderTripSummaryPage(data, recap));
+    win.document.write(renderTripSummaryPage(data, recap, recapNote));
     win.document.close();
   }catch(e){
     win.document.body.innerHTML = '<p style="font-family:sans-serif;color:#900;padding:2rem;">Could not build trip summary: ' + escapeHtml(e.message) + '</p>';
@@ -6479,7 +6700,8 @@ function dayDescriptionText(day = activeDay, idsOverride = null){
     if(!p) return;
     if(i > 0 && legMatch){
       const leg = dayCache.route.legs[i-1];
-      lines.push(`  (drive ${Math.round(leg.duration/60)} min, ${formatDistanceKm(leg.distance/1000)})`);
+      if(leg) lines.push(`  (drive ${Math.round(leg.duration/60)} min, ${formatDistanceKm(leg.distance/1000)})`);
+      else lines.push('  (not driven — ferry, flight, or other transfer)');
     }
     const stay = stayMinutes(day, id);
     const info = placeInfo[id];

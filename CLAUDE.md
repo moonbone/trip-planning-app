@@ -221,7 +221,13 @@ The user's own real trip currently loaded into the app is a Norway road trip, Au
   value 8 = Ferry; never hand-flagged per day), weather (real recorded data via
   `fetchHistoricalWeather`'s Open-Meteo archive-api call for days already past, live forecast
   within the existing ~16-day horizon, climate-normal average beyond it), an optional AI
-  recap (signed-in owner account only, `/api/ai/summarize-trip`, mirrors summarize-day),
+  recap (signed-in owner account only, `/api/ai/summarize-trip`, mirrors summarize-day —
+  the prompt is built from `dayDescriptionText`'s per-day text, which already includes each
+  stop's place-info blurb and place/day comments, not just names, so the recap can speak to
+  what was actually done at a stop when a comment says so; when it's unavailable, the
+  summary page says why instead of just omitting the section — not signed in, signed in as
+  the wrong account (403), or the Bedrock call itself failing — rather than the three cases
+  being visually indistinguishable from "the button doesn't do that"),
   and a Leaflet map (loaded via CDN inside the new tab) with each day's route in its own
   color (`tripDayColor` sweeps hue 200→420°, skipping the 80–170° green band so lines stay
   legible against the OSM basemap), ferry sub-segments overlaid as dashed lines, and a
@@ -570,6 +576,27 @@ The user's own real trip currently loaded into the app is a Norway road trip, Au
   with `calculateRoute()` — otherwise the stats panel would show exact cached times while
   the map itself went blank the moment you switched away from an already-calculated day and
   back.
+  Each gap between consecutive stops in the route list has a small "Not driven" toggle
+  (`legSkipped`/`getDayMeta(day).noRoute`, `{[placeId]: true}` keyed by the *arriving* place's
+  id, same convention as `stay`) for a leg the routing API has no business trying to find a
+  road for — a ferry, flight, or other transfer — so `calculateRoute()` doesn't fail the whole
+  day (or silently detour through it) trying to route across it. `splitIntoSegments(ids, day)`
+  (day-scoped wrapper: `getRouteSegments(day)`) cuts a stop sequence into contiguous drivable
+  chunks at each such marker; `calculateRoute()` routes each chunk independently and
+  `combineSegmentResults()` stitches them back into one result shaped like a single-route
+  response (a null `route.legs[i-1]` entry means "not driven," not "routing failed") so every
+  existing consumer — `renderStats`, `dayDescriptionText`, `dayDriveEstimate`, the printable
+  itinerary/ICS export's `buildDayItinerary`, GPX export's one-`<trk>`-per-segment — keeps
+  walking the full stop list unchanged, just with a null-check added at each leg read. The map
+  draws one polyline per segment with a real gap between them, not a route line drawn straight
+  across. `routeCache`'s staleness check (`routeCacheSig`/`validRouteCache`) now hashes in
+  which legs are marked skipped alongside the stop-id sequence, since toggling one changes how
+  the day gets routed without changing that sequence at all. The trip summary's
+  `buildTripSummaryData` is segment-aware the same way (via `splitIntoSegments` directly, since
+  it may be working from the day/place picker's filtered subset rather than the whole day) —
+  this closes the gap that motivated the whole feature: a day with one non-drivable leg (e.g.
+  a real ferry crossing with no road route) used to fail routing for that day entirely in both
+  the main planner and the trip summary, rather than just skipping the one leg it can't drive.
   A "Jump to today" button appears next to the trip-overview's "Day N of M — today" line
   (`tripCountdownLine()`) whenever today isn't the active day — `initialDay()` only
   auto-selects today's tab once, on page load, so navigating away to plan a different day
