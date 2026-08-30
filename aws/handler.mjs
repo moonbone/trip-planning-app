@@ -412,13 +412,19 @@ async function handleSummarizeTrip(event) {
 
   try {
     const summary = await askClaude(
-      'Write a warm, engaging recap of this entire road trip, in 4-6 short paragraphs. '
+      'Write a warm, engaging recap of this entire road trip, in 4-6 short paragraphs '
+      + '(a few sentences each — end with a complete thought, don\'t ramble on past that). '
       + 'Capture the overall arc of the journey day by day, standout stops, and the flow '
       + 'from place to place — use any "Note:" lines below for concrete detail about what '
       + 'was actually done or experienced at a stop, not just its name. '
       + 'Respond in Hebrew (the itinerary details may be in any language). '
       + `Do not invent details not present below.\n\n${text}`,
-      { maxTokens: 900 },
+      // Was 900 — too tight for a genuine 4-6 paragraph Hebrew recap, cutting
+      // the response off mid-sentence (confirmed via a user report and the
+      // stop_reason==='max_tokens' check askClaude now logs). 2000 gives
+      // comfortable headroom; the Lambda/CloudFront timeouts were already
+      // raised separately to give a longer generation room to complete.
+      { maxTokens: 2000 },
     );
     return ok({ summary });
   } catch (e) {

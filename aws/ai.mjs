@@ -43,5 +43,13 @@ export async function askClaude(prompt, { maxTokens = 400 } = {}) {
   const payload = JSON.parse(new TextDecoder().decode(res.body));
   const text = payload.content?.find((b) => b.type === 'text')?.text;
   if (!text) throw new Error('empty response from model');
+  // Anthropic sets this when generation was cut off by maxTokens rather than
+  // finishing naturally — the caller gets a truncated-mid-sentence response
+  // either way, but this logs *why* instead of it only surfacing as a user
+  // report with no clue in CloudWatch (same blind spot the 10s Lambda
+  // timeout was until its own logs were checked directly).
+  if (payload.stop_reason === 'max_tokens') {
+    console.warn(`askClaude: response truncated at maxTokens=${maxTokens}`);
+  }
   return text;
 }
