@@ -415,8 +415,11 @@ async function handleSummarizeTrip(event) {
       'Write a warm, engaging recap of this entire road trip, in 4-6 short paragraphs '
       + '(a few sentences each — end with a complete thought, don\'t ramble on past that). '
       + 'Capture the overall arc of the journey day by day, standout stops, and the flow '
-      + 'from place to place — use any "Note:" lines below for concrete detail about what '
-      + 'was actually done or experienced at a stop, not just its name. '
+      + 'from place to place — use any "Note:" lines for concrete detail about what was '
+      + 'actually done or experienced at a stop, not just its name. If a "Traveler\'s own '
+      + 'notes" section appears at the end, treat every line in it as something the '
+      + 'traveler specifically wants reflected — work each one into the relevant part of '
+      + 'the recap by day/place, don\'t just skim past it or mention it in passing. '
       + 'Respond in Hebrew (the itinerary details may be in any language). '
       + `Do not invent details not present below.\n\n${text}`,
       // Was 900 — too tight for a genuine 4-6 paragraph Hebrew recap, cutting

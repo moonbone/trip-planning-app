@@ -227,7 +227,18 @@ The user's own real trip currently loaded into the app is a Norway road trip, Au
   what was actually done at a stop when a comment says so; when it's unavailable, the
   summary page says why instead of just omitting the section — not signed in, signed in as
   the wrong account (403), or the Bedrock call itself failing — rather than the three cases
-  being visually indistinguishable from "the button doesn't do that"),
+  being visually indistinguishable from "the button doesn't do that". A user report that
+  comments weren't showing up in the recap turned out not to be a data bug — the inline
+  "Note:" lines were already reaching the model — but a real prompt-attention gap: buried
+  as just one more indented line inside a long, structurally repetitive multi-day document,
+  they were easy for the model to skim past. `tripCommentsDigest(daySelections)` pulls every
+  place/day comment for the selected days into its own clearly-labeled "Traveler's own
+  notes" section appended after the day-by-day text — in addition to, not instead of, the
+  inline ones — and the prompt explicitly tells the model to work each line in the section
+  into the recap rather than skim past it. `maxTokens: 2000` for this call (was 900 — too
+  tight for a genuine 4-6 paragraph Hebrew recap, confirmed cutting responses off
+  mid-sentence via a user report and the `stop_reason==='max_tokens'` check `askClaude` now
+  logs whenever a response comes back truncated),
   and a Leaflet map (loaded via CDN inside the new tab) with each day's route in its own
   color (`tripDayColor` sweeps hue 200→420°, skipping the 80–170° green band so lines stay
   legible against the OSM basemap), ferry sub-segments overlaid as dashed lines, and a
@@ -750,6 +761,15 @@ config (secrets) and the IAM role, not data.
   unless told otherwise.
 - Beta deployment's one-time manual setup (IAM policy reapply, CloudFront, Google OAuth
   origin) may or may not be done yet — check before assuming sign-in works on beta.
+- The AI features (`BEDROCK_MODEL_ID`) currently point at Claude Haiku 4.5 — cheapest/
+  fastest in the family, but the user has flagged recap text quality as not great and
+  wants to evaluate a stronger model (Sonnet). Deferred, not forgotten: switching needs
+  (1) the exact Bedrock model/inference-profile ID, which needs a working root-account
+  session to query (`aws bedrock list-foundation-models`/`list-inference-profiles` —
+  the scoped deployer identity can't list, only invoke, and only for the exact ARN
+  pattern `aws/deploy.sh`'s IAM policy allowlists) and (2) widening that allowlist to
+  the new model's ARN pattern alongside `BEDROCK_MODEL_ID` itself. Don't guess the ID
+  and deploy speculatively without the user present — confirm with them first.
 - Day 11 (Loen → Ålesund → Bergen → TLV) is not booked yet, but see the candidate
   reference itinerary noted under "Trip facts worth knowing" above.
 - The KML has Eidfjord and DolceVidda at *nearly* identical (but distinct)

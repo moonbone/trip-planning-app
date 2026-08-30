@@ -6003,6 +6003,30 @@ function renderTripSummaryPage(data, recap, recapNote){
 </body></html>`;
 }
 
+// dayDescriptionText already weaves each stop's comments in as an indented
+// "  Note: ..." line among a long, structurally repetitive block of
+// "- Place name / (drive X min, Y km)" entries — real content, but easy for
+// a summarization model to skim past across a multi-day document where it's
+// just one more indented line among many. Pulling every comment into its
+// own clearly-labeled section (in addition to, not instead of, the inline
+// ones) gives the model something it can't mistake for itinerary boilerplate.
+function tripCommentsDigest(daySelections){
+  const lines = [];
+  Object.entries(daySelections)
+    .map(([day, ids])=>[Number(day), ids])
+    .filter(([, ids])=>ids && ids.length)
+    .sort((a,b)=>a[0]-b[0])
+    .forEach(([day, ids])=>{
+      commentsFor({scope:'day', day}).forEach(c=>lines.push(`Day ${day}: ${c.text}`));
+      ids.forEach(id=>{
+        const p = byId[id];
+        if(!p) return;
+        commentsFor({scope:'place', placeId:id}).forEach(c=>lines.push(`Day ${day}, ${p.name}: ${c.text}`));
+      });
+    });
+  return lines;
+}
+
 async function generateTripSummary(daySelections = fullDaySelections()){
   const trip = activeTrip();
   if(!trip || !Object.values(daySelections).some(ids=>ids && ids.length)){
@@ -6031,7 +6055,11 @@ async function generateTripSummary(daySelections = fullDaySelections()){
       const msgEl = win.document.getElementById('loadingMsg');
       if(msgEl) msgEl.textContent = 'Generating AI recap…';
       try{
-        const res = await api('/api/ai/summarize-trip', {method:'POST', body: JSON.stringify({text: tripDescriptionText(daySelections)})});
+        const digest = tripCommentsDigest(daySelections);
+        const aiText = digest.length
+          ? `${tripDescriptionText(daySelections)}\n\n=== Traveler's own notes (make sure these show up in the recap) ===\n${digest.join('\n')}`
+          : tripDescriptionText(daySelections);
+        const res = await api('/api/ai/summarize-trip', {method:'POST', body: JSON.stringify({text: aiText})});
         recap = res.summary;
       }catch(e){
         // AI recap is a nice-to-have; the rest of the summary still ships
