@@ -15,6 +15,18 @@ FUNCTION_NAME="${FUNCTION_NAME:-trip-planner-app}"
 REGION="${AWS_REGION:-us-east-1}"
 RUNTIME="nodejs20.x"
 ROLE_NAME="${ROLE_NAME:-trip-planner-app-role}"
+# The original 10s default was fine for the DynamoDB-only routes, but the
+# Bedrock AI features (summarize-day, summarize-trip) can genuinely take
+# longer than that to generate a response — confirmed via CloudWatch logs
+# showing real `Status: timeout` entries at exactly 10000ms on the trip
+# recap, which has a bigger prompt and a higher token budget than the
+# day summary. If you raise this further, also raise the CloudFront
+# distribution's origin read timeout (console: Origins > Edit > "Origin
+# read timeout") to comfortably exceed it — CloudFront's own default for a
+# custom origin is 30s and its hard maximum is 60s, so this Lambda timeout
+# should stay under whatever that's set to or CloudFront will 502 the
+# request before the Lambda gets a chance to respond.
+LAMBDA_TIMEOUT="${LAMBDA_TIMEOUT:-45}"
 
 if [[ -z "${ORS_API_KEY:-}" ]]; then
   echo "ERROR: set ORS_API_KEY in your environment before running this script." >&2
@@ -109,6 +121,7 @@ if aws lambda get-function --function-name "$FUNCTION_NAME" --region "$REGION" >
   aws lambda update-function-configuration \
     --function-name "$FUNCTION_NAME" \
     --environment "Variables={$LAMBDA_ENV}" \
+    --timeout "$LAMBDA_TIMEOUT" \
     --region "$REGION" >/dev/null
   aws lambda wait function-updated --function-name "$FUNCTION_NAME" --region "$REGION"
 else
@@ -118,7 +131,7 @@ else
     --role "$ROLE_ARN" \
     --handler index.handler \
     --zip-file fileb://function.zip \
-    --timeout 10 \
+    --timeout "$LAMBDA_TIMEOUT" \
     --memory-size 256 \
     --environment "Variables={$LAMBDA_ENV}" \
     --region "$REGION" >/dev/null
