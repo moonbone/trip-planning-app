@@ -184,16 +184,25 @@ fi
 echo "==> Ensuring Bedrock invoke access (AI features)..."
 # Invoke is scoped to specific model families (both the plain foundation-model
 # ARN and the cross-region inference-profile ARN each requires) — Claude
-# Haiku 4.5 (the original default) and Claude Sonnet 5 (switched to for
-# better prose quality on the AI recap features; see BEDROCK_MODEL_ID below).
-# Both stay allowlisted rather than swapping one for the other, so rolling
-# BEDROCK_MODEL_ID back doesn't also need an IAM edit. The aws-marketplace
-# actions are what replaced the retired Bedrock console "Model access" page:
-# model subscription now happens automatically on the first invoke, but only
-# if the invoking role may Subscribe — without them, invokes fail
-# intermittently depending on which region of the inference profile the
-# request lands in. Marketplace actions only accept Resource "*"; the role
-# is only assumable by this Lambda, which only invokes these models.
+# Haiku 4.5 (the original default), Claude Sonnet 4.5 (switched to for better
+# prose quality on the AI recap features; see BEDROCK_MODEL_ID below), and
+# Claude Sonnet 5 (the actual target — allowlisted ahead of time, but its
+# invoke kept returning AccessDeniedException "not available for this
+# account" even after accepting its model-access EULA via
+# create-foundation-model-agreement and confirming all four
+# get-foundation-model-availability flags green; Sonnet 4.5 invoked
+# successfully immediately under the same account/role, so this looks like
+# slow account-level provisioning specific to a very new model rather than a
+# permissions problem — revisit switching BEDROCK_MODEL_ID to Sonnet 5 later
+# without needing another IAM edit, since its ARN pattern is already here).
+# All three stay allowlisted rather than narrowing to just the active one, so
+# changing BEDROCK_MODEL_ID between them doesn't also need an IAM edit. The
+# aws-marketplace actions are what replaced the retired Bedrock console
+# "Model access" page: model subscription now happens automatically on the
+# first invoke, but only if the invoking role may Subscribe — without them,
+# invokes fail intermittently depending on which region of the inference
+# profile the request lands in. Marketplace actions only accept Resource "*";
+# the role is only assumable by this Lambda, which only invokes these models.
 if ! aws iam put-role-policy --role-name "$ROLE_NAME" \
     --policy-name trip-planner-app-bedrock \
     --policy-document '{
@@ -206,7 +215,9 @@ if ! aws iam put-role-policy --role-name "$ROLE_NAME" \
             "arn:aws:bedrock:*::foundation-model/anthropic.claude-haiku-4-5*",
             "arn:aws:bedrock:*:*:inference-profile/*anthropic.claude-haiku-4-5*",
             "arn:aws:bedrock:*::foundation-model/anthropic.claude-sonnet-5*",
-            "arn:aws:bedrock:*:*:inference-profile/*anthropic.claude-sonnet-5*"
+            "arn:aws:bedrock:*:*:inference-profile/*anthropic.claude-sonnet-5*",
+            "arn:aws:bedrock:*::foundation-model/anthropic.claude-sonnet-4-5*",
+            "arn:aws:bedrock:*:*:inference-profile/*anthropic.claude-sonnet-4-5*"
           ]
         },
         {
