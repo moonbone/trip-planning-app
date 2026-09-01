@@ -20,13 +20,20 @@ ROLE_NAME="${ROLE_NAME:-trip-planner-app-role}"
 # longer than that to generate a response — confirmed via CloudWatch logs
 # showing real `Status: timeout` entries at exactly 10000ms on the trip
 # recap, which has a bigger prompt and a higher token budget than the
-# day summary. If you raise this further, also raise the CloudFront
-# distribution's origin read timeout (console: Origins > Edit > "Origin
-# read timeout") to comfortably exceed it — CloudFront's own default for a
-# custom origin is 30s and its hard maximum is 60s, so this Lambda timeout
-# should stay under whatever that's set to or CloudFront will 502 the
-# request before the Lambda gets a chance to respond.
-LAMBDA_TIMEOUT="${LAMBDA_TIMEOUT:-45}"
+# day summary. Raised to 45s, then to 55s after Sonnet 4.5 (slower per-token
+# than the original Haiku 4.5) hit the *same* timeout again at exactly
+# 45000ms — confirmed via CloudWatch logs a second time, and via a direct
+# timed Bedrock invoke of the real prompt/token budget (~38s for a complete,
+# non-truncated response) that 55s leaves reasonable headroom without
+# needing to shrink maxTokens. CloudFront's origin read timeout is the hard
+# ceiling here: 60s is CloudFront's own maximum (not configurable higher),
+# so 55s is deliberately the most this Lambda timeout can be raised while
+# staying under it — CloudFront would 504 the client at its own timeout
+# regardless of what the Lambda is set to otherwise. If you raise this
+# further for a bigger prompt/model, there's no more room on the CloudFront
+# side without restructuring how the AI call reaches the client (e.g.
+# bypassing CloudFront for this endpoint specifically).
+LAMBDA_TIMEOUT="${LAMBDA_TIMEOUT:-55}"
 
 if [[ -z "${ORS_API_KEY:-}" ]]; then
   echo "ERROR: set ORS_API_KEY in your environment before running this script." >&2
