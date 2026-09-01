@@ -182,14 +182,18 @@ if ! aws iam put-role-policy --role-name "$ROLE_NAME" \
 fi
 
 echo "==> Ensuring Bedrock invoke access (AI features)..."
-# Invoke is scoped to Claude Haiku (both the plain foundation-model ARN and
-# the cross-region inference-profile ARN this model requires). The
-# aws-marketplace actions are what replaced the retired Bedrock console
-# "Model access" page: model subscription now happens automatically on the
-# first invoke, but only if the invoking role may Subscribe — without them,
-# invokes fail intermittently depending on which region of the inference
-# profile the request lands in. Marketplace actions only accept Resource "*";
-# the role is only assumable by this Lambda, which only invokes this model.
+# Invoke is scoped to specific model families (both the plain foundation-model
+# ARN and the cross-region inference-profile ARN each requires) — Claude
+# Haiku 4.5 (the original default) and Claude Sonnet 5 (switched to for
+# better prose quality on the AI recap features; see BEDROCK_MODEL_ID below).
+# Both stay allowlisted rather than swapping one for the other, so rolling
+# BEDROCK_MODEL_ID back doesn't also need an IAM edit. The aws-marketplace
+# actions are what replaced the retired Bedrock console "Model access" page:
+# model subscription now happens automatically on the first invoke, but only
+# if the invoking role may Subscribe — without them, invokes fail
+# intermittently depending on which region of the inference profile the
+# request lands in. Marketplace actions only accept Resource "*"; the role
+# is only assumable by this Lambda, which only invokes these models.
 if ! aws iam put-role-policy --role-name "$ROLE_NAME" \
     --policy-name trip-planner-app-bedrock \
     --policy-document '{
@@ -200,7 +204,9 @@ if ! aws iam put-role-policy --role-name "$ROLE_NAME" \
           "Action": ["bedrock:InvokeModel", "bedrock:InvokeModelWithResponseStream"],
           "Resource": [
             "arn:aws:bedrock:*::foundation-model/anthropic.claude-haiku-4-5*",
-            "arn:aws:bedrock:*:*:inference-profile/*anthropic.claude-haiku-4-5*"
+            "arn:aws:bedrock:*:*:inference-profile/*anthropic.claude-haiku-4-5*",
+            "arn:aws:bedrock:*::foundation-model/anthropic.claude-sonnet-5*",
+            "arn:aws:bedrock:*:*:inference-profile/*anthropic.claude-sonnet-5*"
           ]
         },
         {

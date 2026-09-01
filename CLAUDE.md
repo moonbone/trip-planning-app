@@ -761,15 +761,18 @@ config (secrets) and the IAM role, not data.
   unless told otherwise.
 - Beta deployment's one-time manual setup (IAM policy reapply, CloudFront, Google OAuth
   origin) may or may not be done yet — check before assuming sign-in works on beta.
-- The AI features (`BEDROCK_MODEL_ID`) currently point at Claude Haiku 4.5 — cheapest/
-  fastest in the family, but the user has flagged recap text quality as not great and
-  wants to evaluate a stronger model (Sonnet). Deferred, not forgotten: switching needs
-  (1) the exact Bedrock model/inference-profile ID, which needs a working root-account
-  session to query (`aws bedrock list-foundation-models`/`list-inference-profiles` —
-  the scoped deployer identity can't list, only invoke, and only for the exact ARN
-  pattern `aws/deploy.sh`'s IAM policy allowlists) and (2) widening that allowlist to
-  the new model's ARN pattern alongside `BEDROCK_MODEL_ID` itself. Don't guess the ID
-  and deploy speculatively without the user present — confirm with them first.
+- The AI features (`BEDROCK_MODEL_ID`) switched from Claude Haiku 4.5 to Claude Sonnet 5
+  (`us.anthropic.claude-sonnet-5` cross-region inference profile) after the user flagged
+  Haiku's recap text quality as not great. Found the exact ID via a root-account session
+  (`aws bedrock list-inference-profiles` — the scoped deployer identity can't list, only
+  invoke, and only for whatever ARN pattern `aws/deploy.sh`'s IAM policy allowlists).
+  `aws/deploy.sh`'s Bedrock policy now allowlists both Haiku and Sonnet ARN patterns
+  (deliberately additive, not a swap, so reverting `BEDROCK_MODEL_ID` needs no IAM edit).
+  The `BEDROCK_MODEL_ID` GitHub secret is shared between `deploy.yml` (master) and
+  `deploy-beta.yml` (beta) — updating it switches both on their next deploy; the user
+  confirmed switching both rather than keeping beta on a separate override. Both
+  already-running Lambdas (prod + beta) were also updated live via the CLI at the time
+  of the switch, not just left to catch up on the next deploy.
 - Day 11 (Loen → Ålesund → Bergen → TLV) is not booked yet, but see the candidate
   reference itinerary noted under "Trip facts worth knowing" above.
 - The KML has Eidfjord and DolceVidda at *nearly* identical (but distinct)
