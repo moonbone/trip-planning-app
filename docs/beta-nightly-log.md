@@ -3,6 +3,303 @@
 A running log of what each scheduled nightly session built on `beta`, so
 future runs don't duplicate or contradict prior work. Newest entry first.
 
+## 2026-08-25
+
+`beta` was at 5d67816 going in. Fetched the real feature-request backlog from
+mainline (`GET /tickets`, with the admin token): of 13 tickets, **zero were
+actionable** — every one is already `done` or `in_beta` from prior nights,
+and none are `new`/`in_progress` (so there was nothing to note as an
+untrusted/unapproved ticket either — same "backlog exhausted" state as last
+night). **No mainline ticket was implemented or marked `in_beta` tonight.**
+All three changes below are own-initiative picks.
+
+1. **Avoid-ferries/tolls/highways routing preference.** A small checkbox
+   row above "Calculate driving times" (⛴ Avoid ferries / 💰 Avoid tolls /
+   🛣️ Avoid highways) lets the driver steer the calculated route away from
+   any of the three — genuinely useful road-trip context (a car that can't
+   take a ferry, a driver who'd rather skip a paid tunnel). A personal
+   setting like fuel settings and the km/mi toggle, not trip data: one
+   plain `tripplan-route-avoid` localStorage key, applies across every
+   trip. `fetchFromProxy()` forwards the checked options as
+   `options.avoid_features` in the `/route` POST body; `aws/handler.mjs`
+   allowlists them against OpenRouteService's actual supported values
+   before forwarding upstream, since it's client-controlled input reaching
+   an external API call — a bogus value just gets dropped rather than
+   passed through. The free OSRM fallback (used when the proxy is
+   unreachable) has no equivalent option and silently ignores the
+   preference, so `calculateRoute()`'s fallback error note says so rather
+   than implying the avoided route was actually honored.
+
+2. **Snow/ice warning badge.** A ❄️ badge — day tab, trip-overview count,
+   same diff-before-rerendering logic in `renderTripWeatherStrip` — follows
+   the existing 🌧️ rain badge's exact pattern one flag over: fires when a
+   day's cached forecast reports one of Open-Meteo's snow weather codes
+   (`SNOW_CODES`), reading the same `weatherCache` the rain badge already
+   populates rather than an extra fetch. Deliberately not gated to a
+   "winter months" date range — mountain-pass altitude can bring snow
+   outside the season a fixed range would assume, and this is a generic
+   trip planner, not Norway-specific. Also added a matching `snow` flag to
+   the weather-based packing suggestion, alongside the existing
+   rain/cold/hot/windy ones, suggesting winter boots and an ice scraper.
+
+3. **Per-place comments now show up in exports.** Day-scoped and
+   trip-scoped comments were already pulled into the "Copy day plan"/AI-
+   summary text and the printable itinerary; comments left on an
+   individual place (via the info modal opened by clicking a stop) were
+   only ever visible back inside that same modal — the same gap the day/
+   trip comments already had closed, just one scope over. Each stop's own
+   comments now show as an indented "Note:" line in the copy/AI text, and
+   as an italic row under that stop in the printable itinerary
+   (`.t-place-notes`). Deliberately left out of the ICS calendar
+   description, unlike day notes — a calendar event body should stay
+   short, and day notes already cover "the one thing to remember about
+   this day" there.
+
+All three verified locally against the file-based dev-server
+(`AUTH_DEV_FAKE=1`) with Playwright, stubbing Leaflet (no CDN access in
+this sandbox — a fluent Proxy stub answers any chained Leaflet call rather
+than enumerating every method the app happens to use) and stubbing
+Open-Meteo responses to force a snow day. Confirmed: the avoid-preference
+checkboxes persist and reach the `/route` proxy body correctly, and the
+fallback note appears when the preference can't be honored; the snow badge
+renders on the right day's tab, the trip-overview count, and the packing
+suggestion; a place comment added through the info modal shows up in both
+`dayDescriptionText()` and `buildDayItinerary()`'s per-stop `notes`, and
+renders correctly in the printable itinerary's HTML. Also re-ran all three
+together in one combined regression pass to confirm they don't interfere
+with each other. Both new commits deployed successfully via
+`deploy-beta.yml`; spot-checked the live beta HTML for `routeAvoidRow` and
+`SNOW_CODES` after pushing.
+
+**Decided not to do, and why:**
+- **Extending the per-place comment export to the ICS calendar
+  description.** Considered it for consistency with the day-notes case,
+  but a calendar event body is meant to stay short and skimmable — piling
+  every stop's comments into one event description would work against
+  that, unlike a single day-level note.
+- **A broader "routing avoid" set** (fords, steps — OpenRouteService
+  supports a few more `avoid_features` values). Scoped to the three that
+  are actually relevant to a road trip in a car (ferries/tolls/highways);
+  the rest are edge cases for other travel modes this app doesn't plan
+  for.
+
+## 2026-08-24
+
+`beta` was at 0689eb0 going in (synced with master after the admin-token
+email exposure + `approved` status change). Fetched the real
+feature-request backlog from mainline (`GET /tickets`, with the admin
+token): of 13 tickets, **zero were actionable** — every one is already
+`done` or `in_beta` from prior nights, and none are `new`/`in_progress`
+(so there was nothing eligible to note as an untrusted/unapproved ticket
+either — the backlog is simply exhausted for now). **No mainline ticket
+was implemented or marked `in_beta` tonight.** All three changes below are
+own-initiative picks, each committed and pushed separately, each verified
+against the local dev-server with Playwright (fresh chromium, a hand-
+written two-day KML fixture, stubbed `window.L` for the CDN-less sandbox)
+before pushing.
+
+1. **An accessibility pass: `aria-label` on every icon-only control that
+   was missing one, plus a real layout bug found while auditing them.**
+   The file had only 5 `aria-label` attributes total (the nearby-lookup
+   and up/down reorder buttons, from an earlier night) across dozens of
+   icon-only buttons — a screen reader announcing "×" or a bare emoji for
+   every modal close button, remove button, and nav link gives no real
+   information. Added `aria-label` to every modal's `×` close button, the
+   plan-variant controls, the theme toggle, the trip/day comment buttons,
+   and — since these are built per-row in JS rather than living in static
+   HTML — the route-item/packing/budget/comment/custom-place remove
+   buttons and the per-stop Google Maps nav link, each labeled with the
+   specific place/item name rather than a generic string repeated on every
+   row. While auditing that area, found a genuine pre-existing bug (not
+   introduced tonight): `.trip-row` had no `flex-wrap`, so the trip-file
+   panel's export/backup button rows — which have picked up more buttons
+   over many nights of feature work — already overflowed the fixed-width
+   left column by 100–250px, spilling invisibly underneath the map with no
+   scrollbar to reveal them. Confirmed with `scrollWidth` vs. the rendered
+   column width (not just a screenshot), and fixed with one `flex-wrap:wrap`
+   that resolves all three affected rows at once. 5 checks (aria-label
+   presence across static and dynamically-built controls), screenshotted
+   before/after the layout fix in both light and dark mode.
+
+2. **A "🧳 Essentials" button in the packing checklist, alongside the
+   existing weather-based suggestions.** A fresh packing list starts
+   completely empty, and "💡 Suggest from forecast" only ever suggests
+   conditional items (rain gear, sun protection) — the universal,
+   easy-to-forget essentials (passport/ID, chargers, medications, cash)
+   never get suggested regardless of weather. Added a fixed generic
+   `PACKING_ESSENTIALS` list through the same per-item "+ Add" UI,
+   factoring the shared rendering logic out into
+   `renderPackingSuggestionList(el, heading, items, emptyMessage)` so both
+   buttons write into the same `#packingSuggestion` container (triggering
+   one replaces whatever the other last showed) and can't drift apart in
+   behavior. Deliberately per-item "+ Add", not a bulk-add — matches this
+   app's existing suggestion-list convention (nearby amenities, search
+   results, weather suggestions) rather than introducing a new pattern, a
+   choice an earlier night's "decided not to do" already reasoned through
+   for the weather suggestions. 6 checks: suggestions render, adding one
+   lands it in the real packing list, it's excluded on re-open, unrelated
+   suggestions remain, and the pre-existing weather-suggestion button
+   still works unchanged. Screenshotted in both light and dark mode.
+
+3. **A "📤 Copy whole trip" button, alongside the existing per-day "Copy
+   day plan."** Every other export (print, GPX, ICS, backup) already
+   covers the whole trip; the copy/share button was the one export still
+   stuck at one day at a time, with no quick way to text a full itinerary
+   to travel companions without opening the print-preview tab.
+   `dayDescriptionText()` now takes an optional `day` parameter (defaults
+   to `activeDay`, so every existing call site — the per-day copy button,
+   the AI summary — is unaffected) so a new `tripDescriptionText()` can
+   reuse the identical per-day formatting for every day with at least one
+   stop, joined under the trip's name. Both the new button and the
+   existing "Copy day plan" now share one `shareOrCopyText(btn,
+   defaultLabel, title, text)` helper for the actual
+   share-sheet-then-clipboard-then-prompt fallback chain, pulled out of
+   what was previously "Copy day plan"'s own inline logic, so the two
+   can't diverge. 6 checks: per-day copy still copies only the active day
+   after the refactor (regression check), switching days changes what it
+   copies, a hotel-only day (no user-added stops, just the pinned wake/
+   sleep hotel) still produces real trip text rather than being treated as
+   empty, and the "Nothing to copy yet" state correctly requires no active
+   trip at all (a day with only hotel pins is not "empty").
+
+18 checks total, all passing, re-run against a freshly restarted
+dev-server as a final check before pushing (this file's own recurring
+`EADDRINUSE`/stale-server warning — restart and confirm the *served* HTML
+actually changed, don't assume a restart worked). Confirmed all three
+commits deployed successfully via `deploy-beta.yml` (checked the actual
+workflow run conclusions via the GitHub Actions API, not just watching for
+the push to complete) and spot-checked the live beta URL for each
+feature's new markup (`copyTripBtn`, `packingEssentialsBtn`,
+`flex-wrap:wrap`) after the final push.
+
+**Decided not to do, and why:**
+- **Reworking the trip-file panel's button rows beyond the flex-wrap fix**
+  (e.g. grouping into a dropdown, or a "more" overflow menu) now that
+  they're long enough to wrap across 2–3 lines on a narrow column.
+  Wrapping fixes the actual bug (buttons becoming invisible); a deeper
+  layout redesign is a separate, larger call about how many top-level
+  actions this panel should expose at all, not something to make
+  unilaterally while fixing an overflow bug.
+- **A bulk "add all" button for the essentials list**, same reasoning an
+  earlier night already gave for the weather suggestions: every other
+  suggestion-list UI in this app uses individual "+ Add" buttons, and a
+  ten-item list doesn't justify a new bulk-action pattern.
+- **Wiring "Copy whole trip" into the native share sheet's `files` option**
+  (sharing the printable itinerary as an actual file/PDF instead of plain
+  text). `navigator.share({files})` support is inconsistent enough across
+  browsers to be a separate, riskier feature than reusing the existing
+  text-based `shareOrCopyText` path this session already had verified
+  working end-to-end.
+
+## 2026-08-23
+
+`beta` was at 389c158 going in (synced with master after the prior 3-night
+batch was promoted to production). Fetched the real feature-request backlog
+from mainline (`GET /tickets`): of 13 tickets, **zero were actionable** —
+every one is already `done` or `in_beta` from prior nights (the three most
+recent open-ended ones, `mt17lonuj2k12b`/`mswuwmi5itojje`/`msw6fddzu25mte`,
+were all marked `in_beta` weeks ago). One older numeric-id ticket (`9`,
+"Add laundry locations") shows `done` but no `laundry` string exists
+anywhere in `index.html` — left alone rather than second-guessed, since its
+status wasn't set by a nightly run and "done" isn't `new`/`in_progress`
+either way. **No mainline ticket was implemented or marked `in_beta`
+tonight** — nothing was left to take. All four changes below are
+own-initiative picks, each committed and pushed separately, each verified
+against the local dev-server with Playwright (fresh chromium, stubbed
+`window.L`, stubbed every external API this sandbox can't reach from a
+browser — the approach every prior night has used) before pushing.
+
+1. **Viewpoints, attractions, and lodging in the nearby-amenities lookup.**
+   The existing 🔎 lookup only ever queried OSM's `amenity` tag; viewpoints,
+   attractions, hotels, guest houses, and hostels live under a separate
+   `tourism` key, so they needed a second Overpass clause
+   (`NEARBY_TOURISM_ICONS`, alongside the existing `NEARBY_AMENITY_ICONS`)
+   rather than one more entry in the existing regex. Genuinely useful
+   mid-road-trip either way: a scenic overlook worth a quick stop, or
+   somewhere to sleep if plans change. A result's `amenity` field now holds
+   whichever tag actually matched, and the icon lookup checks both maps.
+
+2. **A GEO coordinate on each ICS calendar event.** Small, low-risk
+   addition: `LOCATION` was already a place-name string, and most mobile
+   calendar apps also read RFC 5545's `GEO:lat;lon` field to offer their own
+   "navigate here" action. Caught and fixed a real gap while building
+   this — `buildDayItinerary()`'s per-stop objects never carried
+   coordinates through to the result (only `name`/`overnight`/timing
+   fields), even though it already had every stop's `lat`/`lon` in hand
+   while building the route. Added them to the stop objects directly rather
+   than a parallel lookup inside the ICS builder, since other consumers of
+   `buildDayItinerary` (printable itinerary, GPX export) may as well have
+   coordinates available too.
+
+3. **Weather-based packing suggestions.** A "💡 Suggest from forecast"
+   button in the packing checklist modal reads the same per-day forecast
+   the weather panel/strip already fetch (reusing `fetchWeather`'s cache —
+   no extra calls for a day already looked at this session) and maps four
+   trip-wide conditions to concrete items: any rainy day → rain jacket +
+   umbrella, any cold day (low ≤5°C) → warm layers + gloves, any hot day
+   (high ≥25°C) → sunscreen + sun hat, any windy day (max wind ≥40km/h) →
+   windbreaker. Deliberately whole-trip rather than per-day — a packing
+   list gets assembled once before departure — and deliberately skips
+   climate-normal (beyond-16-day-horizon) days entirely: a 3-year average
+   is honest enough to *show*, not honest enough to tell someone what to
+   *pack*, same judgment call that already kept climate normals out of the
+   exports. Excludes items already on the list (case-insensitive), so
+   re-running it after packing doesn't re-suggest the same things; each
+   suggestion gets its own "+ Add" button, matching the nearby-amenities
+   and search-results modals' existing per-item pattern rather than a bulk
+   "add all."
+
+4. **The packing checklist in the printable itinerary.** The printable
+   itinerary exists specifically for offline use — several of this app's
+   features exist because these road trips regularly have no signal — so a
+   checklist someone can glance at (and check off by hand, on paper)
+   belongs alongside the day-by-day plan, not screen-only. Reuses the
+   already-loaded `packingList` global exactly the way `fuelCostText`/
+   `loadFuelSettings()` already do inside `renderPrintableItinerary`; only
+   rendered when the list has items, and a checked item shows struck
+   through, matching the in-app checklist's own display.
+
+30 checks total across two throwaway Playwright scripts (a two-day KML
+fixture with one rainy/cold day and one hot/windy day, stubbed Overpass/
+Open-Meteo/routing responses), all passing, re-run after every later change
+tonight to catch cross-feature regressions — none surfaced. Coverage worth
+noting: the nearby lookup's new icon rendering *and* the unnamed-node filter
+still working alongside the new tourism clause; the packing suggestions'
+full positive case (all four flags firing → all seven items), the
+add-then-shrinks flow, and case-insensitive dedup against a manually-typed
+item; the ICS GEO line's exact coordinates for both days plus a
+no-regression check that `LOCATION` is still present; and the printable
+itinerary's empty/non-empty/checked-item states for the new packing
+section. Also screenshotted the new packing-suggestion list and the
+nearby-amenities results (new hotel/viewpoint icons) in both light and dark
+mode — both read correctly.
+
+Re-learned the CLAUDE.md-documented dev-server gotcha once more, this time
+from the opposite direction: `pkill -f dev-server.mjs` killed the shell
+running the *next* command in the same tool call (the pattern matches the
+shell's own `/proc` cmdline, not just the target process), leaving the old
+server bound to 8787 and a *new* server crashing with `EADDRINUSE` on
+startup — which then silently served nothing while curl still returned
+200 from the stale process. Recovered by killing the old server's exact
+PID (from `ps aux`) rather than by pattern, then restarting. Future nights:
+prefer `kill <pid>` from a fresh `ps aux | grep dev-server` over any
+pattern-based kill in the same tool call that's about to start a new server.
+
+**Decided not to do, and why:**
+- **A bulk "add all suggested" button** for the weather-based packing
+  suggestions. Every other suggestion-list UI in this app (nearby
+  amenities, search results) uses individual per-item "+ Add" buttons —
+  matching that existing convention felt more consistent than introducing
+  a new bulk-action pattern for a list that's at most seven items.
+- **Wiring packing suggestions into the ICS/GPX exports.** Both are
+  calendar/GPS-device formats with no natural place for a checklist; the
+  printable itinerary (added tonight, item 4) is the export that actually
+  fits a checklist someone reads and checks off.
+- **Reopening ticket `9` ("Add laundry locations")** despite finding no
+  `laundry` string in the codebase. Its `done` status wasn't set by a
+  nightly run and isn't `new`/`in_progress` either way — not this session's
+  call to second-guess without knowing why the human closed it.
+
 ## 2026-08-22
 
 `beta` was at cae984f going in (last night's five: tab scroll/keyboard nav,

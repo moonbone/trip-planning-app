@@ -134,6 +134,10 @@ export const handler = async (event) => {
     return handleSummarizeDay(event);
   }
 
+  if (method === 'POST' && rawPath === '/api/ai/summarize-trip') {
+    return handleSummarizeTrip(event);
+  }
+
   if (rawPath.startsWith('/api/trips')) {
     return handleTripsApi(event, method, rawPath);
   }
@@ -187,6 +191,19 @@ async function handleRoute(event) {
     return jsonError(400, 'Body must include a coordinates array with at least 2 points');
   }
 
+  // Optional routing preference (ferries/tollways/highways to avoid) from the
+  // avoid-route toggle in index.html. Allowlisted against OpenRouteService's
+  // actual supported values rather than forwarded verbatim, since this is
+  // client-controlled input reaching an upstream API call.
+  const ORS_AVOID_FEATURES = new Set(['ferries', 'tollways', 'highways']);
+  const orsBody = { coordinates: body.coordinates };
+  const avoid = body.options && Array.isArray(body.options.avoid_features)
+    ? body.options.avoid_features.filter((v) => ORS_AVOID_FEATURES.has(v))
+    : [];
+  if (avoid.length) {
+    orsBody.options = { avoid_features: avoid };
+  }
+
   // Optional passthrough for ORS's extra_info (e.g. "waycategory" to flag
   // ferry segments) — validated against ORS's own enum so this can't become
   // an arbitrary-field-injection proxy into the upstream request.
@@ -194,7 +211,6 @@ async function handleRoute(event) {
     'steepness', 'suitability', 'surface', 'waycategory', 'waytype', 'tollways',
     'traildifficulty', 'osmid', 'roadaccessrestrictions', 'countryinfo', 'green', 'noise', 'shadow',
   ]);
-  const orsBody = { coordinates: body.coordinates };
   if (Array.isArray(body.extra_info)) {
     const extraInfo = body.extra_info.filter((v) => ORS_EXTRA_INFO_VALUES.has(v));
     if (extraInfo.length) orsBody.extra_info = extraInfo;
@@ -337,6 +353,9 @@ async function handleGoogleLogin(event) {
 // admins manage tickets/users, not who gets access to a paid model).
 const AI_OWNER_EMAIL = 'moonbone@gmail.com';
 const MAX_AI_INPUT_BYTES = 20 * 1024;
+// A whole-trip description (every day's stops/notes concatenated) is
+// naturally bigger than one day's — same account gate, roomier cap.
+const MAX_TRIP_AI_INPUT_BYTES = 60 * 1024;
 
 async function handleSummarizeDay(event) {
   const session = sessionFromEvent(event, process.env.SESSION_SECRET);
@@ -368,6 +387,51 @@ async function handleSummarizeDay(event) {
     return ok({ summary });
   } catch (e) {
     console.error('bedrock summarize-day failed', e);
+    return jsonError(502, 'AI summary failed: ' + e.message);
+  }
+}
+
+async function handleSummarizeTrip(event) {
+  const session = sessionFromEvent(event, process.env.SESSION_SECRET);
+  if (!session) return jsonError(401, 'Sign in required');
+  if ((session.email || '').toLowerCase() !== AI_OWNER_EMAIL) {
+    return jsonError(403, 'This feature is not available for your account yet');
+  }
+
+  let body;
+  try {
+    body = JSON.parse(event.body || '{}');
+  } catch {
+    return jsonError(400, 'Invalid JSON body');
+  }
+  const text = typeof body.text === 'string' ? body.text.trim() : '';
+  if (!text) return jsonError(400, 'Missing trip description text');
+  if (Buffer.byteLength(text, 'utf8') > MAX_TRIP_AI_INPUT_BYTES) {
+    return jsonError(400, `Trip description too large (max ${MAX_TRIP_AI_INPUT_BYTES} bytes)`);
+  }
+
+  try {
+    const summary = await askClaude(
+      'Write a warm, engaging recap of this entire road trip, in 4-6 short paragraphs '
+      + '(a few sentences each — end with a complete thought, don\'t ramble on past that). '
+      + 'Capture the overall arc of the journey day by day, standout stops, and the flow '
+      + 'from place to place — use any "Note:" lines for concrete detail about what was '
+      + 'actually done or experienced at a stop, not just its name. If a "Traveler\'s own '
+      + 'notes" section appears at the end, treat every line in it as something the '
+      + 'traveler specifically wants reflected — work each one into the relevant part of '
+      + 'the recap by day/place, don\'t just skim past it or mention it in passing. '
+      + 'Respond in Hebrew (the itinerary details may be in any language). '
+      + `Do not invent details not present below.\n\n${text}`,
+      // Was 900 — too tight for a genuine 4-6 paragraph Hebrew recap, cutting
+      // the response off mid-sentence (confirmed via a user report and the
+      // stop_reason==='max_tokens' check askClaude now logs). 2000 gives
+      // comfortable headroom; the Lambda/CloudFront timeouts were already
+      // raised separately to give a longer generation room to complete.
+      { maxTokens: 2000 },
+    );
+    return ok({ summary });
+  } catch (e) {
+    console.error('bedrock summarize-trip failed', e);
     return jsonError(502, 'AI summary failed: ' + e.message);
   }
 }

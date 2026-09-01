@@ -15,6 +15,18 @@ FUNCTION_NAME="${FUNCTION_NAME:-trip-planner-app}"
 REGION="${AWS_REGION:-us-east-1}"
 RUNTIME="nodejs20.x"
 ROLE_NAME="${ROLE_NAME:-trip-planner-app-role}"
+# The original 10s default was fine for the DynamoDB-only routes, but the
+# Bedrock AI features (summarize-day, summarize-trip) can genuinely take
+# longer than that to generate a response — confirmed via CloudWatch logs
+# showing real `Status: timeout` entries at exactly 10000ms on the trip
+# recap, which has a bigger prompt and a higher token budget than the
+# day summary. If you raise this further, also raise the CloudFront
+# distribution's origin read timeout (console: Origins > Edit > "Origin
+# read timeout") to comfortably exceed it — CloudFront's own default for a
+# custom origin is 30s and its hard maximum is 60s, so this Lambda timeout
+# should stay under whatever that's set to or CloudFront will 502 the
+# request before the Lambda gets a chance to respond.
+LAMBDA_TIMEOUT="${LAMBDA_TIMEOUT:-45}"
 
 if [[ -z "${ORS_API_KEY:-}" ]]; then
   echo "ERROR: set ORS_API_KEY in your environment before running this script." >&2
@@ -109,6 +121,7 @@ if aws lambda get-function --function-name "$FUNCTION_NAME" --region "$REGION" >
   aws lambda update-function-configuration \
     --function-name "$FUNCTION_NAME" \
     --environment "Variables={$LAMBDA_ENV}" \
+    --timeout "$LAMBDA_TIMEOUT" \
     --region "$REGION" >/dev/null
   aws lambda wait function-updated --function-name "$FUNCTION_NAME" --region "$REGION"
 else
@@ -118,7 +131,7 @@ else
     --role "$ROLE_ARN" \
     --handler index.handler \
     --zip-file fileb://function.zip \
-    --timeout 10 \
+    --timeout "$LAMBDA_TIMEOUT" \
     --memory-size 256 \
     --environment "Variables={$LAMBDA_ENV}" \
     --region "$REGION" >/dev/null
@@ -169,14 +182,18 @@ if ! aws iam put-role-policy --role-name "$ROLE_NAME" \
 fi
 
 echo "==> Ensuring Bedrock invoke access (AI features)..."
-# Invoke is scoped to Claude Haiku (both the plain foundation-model ARN and
-# the cross-region inference-profile ARN this model requires). The
-# aws-marketplace actions are what replaced the retired Bedrock console
-# "Model access" page: model subscription now happens automatically on the
-# first invoke, but only if the invoking role may Subscribe — without them,
-# invokes fail intermittently depending on which region of the inference
-# profile the request lands in. Marketplace actions only accept Resource "*";
-# the role is only assumable by this Lambda, which only invokes this model.
+# Invoke is scoped to specific model families (both the plain foundation-model
+# ARN and the cross-region inference-profile ARN each requires) — Claude
+# Haiku 4.5 (the original default) and Claude Sonnet 5 (switched to for
+# better prose quality on the AI recap features; see BEDROCK_MODEL_ID below).
+# Both stay allowlisted rather than swapping one for the other, so rolling
+# BEDROCK_MODEL_ID back doesn't also need an IAM edit. The aws-marketplace
+# actions are what replaced the retired Bedrock console "Model access" page:
+# model subscription now happens automatically on the first invoke, but only
+# if the invoking role may Subscribe — without them, invokes fail
+# intermittently depending on which region of the inference profile the
+# request lands in. Marketplace actions only accept Resource "*"; the role
+# is only assumable by this Lambda, which only invokes these models.
 if ! aws iam put-role-policy --role-name "$ROLE_NAME" \
     --policy-name trip-planner-app-bedrock \
     --policy-document '{
@@ -187,7 +204,9 @@ if ! aws iam put-role-policy --role-name "$ROLE_NAME" \
           "Action": ["bedrock:InvokeModel", "bedrock:InvokeModelWithResponseStream"],
           "Resource": [
             "arn:aws:bedrock:*::foundation-model/anthropic.claude-haiku-4-5*",
-            "arn:aws:bedrock:*:*:inference-profile/*anthropic.claude-haiku-4-5*"
+            "arn:aws:bedrock:*:*:inference-profile/*anthropic.claude-haiku-4-5*",
+            "arn:aws:bedrock:*::foundation-model/anthropic.claude-sonnet-5*",
+            "arn:aws:bedrock:*:*:inference-profile/*anthropic.claude-sonnet-5*"
           ]
         },
         {

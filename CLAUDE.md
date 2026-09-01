@@ -54,7 +54,18 @@ The user's own real trip currently loaded into the app is a Norway road trip, Au
   dropped them until you switched trips away and back — fixed by making startup
   call the same function).
   Calls `PROXY_URL` (currently `/route`, relative — assumes same-origin hosting) for
-  routing, falls back to public OSRM demo servers if the proxy fails. Below 860px width, the 3-column layout collapses to a
+  routing, falls back to public OSRM demo servers if the proxy fails. A small "Avoid
+  ferries / tolls / highways" checkbox row above "Calculate driving times"
+  (`#routeAvoidRow`) is a personal routing preference — same "one plain localStorage
+  key (`tripplan-route-avoid`), applies to every trip" pattern as fuel settings and the
+  km/mi toggle, not trip data. `fetchFromProxy` sends whatever's checked as
+  `options.avoid_features` in the `/route` POST body; `aws/handler.mjs`'s `handleRoute`
+  allowlists it against OpenRouteService's actual supported values (`ferries`,
+  `tollways`, `highways`) before forwarding to ORS, since it's client-controlled input
+  reaching an upstream API call. The free OSRM fallback used when the proxy is
+  unreachable has no equivalent option and silently ignores the preference — routing
+  still works on that path, it just can't honor it, and `calculateRoute()` says so in
+  the fallback error note when at least one avoid option is checked. Below 860px width, the 3-column layout collapses to a
   single column switched via a bottom tab bar (Places / Route / Summary); Leaflet needs
   `map.invalidateSize()` after its container is unhidden, which `setMobileSection` calls.
   A header toggle switches the whole page between this planner view and the feature-request
@@ -90,14 +101,51 @@ The user's own real trip currently loaded into the app is a Norway road trip, Au
   click, variant-scoped, 'c'-prefixed string ids), **place info enrichment** (imported JSON
   matched to places by title/proximity, shown in a modal — trip-scoped), **comments**
   per place/day/trip (trip-scoped; local key `tripplan-comments:<id>`, per-comment
-  POST/DELETE endpoints signed in), and a **packing checklist** (🎒 button next to trip
+  POST/DELETE endpoints signed in). Day-scoped comments were already pulled into the
+  "Copy day plan"/AI-summary text (`dayDescriptionText`) and the printable itinerary
+  (`buildDayItinerary`'s `notes`); place-scoped comments (added from the place-info
+  modal opened by clicking a stop) now are too — each stop's own comments show as an
+  indented `Note:` line in the copy/AI text and as an italic row under that stop in the
+  printable itinerary (`.t-place-notes`), the same "this was already visible in the app
+  but not in any export" gap the day/trip comments had already closed. Deliberately
+  left out of the ICS calendar description, unlike day notes — a calendar event body is
+  meant to stay short, and day notes already cover "the one thing to remember about
+  this day" there. And a **packing checklist** (🎒 button next to trip
   comments, its own modal): one flat `{id, text, checked}` list per trip, not per variant
   (what to pack doesn't depend on the route plan) — local key `tripplan-packing:<id>`,
   or a `packingList` field on the trip record signed in via `PUT /api/trips/:id/packing`
   (editor+; whole-array replace on every add/check/delete, same shallow read-modify-write
   pattern as `enrichment`, not per-item CRUD like comments — simpler since packing items
   don't need per-author tracking; server sanitizes/truncates each item's text and caps the
-  list at 300 items). A **trip budget** (💰 button next to packing, its own modal) follows
+  list at 300 items). A "💡 Suggest from forecast" button in the packing modal
+  (`suggestPackingFromWeather`) reads the same per-day forecast the weather panel/strip
+  already fetch (via `fetchWeather`'s existing cache — no extra API calls beyond what a
+  same-session visit already made) and maps a handful of whole-trip conditions to concrete
+  items: any day at/above `RAIN_WARN_MM` suggests a rain jacket and umbrella, any day whose
+  low is at/below `PACKING_COLD_MAX_C` (5°) suggests warm layers and gloves, any day whose
+  high is at/above `PACKING_HOT_MIN_C` (25°) suggests sunscreen and a sun hat, any day whose
+  max wind is at/above `PACKING_WINDY_MIN_KMH` (40) suggests a windbreaker
+  (`PACKING_SUGGEST_RULES`). Deliberately coarse and whole-trip rather than per-day — a
+  packing list gets assembled once before departure, not re-planned per day — and skips
+  climate-normal (beyond-forecast-horizon) days entirely, same reasoning as keeping those
+  out of the exports: a 3-year average is honest enough to show on screen, not honest enough
+  to tell someone what to pack. Excludes items already on the list (case-insensitive) so
+  re-running it after packing doesn't re-suggest the same things; each suggestion has its
+  own "+ Add" button rather than a bulk-add, matching how every other suggestion-list UI in
+  this app (nearby amenities, search results) already works. A "🧳 Essentials" button right
+  next to it covers the other half of the gap: a fresh packing list starts completely empty,
+  and the weather suggestions only ever fire conditionally (rain gear, sun protection) — the
+  universal, easy-to-forget items (passport/ID, chargers, meds, cash) never get suggested
+  regardless of forecast. `PACKING_ESSENTIALS` is a fixed generic list rendered through the
+  same per-item "+ Add" UI, factored out as `renderPackingSuggestionList(el, heading, items,
+  emptyMessage)` and shared by both buttons — they write into the same `#packingSuggestion`
+  container, so triggering one replaces whatever the other last showed rather than stacking.
+  The printable itinerary
+  (`renderPrintableItinerary`) also includes the packing list, when it has items, as a
+  checkbox table right after the trip summary — reuses the already-loaded `packingList`
+  global the same way `fuelCostText`/`loadFuelSettings()` already do in that function, and a
+  checked item renders struck through, matching the in-app checklist's own display. A **trip
+  budget** (💰 button next to packing, its own modal) follows
   the exact same pattern one field over: a flat `{id, category, label, amount}` list per
   trip (not per variant), local key `tripplan-budget:<id>` or a `budgetItems` field via
   `PUT /api/trips/:id/budget` (editor+, whole-array replace, sanitized/capped at 300 items,
@@ -141,8 +189,12 @@ The user's own real trip currently loaded into the app is a Norway road trip, Au
   Every route-item row (stops and pinned hotels alike) has a small "🔎" button
   (`nearbyLink`/`openNearbyModal`) that looks up nearby fuel stations, restaurants, cafes,
   fast food, parking, restrooms, supermarkets, pharmacies, hospitals, EV charging
-  stations, ATMs, and banks — the amenity types actually relevant mid-road-trip, not a
-  general POI browser —
+  stations, ATMs, banks, viewpoints, tourist attractions, and lodging (hotels/guest
+  houses/hostels) — the amenity types actually relevant mid-road-trip, not a
+  general POI browser — the last three via a second Overpass clause since OSM tags them
+  under a separate `tourism` key rather than `amenity` (`NEARBY_TOURISM_ICONS`, matched
+  alongside `NEARBY_AMENITY_ICONS`; a result's `amenity` field holds whichever tag value
+  actually matched, and the icon lookup checks both maps) —
   within 1.5km of that stop, via Overpass
   (`overpass-api.de`, OSM's public query API: keyless, `Access-Control-Allow-Origin: *`,
   same no-auth client-side-callable trust model as Nominatim/Open-Meteo already used
@@ -162,12 +214,71 @@ The user's own real trip currently loaded into the app is a Norway road trip, Au
   An AI "Summarize day" button (signed-in UI, server-gated
   to one account) posts a text rendition of the day to `/api/ai/summarize-day`, which calls
   Claude on Bedrock via `aws/ai.mjs` (SDK bundled in Lambda runtime only — locally it 502s).
+  A "📊 Trip summary" button (`generateTripSummary`, trip-file panel) opens a whole-trip
+  retrospective in a new tab, same `window.open('', '_blank')` + placeholder + async-fill +
+  `document.write` pattern as `printTripItinerary` — driving totals, ferry crossings
+  auto-detected from `fetchRouteForSummary`'s ORS `extra_info: ['waycategory']` call (bit
+  value 8 = Ferry; never hand-flagged per day), weather (real recorded data via
+  `fetchHistoricalWeather`'s Open-Meteo archive-api call for days already past, live forecast
+  within the existing ~16-day horizon, climate-normal average beyond it), an optional AI
+  recap (signed-in owner account only, `/api/ai/summarize-trip`, mirrors summarize-day —
+  the prompt is built from `dayDescriptionText`'s per-day text, which already includes each
+  stop's place-info blurb and place/day comments, not just names, so the recap can speak to
+  what was actually done at a stop when a comment says so; when it's unavailable, the
+  summary page says why instead of just omitting the section — not signed in, signed in as
+  the wrong account (403), or the Bedrock call itself failing — rather than the three cases
+  being visually indistinguishable from "the button doesn't do that". A user report that
+  comments weren't showing up in the recap turned out not to be a data bug — the inline
+  "Note:" lines were already reaching the model — but a real prompt-attention gap: buried
+  as just one more indented line inside a long, structurally repetitive multi-day document,
+  they were easy for the model to skim past. `tripCommentsDigest(daySelections)` pulls every
+  place/day comment for the selected days into its own clearly-labeled "Traveler's own
+  notes" section appended after the day-by-day text — in addition to, not instead of, the
+  inline ones — and the prompt explicitly tells the model to work each line in the section
+  into the recap rather than skim past it. `maxTokens: 2000` for this call (was 900 — too
+  tight for a genuine 4-6 paragraph Hebrew recap, confirmed cutting responses off
+  mid-sentence via a user report and the `stop_reason==='max_tokens'` check `askClaude` now
+  logs whenever a response comes back truncated),
+  and a Leaflet map (loaded via CDN inside the new tab) with each day's route in its own
+  color (`tripDayColor` sweeps hue 200→420°, skipping the 80–170° green band so lines stay
+  legible against the OSM basemap), ferry sub-segments overlaid as dashed lines, and a
+  distinct 🏨 marker per unique overnight hotel. Deliberately does not try to auto-detect
+  "this day was a flight" or "this leg was a private, non-routable ferry" — those need a
+  human to notice; the summary only ever shows what the trip's own routing/weather data
+  says. The button opens a picker modal (`openTripSummaryModal`) rather than generating
+  immediately — a checkbox tree, one collapsible group per day (▸ toggle, collapsed by
+  default, `renderTripSummaryDayList`), each containing a checkbox per individual place —
+  stops *and* hotels alike, so a wrongly-added duplicate or an unwanted overnight can be
+  dropped without dropping the whole day. A day's own checkbox is a derived aggregate
+  (`updateTsDayCheckState`, checked/indeterminate/unchecked from its children, native
+  `.indeterminate`) that also acts as a per-day select-all/none when clicked; top-level
+  "Select all"/"Select none" reach every place checkbox across every day. `buildTripSummaryData`
+  and `tripDescriptionText` (so the AI recap prompt reflects the same exclusions) both take
+  a `{[day]: idsArray}` selection map — an explicit, already-filtered subset of that day's
+  `getRouteIds(day)` — defaulting to `fullDaySelections()` (every day, every place) when
+  called without one. Checkbox `value`s are always strings even though KML-derived place ids
+  are plain numbers, so the Generate handler filters the correctly-typed `getRouteIds(day)`
+  array by a string-matched `Set` of checked values rather than using checkbox values as ids
+  directly — needed so the excluded-hotel check (`ids.includes(wakeHotelId(day))`) still
+  works. Excluding a hotel un-pins its 🏨 marker from *that day's* map contribution only —
+  the same physical hotel can still appear via a neighboring day that still references it
+  (e.g. as day N+1's wake hotel), which is correct: the boundary is per-day, not per-place-
+  globally. Running the picker multiple times with different selections gets separate
+  summaries for distinct legs of a trip (e.g. the road trip vs. a city add-on), each opening
+  its own tab. A partial selection shows "N of M days · X of Y places selected" in the
+  subtitle and "(partial)" in the tab title so multiple summary tabs stay distinguishable.
   A "📍 From Maps" button lets you paste a Google Maps link (or raw `lat, lon`) to add a
   custom place without clicking the map: `parseGoogleMapsCoords` pulls coordinates out of
   long-form URLs client-side (`!3d/!4d` pin, `@lat,lon` view center, or `q=`/`ll=` params).
   Newer share links reference a place by internal id instead (no coordinates anywhere in the
   URL) — those fall back to geocoding the place name/address via OpenStreetMap's free
-  Nominatim API. Shortened links (`maps.app.goo.gl`, `goo.gl`, `g.co` — what phones produce
+  Nominatim API. `geocodeAddress` retries with progressively fewer leading comma-separated
+  segments (down to a floor of 2, so it never degrades all the way to just a country) when
+  the full "Business Name, Street, City, Country" blob comes up empty — sometimes even the
+  street/city address alone still fails, e.g. a business name Google displays translated or
+  localized differently than how OSM has it tagged locally ("Langedrag Nature Park" vs OSM's
+  Norwegian "Langedrag Naturpark"); landing on the city/village centroid in that worst case
+  beats failing the import outright. Shortened links (`maps.app.goo.gl`, `goo.gl`, `g.co` — what phones produce
   from the Share button) carry neither, so those go through `POST /resolve-maps-link` first
   to follow the redirect server-side (a browser can't read a cross-origin redirect's
   destination). That same server call also scrapes the place's Open Graph photo/title
@@ -220,7 +331,11 @@ The user's own real trip currently loaded into the app is a Norway road trip, Au
   on a phone calendar while the traveler's device is set to the trip's own timezone. A day's
   *last* stop (not just any stop flagged `overnight`) is used as "tonight's" destination, since
   the previous night's hotel is also flagged `overnight` where it appears pinned as that day's
-  *first* stop.
+  *first* stop. Each event also carries an RFC 5545 `GEO:lat;lon` line alongside its
+  `LOCATION` text, so a calendar app that reads it (most mobile ones do) can offer its own
+  "navigate here" action — needed `buildDayItinerary()`'s per-stop objects to actually carry
+  `lat`/`lon` through to the result (it already had the coordinates, just never kept them on
+  the returned stop).
   A fuel cost estimate (⛽ row above "Drive summary") takes a consumption (L/100km),
   price/liter, and currency label the user types in — one plain `tripplan-fuel-settings`
   localStorage key, deliberately *not* trip-scoped or synced (it's the car, not the trip)
@@ -277,13 +392,20 @@ The user's own real trip currently loaded into the app is a Norway road trip, Au
   the source of truth rather than hand-building the new trip's index entry; the local-mode
   path writes the same `tripplan-*` keys `addTrip`/`addVariant` already use. A malformed
   or non-JSON file fails with an inline message instead of throwing.
-  A "📋 Copy day plan" button (col-right, always visible, no sign-in needed) copies the
-  same plain-text day rendition used for the AI summary (`dayDescriptionText`) to the
-  clipboard, falling back to a `prompt()` box if `navigator.clipboard` is blocked —
-  handy for texting a day's stops to travel companions without a signal. A
+  A "📋 Copy day plan" button (col-right, always visible, no sign-in needed) shares or copies
+  the same plain-text day rendition used for the AI summary (`dayDescriptionText`) — the
+  native share sheet where `navigator.share` is available (mostly phones), else the
+  clipboard, else a `prompt()` box if `navigator.clipboard` is blocked — handy for texting a
+  day's stops to travel companions without a signal. `dayDescriptionText(day = activeDay)`
+  takes an optional day so a "📤 Copy whole trip" button (col-left, trip-file panel, next to
+  Export calendar) can reuse the exact same per-day formatting for every day that has at
+  least one stop, joined under the trip's name (`tripDescriptionText`) — every other export
+  (print, GPX, ICS, backup) already covered the whole trip, but this one only ever covered
+  one day at a time. Both buttons share the actual share/clipboard/prompt fallback chain via
+  one `shareOrCopyText(btn, defaultLabel, title, text)` helper so they can't drift apart. A
   "🖨️ Print itinerary" button (col-left, trip-file panel) opens a new tab and builds a
   full, offline-printable day-by-day itinerary for every day in the trip: it fetches
-  driving times per day independently of whatever's cached in `lastRoute` (via
+  driving times per day independently of whatever's cached in `routeCache` (via
   `buildDayItinerary`, reusing `fetchFromProxy`/`fetchFromOSRM`), and degrades
   gracefully per day if routing fails — still listing stops and stay durations, just
   without clock times, rather than failing the whole export. The tab is opened
@@ -299,8 +421,8 @@ The user's own real trip currently loaded into the app is a Norway road trip, Au
   warning (⚠️ badge on the day tab, a line in the active day's drive summary, a count in
   the trip overview, and a note in the printable itinerary) fires at 270+ minutes of
   driving (`LONG_DRIVE_WARN_MIN`) — the common "keep it under ~4.5h" road-trip guidance,
-  not anything Norway-specific. `dayDriveEstimate` uses the exact figure when a day
-  matches the last-calculated `lastRoute`, otherwise a straight-line/50kmh fallback
+  not anything Norway-specific. `dayDriveEstimate` uses the exact figure when a day has a
+  matching entry in `routeCache`, otherwise a straight-line/50kmh fallback
   (`ESTIMATE_AVG_SPEED_KMH`) so every day tab can be flagged without routing all of them
   up front — deliberately a rough overestimate for winding/mountain roads, so it favors
   flagging over missing a genuinely long day. A **rain badge** (🌧️ on the day tab, plus a
@@ -315,8 +437,19 @@ The user's own real trip currently loaded into the app is a Norway road trip, Au
   strings before/after its fetches), and it restores keyboard focus into the tab bar
   afterward. Both matter because `renderTabs()` rebuilds every tab element from scratch:
   an unconditional call would drop focus out of the tab bar mid-interaction and re-run its
-  `scrollIntoView()` even on a trip with no rainy days at all. `cachedForecast(day)` is the shared read-only cache lookup both the
-  rain badge and the daylight warning below go through. A **daylight warning** (🌇 in the
+  `scrollIntoView()` even on a trip with no rainy days at all. A **snow badge** (❄️,
+  everywhere the rain badge appears — day tab, trip overview count, the same
+  `renderTripWeatherStrip` diff-before-rerendering logic) follows the exact same pattern
+  one flag over: `snowBadgeHtml` fires when `cachedForecast(day).code` is one of
+  Open-Meteo's snow WMO codes (`SNOW_CODES` — light/heavy snow, snow grains, snow
+  showers), also a cheap synchronous `weatherCache` read, never its own fetch.
+  Deliberately year-round, not gated to any season/month, since mountain-pass altitude
+  can see snow outside the "obviously winter" months a fixed date range would assume.
+  The weather-based packing suggestion (`suggestPackingFromWeather`) gained a matching
+  `snow` flag alongside `rain`/`cold`/`hot`/`windy`, suggesting winter boots and an ice
+  scraper for a trip with a forecasted snow day. `cachedForecast(day)` is the shared
+  read-only cache lookup the rain badge, snow badge, and the daylight warning below all
+  go through. A **daylight warning** (🌇 in the
   active day's drive summary and in the printable itinerary) fires when a routed day's
   computed end time falls after that day's sunset — genuinely relevant at northern
   latitudes, where the daylight window swings by hours across a season. Sunset is already
@@ -329,7 +462,7 @@ The user's own real trip currently loaded into the app is a Norway road trip, Au
   departure time, driving with an ETA, or done for the day — computed by walking the same
   start→drive→stay segments the timeline rows already render and comparing against the
   current wall clock. Only shown once a route is calculated for that day (arrival times
-  come from `lastRoute`, same guard `renderStats` already uses). A weather forecast line (col-right, between
+  come from `routeCache`, same guard `renderStats` already uses). A weather forecast line (col-right, between
   "Trip overview" and "Drive summary") shows the active day's forecast — high/low temp,
   precipitation, sunrise/sunset, max wind speed, a condition icon — for whichever place is
   first in that day's route
@@ -369,7 +502,12 @@ The user's own real trip currently loaded into the app is a Norway road trip, Au
   gentle with. Each day's reference point is `getRouteIds(day)[0]`, i.e. that day's
   *starting* location (the previous night's hotel) — the same convention the single-day
   panel already uses, so e.g. day 2's forecast reflects where day 2 begins that morning
-  (day 1's hotel), not day 2's own destination. A day whose forecast fetch fails is
+  (day 1's hotel), not day 2's own destination. Fetches the *active* day first, then the
+  rest in day order, and paints the strip after each one lands (`chipsByDay`, keyed by day
+  so chips always render in day order regardless of fetch order) rather than building the
+  whole row and writing it once at the end — on a long trip the strip used to stay
+  completely blank until every day had loaded, so the day you were actually looking at
+  could be last to appear. A day whose forecast fetch fails is
   silently omitted from the strip rather than shown broken; the active day's chip is
   highlighted. Guarded by its own request token (`weatherStripToken`), same pattern as
   `weatherRequestToken`, so a trip/day switch mid-fetch discards the stale in-flight result.
@@ -398,7 +536,7 @@ The user's own real trip currently loaded into the app is a Norway road trip, Au
   first replaces the toast rather than stacking — only the most recent removal is undoable.
   The "Trip overview" panel's stats now include a whole-trip driving total (time + km,
   summed via `dayDriveEstimate`, which already exists for the per-day long-drive badge) —
-  exact for any day matching `lastRoute`, straight-line-estimated otherwise, with a "≈" prefix
+  exact for any day cached in `routeCache`, straight-line-estimated otherwise, with a "≈" prefix
   and an "N/M days calculated exactly" note whenever at least one day is still an estimate.
   `dayDriveEstimate` itself now also returns `.km` (previously only `.min`/`.exact`) so this
   reuses the same routed-vs-estimated branch the long-drive badge already relies on rather than
@@ -427,6 +565,49 @@ The user's own real trip currently loaded into the app is a Norway road trip, Au
   "Stops changed since the last calculation — press Calculate driving times to update" instead
   of the same generic empty-state message, since previously the times just silently vanished
   with no hint the plan had moved on.
+  `routeCache` (`let routeCache = {}`, `{[day]: {ids, route}}`) holds *every* day's most
+  recently calculated route, not just the last one calculated — calculating day 5 used to
+  silently evict day 3's already-calculated times (the old single `lastRoute` variable);
+  now switching back to day 3 still shows exact figures. Staleness is lazy, not
+  event-driven: nothing needs to explicitly invalidate a cache entry when a stop is
+  added/removed/reordered — every read site (`renderStats`, `renderRouteList`'s inline leg
+  times, `dayDriveEstimate`, `dayDescriptionText`) already compares the cached entry's `ids`
+  against `getRouteIds(day)` right now and treats a mismatch as a miss, the same guard the
+  single-day version always used, just keyed per day instead of globally. Persisted to
+  localStorage per trip+variant (`routeCacheKey`, `tripplan-routecache:<tripId>:<variantId>`,
+  loaded inside `loadVariant()` alongside plans/dayMeta/customPlaces, saved from
+  `calculateRoute()`'s success path) so a calculated day survives a page reload — but
+  deliberately **local-only**, never folded into the `{plans, dayMeta, customPlaces}` blob
+  that gets `PUT` to the server when signed in: it's fully recomputable, and a full trip's
+  worth of route geometry could easily blow past DynamoDB's 400KB item cap. `deleteVariant`/
+  `deleteTrip` sweep the orphaned `tripplan-routecache:` key(s) alongside `tripplan-variant:`
+  the same way they already did for the plan itself. `renderMapMarkers()` (part of every
+  `renderAll()`, so every day switch and page load) also redraws the route line from a
+  matching `routeCache` entry via a shared `drawRouteOnMap(geometry)` helper it now shares
+  with `calculateRoute()` — otherwise the stats panel would show exact cached times while
+  the map itself went blank the moment you switched away from an already-calculated day and
+  back.
+  Each gap between consecutive stops in the route list has a small "Not driven" toggle
+  (`legSkipped`/`getDayMeta(day).noRoute`, `{[placeId]: true}` keyed by the *arriving* place's
+  id, same convention as `stay`) for a leg the routing API has no business trying to find a
+  road for — a ferry, flight, or other transfer — so `calculateRoute()` doesn't fail the whole
+  day (or silently detour through it) trying to route across it. `splitIntoSegments(ids, day)`
+  (day-scoped wrapper: `getRouteSegments(day)`) cuts a stop sequence into contiguous drivable
+  chunks at each such marker; `calculateRoute()` routes each chunk independently and
+  `combineSegmentResults()` stitches them back into one result shaped like a single-route
+  response (a null `route.legs[i-1]` entry means "not driven," not "routing failed") so every
+  existing consumer — `renderStats`, `dayDescriptionText`, `dayDriveEstimate`, the printable
+  itinerary/ICS export's `buildDayItinerary`, GPX export's one-`<trk>`-per-segment — keeps
+  walking the full stop list unchanged, just with a null-check added at each leg read. The map
+  draws one polyline per segment with a real gap between them, not a route line drawn straight
+  across. `routeCache`'s staleness check (`routeCacheSig`/`validRouteCache`) now hashes in
+  which legs are marked skipped alongside the stop-id sequence, since toggling one changes how
+  the day gets routed without changing that sequence at all. The trip summary's
+  `buildTripSummaryData` is segment-aware the same way (via `splitIntoSegments` directly, since
+  it may be working from the day/place picker's filtered subset rather than the whole day) —
+  this closes the gap that motivated the whole feature: a day with one non-drivable leg (e.g.
+  a real ferry crossing with no road route) used to fail routing for that day entirely in both
+  the main planner and the trip summary, rather than just skipping the one leg it can't drive.
   A "Jump to today" button appears next to the trip-overview's "Day N of M — today" line
   (`tripCountdownLine()`) whenever today isn't the active day — `initialDay()` only
   auto-selects today's tab once, on page load, so navigating away to plan a different day
@@ -441,11 +622,25 @@ The user's own real trip currently loaded into the app is a Norway road trip, Au
   past/future split (at least one day already before today, at least one still today-or-later)
   — asks once via `confirm()` before building the printable page; a trip with no dates, one
   not yet started, or one fully over skips the prompt and prints everything, unchanged.
+  An accessibility pass added `aria-label` to every icon-only control that only ever had a
+  `title` (or nothing at all): every modal's `×` close button, the plan-variant duplicate/
+  rename/delete buttons, the theme toggle, the trip/day comment buttons, and — since these
+  are built dynamically per row rather than living in static HTML — the route-item and
+  packing/budget/comment/custom-place `×` remove buttons and the per-stop Google Maps nav
+  link, all now set their `aria-label` at creation time alongside the row's own content (e.g.
+  the place or item name) rather than a generic label repeated on every row. The nearby-lookup
+  and up/down reorder buttons already had this from an earlier night; this just closes the
+  rest of the gap. Auditing that also surfaced a real, pre-existing layout bug: `.trip-row`
+  (the trip-file panel's export/backup button rows) had no `flex-wrap`, so as those rows
+  picked up more buttons over many nights they'd grown to overflow the fixed-width left
+  column by 100–250px, spilling invisibly underneath the map with no scrollbar to reveal
+  them — confirmed via `scrollWidth` vs. the rendered column width, not just eyeballing a
+  screenshot. `flex-wrap:wrap` on `.trip-row` fixes all three rows at once.
 - `aws/handler.mjs` — Lambda handler. Serves `index.html` at `GET /`, proxies
   `POST /route` to OpenRouteService using `process.env.ORS_API_KEY` (an optional
   `extra_info` array is forwarded too, validated against ORS's own enum — e.g.
-  `["waycategory"]` flags ferry segments in the response; not used by the client UI
-  today, added for one-off trip-stats analysis), resolves shortened
+  `["waycategory"]` flags ferry segments in the response, used by the trip summary's
+  `fetchRouteForSummary` to auto-detect ferry crossings), resolves shortened
   Google Maps links via `POST /resolve-maps-link` (host-allowlisted to Google's own
   shorteners, so it can only ever follow a Google-issued redirect), and handles
   `GET /tickets` + `POST /tickets` for feature requests. One function, one Function URL,
@@ -486,6 +681,23 @@ The user's own real trip currently loaded into the app is a Norway road trip, Au
   table name (`USERS_TABLE`, `TRIPS_TABLE`, `VARIANTS_TABLE`, `SHARES_TABLE`,
   `TICKETS_TABLE`) are all env-overridable — that's what lets the beta stack (below)
   reuse this same script against a different function + its own tables.
+  `LAMBDA_TIMEOUT` (default 45s, env-overridable) is set on *every* deploy now, not just
+  the first — it used to be create-function-only (`--timeout 10`, never touched again by
+  `update-function-configuration`), which meant the already-deployed Lambda stayed stuck
+  at 10s forever regardless of later script edits. That 10s was fine for the DynamoDB-only
+  routes but genuinely too short for the Bedrock AI features — confirmed via CloudWatch
+  logs showing real `Status: timeout` entries at exactly 10000ms on the trip-summary AI
+  recap (bigger prompt, higher token budget than the day summary), which the client then
+  saw as an opaque 502 with no useful body. Raising this further also needs the CloudFront
+  distribution's origin read timeout raised to comfortably exceed it (console: Origins >
+  Edit > "Origin read timeout" — 30s default for a custom origin, 60s hard max) or
+  CloudFront will 502 the request itself before the Lambda gets a chance to respond; not
+  scripted here since CloudFront distribution creation itself is already a manual,
+  one-time step (see "Beta deployment" below) — bumped by hand via `aws cloudfront
+  update-distribution` for beta's distribution when this was fixed (production's
+  pre-existing "Summarize day" feature has the same latent risk at its old 10s/30s
+  timeouts, just less likely to hit it — shorter prompt, lower token budget — and hasn't
+  been raised there yet).
 - `aws/iam-policy.json` — scoped-down policy for whoever deploys (not admin creds).
   DynamoDB/CloudFront/Logs actions are wildcarded to the `trip-planner-app*` prefix, so
   a new same-prefix stack (beta) is covered automatically; only Lambda actions are
@@ -549,6 +761,18 @@ config (secrets) and the IAM role, not data.
   unless told otherwise.
 - Beta deployment's one-time manual setup (IAM policy reapply, CloudFront, Google OAuth
   origin) may or may not be done yet — check before assuming sign-in works on beta.
+- The AI features (`BEDROCK_MODEL_ID`) switched from Claude Haiku 4.5 to Claude Sonnet 5
+  (`us.anthropic.claude-sonnet-5` cross-region inference profile) after the user flagged
+  Haiku's recap text quality as not great. Found the exact ID via a root-account session
+  (`aws bedrock list-inference-profiles` — the scoped deployer identity can't list, only
+  invoke, and only for whatever ARN pattern `aws/deploy.sh`'s IAM policy allowlists).
+  `aws/deploy.sh`'s Bedrock policy now allowlists both Haiku and Sonnet ARN patterns
+  (deliberately additive, not a swap, so reverting `BEDROCK_MODEL_ID` needs no IAM edit).
+  The `BEDROCK_MODEL_ID` GitHub secret is shared between `deploy.yml` (master) and
+  `deploy-beta.yml` (beta) — updating it switches both on their next deploy; the user
+  confirmed switching both rather than keeping beta on a separate override. Both
+  already-running Lambdas (prod + beta) were also updated live via the CLI at the time
+  of the switch, not just left to catch up on the next deploy.
 - Day 11 (Loen → Ålesund → Bergen → TLV) is not booked yet, but see the candidate
   reference itinerary noted under "Trip facts worth knowing" above.
 - The KML has Eidfjord and DolceVidda at *nearly* identical (but distinct)
