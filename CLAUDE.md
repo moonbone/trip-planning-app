@@ -681,23 +681,31 @@ The user's own real trip currently loaded into the app is a Norway road trip, Au
   table name (`USERS_TABLE`, `TRIPS_TABLE`, `VARIANTS_TABLE`, `SHARES_TABLE`,
   `TICKETS_TABLE`) are all env-overridable — that's what lets the beta stack (below)
   reuse this same script against a different function + its own tables.
-  `LAMBDA_TIMEOUT` (default 45s, env-overridable) is set on *every* deploy now, not just
+  `LAMBDA_TIMEOUT` (default 55s, env-overridable) is set on *every* deploy now, not just
   the first — it used to be create-function-only (`--timeout 10`, never touched again by
   `update-function-configuration`), which meant the already-deployed Lambda stayed stuck
   at 10s forever regardless of later script edits. That 10s was fine for the DynamoDB-only
   routes but genuinely too short for the Bedrock AI features — confirmed via CloudWatch
   logs showing real `Status: timeout` entries at exactly 10000ms on the trip-summary AI
   recap (bigger prompt, higher token budget than the day summary), which the client then
-  saw as an opaque 502 with no useful body. Raising this further also needs the CloudFront
-  distribution's origin read timeout raised to comfortably exceed it (console: Origins >
-  Edit > "Origin read timeout" — 30s default for a custom origin, 60s hard max) or
-  CloudFront will 502 the request itself before the Lambda gets a chance to respond; not
-  scripted here since CloudFront distribution creation itself is already a manual,
-  one-time step (see "Beta deployment" below) — bumped by hand via `aws cloudfront
-  update-distribution` for beta's distribution when this was fixed (production's
-  pre-existing "Summarize day" feature has the same latent risk at its old 10s/30s
-  timeouts, just less likely to hit it — shorter prompt, lower token budget — and hasn't
-  been raised there yet).
+  saw as an opaque 502 with no useful body. First raised to 45s, then to 55s after
+  switching the AI model to Sonnet 4.5 (slower per-token than the original Haiku 4.5) hit
+  the *same* timeout again — confirmed a second time via CloudWatch logs showing
+  `Duration: 45000.00ms, Status: timeout` on the exact same endpoint, plus a direct timed
+  Bedrock invoke of the real prompt/token budget landing around ~38s for a complete
+  response, non-truncated. 55s is deliberately the ceiling here, not just a round number:
+  CloudFront's origin read timeout has a hard maximum of 60s (not configurable higher),
+  so anything closer to that leaves too little margin — CloudFront 504s the client at
+  its own timeout regardless of what the Lambda itself is set to. Both the production
+  and beta CloudFront distributions' origin read timeouts are now raised to that 60s max
+  (bumped by hand via `aws cloudfront update-distribution`, since CloudFront distribution
+  creation itself is already a manual, one-time step — see "Beta deployment" below); this
+  used to be beta-only (production's `deploy.yml` pre-existing "Summarize day" feature
+  had the same latent risk at its old 10s/30s timeouts, just less likely to hit it —
+  shorter prompt, lower token budget) until the trip-summary recap's 504 surfaced the gap
+  on production too. If a future model/prompt combination needs longer than this ceiling
+  allows, there's no more room on the CloudFront side without restructuring how the AI
+  call reaches the client (e.g. bypassing CloudFront for that endpoint specifically).
 - `aws/iam-policy.json` — scoped-down policy for whoever deploys (not admin creds).
   DynamoDB/CloudFront/Logs actions are wildcarded to the `trip-planner-app*` prefix, so
   a new same-prefix stack (beta) is covered automatically; only Lambda actions are
