@@ -761,18 +761,27 @@ config (secrets) and the IAM role, not data.
   unless told otherwise.
 - Beta deployment's one-time manual setup (IAM policy reapply, CloudFront, Google OAuth
   origin) may or may not be done yet — check before assuming sign-in works on beta.
-- The AI features (`BEDROCK_MODEL_ID`) switched from Claude Haiku 4.5 to Claude Sonnet 5
-  (`us.anthropic.claude-sonnet-5` cross-region inference profile) after the user flagged
-  Haiku's recap text quality as not great. Found the exact ID via a root-account session
-  (`aws bedrock list-inference-profiles` — the scoped deployer identity can't list, only
-  invoke, and only for whatever ARN pattern `aws/deploy.sh`'s IAM policy allowlists).
-  `aws/deploy.sh`'s Bedrock policy now allowlists both Haiku and Sonnet ARN patterns
-  (deliberately additive, not a swap, so reverting `BEDROCK_MODEL_ID` needs no IAM edit).
-  The `BEDROCK_MODEL_ID` GitHub secret is shared between `deploy.yml` (master) and
-  `deploy-beta.yml` (beta) — updating it switches both on their next deploy; the user
-  confirmed switching both rather than keeping beta on a separate override. Both
-  already-running Lambdas (prod + beta) were also updated live via the CLI at the time
-  of the switch, not just left to catch up on the next deploy.
+- The AI features (`BEDROCK_MODEL_ID`) switched from Claude Haiku 4.5 to Claude Sonnet 4.5
+  (`us.anthropic.claude-sonnet-4-5-20250929-v1:0` cross-region inference profile) after
+  the user flagged Haiku's recap text quality as not great. Sonnet 5 was the first choice
+  and its exact ID was found the same way (`aws bedrock list-inference-profiles` — the
+  scoped deployer identity can't list, only invoke, and only for whatever ARN pattern
+  `aws/deploy.sh`'s IAM policy allowlists) and its EULA was accepted
+  (`create-foundation-model-agreement`) and confirmed fully `AVAILABLE`/`AUTHORIZED`
+  across all four `get-foundation-model-availability` flags — but every actual
+  `InvokeModel` call still came back `AccessDeniedException: anthropic.claude-sonnet-5 is
+  not available for this account`, even from the root account, for 20 retries over ~7
+  minutes. Sonnet 4.5 invoked successfully immediately under the same account/role, so
+  this looks like slow account-level provisioning specific to a very new model rather
+  than a real permissions gap — Sonnet 5's ARN pattern is left allowlisted in
+  `aws/deploy.sh` so switching to it later needs only a `BEDROCK_MODEL_ID`/secret update,
+  no further IAM work. `aws/deploy.sh`'s Bedrock policy allowlists all three model
+  families (Haiku, Sonnet 4.5, Sonnet 5) — deliberately additive, not a swap, so moving
+  between them never needs an IAM edit. The `BEDROCK_MODEL_ID` GitHub secret is shared
+  between `deploy.yml` (master) and `deploy-beta.yml` (beta) — updating it switches both
+  on their next deploy; the user confirmed switching both rather than keeping beta on a
+  separate override. Both already-running Lambdas (prod + beta) were also updated live
+  via the CLI at the time of the switch, not just left to catch up on the next deploy.
 - Day 11 (Loen → Ålesund → Bergen → TLV) is not booked yet, but see the candidate
   reference itinerary noted under "Trip facts worth knowing" above.
 - The KML has Eidfjord and DolceVidda at *nearly* identical (but distinct)
