@@ -13,7 +13,11 @@ set -euo pipefail
 
 FUNCTION_NAME="${FUNCTION_NAME:-trip-planner-app}"
 REGION="${AWS_REGION:-us-east-1}"
-RUNTIME="nodejs20.x"
+# nodejs20.x reached end of support — moved to nodejs24.x (handler is a plain
+# async ESM export, nothing callback-style that Node 24's runtime dropped).
+# Set on every deploy below, not just on create, so bumping this actually
+# migrates already-existing functions instead of only new ones.
+RUNTIME="${RUNTIME:-nodejs24.x}"
 ROLE_NAME="${ROLE_NAME:-trip-planner-app-role}"
 # The original 10s default was fine for the DynamoDB-only routes, but the
 # Bedrock AI features (summarize-day, summarize-trip) can genuinely take
@@ -127,6 +131,7 @@ if aws lambda get-function --function-name "$FUNCTION_NAME" --region "$REGION" >
 
   aws lambda update-function-configuration \
     --function-name "$FUNCTION_NAME" \
+    --runtime "$RUNTIME" \
     --environment "Variables={$LAMBDA_ENV}" \
     --timeout "$LAMBDA_TIMEOUT" \
     --region "$REGION" >/dev/null
